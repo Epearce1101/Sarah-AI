@@ -61,7 +61,7 @@ class LLMClient:
         self.online_model = online_model
         self.local_model = local_model
 
-        self.groq_api_key = "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"
+        self.groq_api_key = "INPUT YOUR FREE GROQ API KEY HERE"
 
         if self.groq_api_key and len(self.groq_api_key) > 10:
             print("[LLM INIT] Groq API Key loaded: YES (hardcoded)")
