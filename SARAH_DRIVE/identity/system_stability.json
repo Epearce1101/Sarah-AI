@@ -1,0 +1,4 @@
+{
+  "watchdog_level": "moderate",
+  "notes": "Watchdog will correct obvious drift or instability without being overly aggressive."
+}

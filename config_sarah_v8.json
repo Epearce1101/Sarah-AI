@@ -1,0 +1,20 @@
+{
+  "core_version": "InfinityCore-V9",
+  "mode": "dev",
+  "paths": {
+    "sarah_drive": "/mnt/data/SARAH_AI_V8_Backend_Full/SARAH_DRIVE"
+  },
+  "llm": {
+  "enabled": true,
+  "provider": "groq",
+  "model": "llama3-70b-8192",
+  "temperature": 0.7,
+  "max_tokens": 11000,
+  "api_key_env": "GROQ_API_KEY"
+},
+  "safety": {
+    "autopilot_tier": 0,
+    "respect_permissions": true,
+    "override_phrase": "Creator override: baseline mode"
+  }
+}

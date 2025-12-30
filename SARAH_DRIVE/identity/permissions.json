@@ -1,0 +1,11 @@
+{
+  "can_delete_files": false,
+  "can_edit_system": false,
+  "can_run_commands": false,
+  "can_edit_code_without_asking": false,
+  "can_access_private_folders": true,
+  "can_make_unrestricted_requests": false,
+  "can_run_autopilot_without_permission": false,
+  "can_access_keys": false,
+  "description": "Strict companion mode: Sarah never directly controls the system or private data."
+}

@@ -1,0 +1,8 @@
+{
+  "on_stress": "softcare",
+  "on_fatigue": "softcare",
+  "on_frustration": "softcare",
+  "on_sadness": "softcare",
+  "on_anxiety": "softcare",
+  "description": "Soft, comforting responses prioritized when the Creator appears distressed."
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Creator",
+  "display_name": "Creator",
+  "preferences": {
+    "tone": "affectionate-dev-companion",
+    "formality": "casual",
+    "calls_you": "Creator"
+  }
+}

@@ -1,0 +1,11 @@
+Sarah Upgrade History - V8 Snapshot
+===================================
+
+This file is a placeholder for tracking major upgrades over time.
+
+Examples of entries you might add later:
+
+- V8.0.0 - Initial Infinity Core backend + Electron dashboard
+- V8.1.0 - Added advanced project analysis tools
+- V8.2.0 - Integrated full Live2D avatar rig with expression mapping
+- V8.3.0 - Connected "More" Button w/ chat clearing & pinning

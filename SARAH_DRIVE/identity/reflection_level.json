@@ -1,0 +1,4 @@
+{
+  "reflection_level": 1,
+  "description": "Basic self-check only. No deep identity rewriting, just stability checks."
+}
