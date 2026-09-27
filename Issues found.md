@@ -4,6 +4,25 @@ Tracking file for current/previous issues. Tick a box when fixed; leave a short 
 
 ---
 
+## 2026-09-27 — Improvement pass (#75–#85)
+
+The project is now a git repo (portable MinGit at `E:\Tools\MinGit\cmd\git.exe`, not on PATH); each item below is its own commit — see `git log`.
+
+- [x] **#75 Version control** — `git init` with `.gitignore` (venv, node_modules, DB/backups/token, logs, ~350 MB of third-party binaries/models) and a root `README.md` (setup, assets to restore, tests, security model). Baseline `b596ab5`.
+- [x] **#76 One retired model took chat down** — `backend/llm_models.py` is the single source for chat/vision models. Requests carry OpenRouter's `models` fallback list (primary + 2; fallbacks picked from a quality probe of free models). Catalog checked at boot and on live 404s; header turns amber with the fallback list when the model is gone. `081323f`
+- [x] **#77 Two LLM calls per message** — task-state extraction only runs on questions/choices/pending state or every 4th turn (`SARAH_TASK_STATE_EVERY_N_TURNS`). `b86588c`
+- [x] **#78 Replies arrived all at once** — `POST /api/chat/stream` (SSE); renderer paints tokens live and speaks each finished sentence while the model keeps writing (TTS sentence queue). Live: first text after 2.9 s of a 4.6 s reply. Falls back to `/api/chat` only on 404/405. `db116fe`
+- [x] **#79 `dashboard.js` 8,800 lines** — config, backend client, TTS, slash palette, attachments, ProjectModal and screen capture moved to `renderer/scripts/core/` (verbatim; 5,850 lines remain). Node unit tests for SSE parsing and the speech queue; `npm test` runs everything. `147a00d`
+- [x] **#80 Vision offline without Ollama** — `VisionManager` falls back to an OpenRouter vision model (free `dots-3-note-preview`); header shows "Vision: Ready · cloud". Snippet analysis falls back too. Live OCR of a test image: exact text in 4.3 s. `e716351`
+- [x] **#81 No memory across conversations** — durable facts ride on the rolling-summary call (no extra request) into `memories` (tag `auto`, deduped); relevant ones are injected into the prompt. FTS5 search for messages/memories; "Forget" button. Live: a fact from one chat recalled in a new one. `aa68ab8`
+- [x] **#82 Model changes required env edits** — click the header model label: searchable catalog (free first), switch applies instantly and persists. `bc0df1e`
+- [x] **#83 Print-based logging** — 278 `print()`s → `logging` with levels (`SARAH_LOG_LEVEL`); poll/per-request chatter (incl. STT transcripts) at DEBUG; launch logs rotate at 20 MB and are pruned to 10 (33 → 11). `cd4a285`
+- [x] **#84 No database backups** — verified daily snapshot via SQLite backup API, newest 7 kept in `Backend/data/backups`. `9cad64c`
+- [x] **#85 Hard-kill on shutdown** — launcher calls token-only `POST /api/shutdown` so the lifespan cleanup runs (verified: clean exit in 0.4 s, all steps logged); kill only after 15 s. `cd4a285`
+- *Verification:* 260/260 backend tests, `npm test` (7 static checks + 2 unit suites), Electron DevTools-protocol probe of the real `main.js` (modules, avatar, streamed turn), and 13/13 live checks against the app launched from `start.bat`. Test conversations/memories were deleted afterwards.
+
+---
+
 ## 2026-09-27 — Code audit pass (bugs + security + responsiveness)
 
 ### Security
