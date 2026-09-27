@@ -44,6 +44,10 @@ const nonThemeFiles = [
   "renderer/styles/sarah-avatar.css",
   "renderer/index.html",
   "renderer/dashboard.js",
+  // Modules split out of dashboard.js follow the same token contract.
+  ...fs.readdirSync(path.join(renderer, "scripts", "core"))
+    .filter((name) => name.endsWith(".js"))
+    .map((name) => `renderer/scripts/core/${name}`),
 ];
 
 for (const rel of nonThemeFiles) {
