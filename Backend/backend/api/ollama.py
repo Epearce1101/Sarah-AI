@@ -12,6 +12,9 @@ from backend import llm_models
 from backend.api.schemas import OllamaTextAnalysisRequest
 from backend.config import settings as _settings
 from backend.services.vision_client import get_ollama_vision
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -24,7 +27,7 @@ def api_ollama_health():
         result = ollama.check_connection()
         return result
     except Exception as e:
-        print(f"[Ollama Health] Exception: {e}")
+        logger.error(f"[Ollama Health] Exception: {e}")
         return {"ok": False, "available": False, "error": str(e)}
 
 
@@ -36,7 +39,7 @@ def api_ollama_warmup():
         success = ollama.warmup()
         return {"ok": success}
     except Exception as e:
-        print(f"[Ollama Warmup] Exception: {e}")
+        logger.error(f"[Ollama Warmup] Exception: {e}")
         return {"ok": False, "error": str(e)}
 
 
@@ -48,11 +51,9 @@ async def api_ollama_analyze_image(
     custom_prompt: Optional[str] = Form(None),
 ):
     """Analyze an image using local Ollama vision model (multipart upload)."""
-    print(
-        f"[Ollama Vision] Received upload - filename: {file.filename}, "
-        f"content_type: {file.content_type}"
-    )
-    print(f"[Ollama Vision] Mode: {mode}, Model: {model}")
+    logger.debug(f"[Ollama Vision] Received upload - filename: {file.filename}, "
+        f"content_type: {file.content_type}")
+    logger.debug(f"[Ollama Vision] Mode: {mode}, Model: {model}")
 
     try:
         allowed_types = ["image/png", "image/jpeg", "image/jpg", "image/webp"]
@@ -64,7 +65,7 @@ async def api_ollama_analyze_image(
 
         image_bytes = await file.read()
         file_size_mb = len(image_bytes) / (1024 * 1024)
-        print(f"[Ollama Vision] Image size: {file_size_mb:.2f} MB")
+        logger.debug(f"[Ollama Vision] Image size: {file_size_mb:.2f} MB")
 
         if len(image_bytes) > 15 * 1024 * 1024:
             raise HTTPException(
@@ -81,15 +82,15 @@ async def api_ollama_analyze_image(
 
         if not result.get("ok"):
             error_detail = result.get("error", "Vision analysis failed")
-            print(f"[Ollama Vision] Analysis failed: {error_detail}")
+            logger.error(f"[Ollama Vision] Analysis failed: {error_detail}")
             raise HTTPException(status_code=500, detail=error_detail)
 
-        print(f"[Ollama Vision] Analysis successful - {result['timing_ms']}ms")
+        logger.debug(f"[Ollama Vision] Analysis successful - {result['timing_ms']}ms")
         return result
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[Ollama Vision] Exception: {e}")
+        logger.error(f"[Ollama Vision] Exception: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -127,10 +128,8 @@ def api_ollama_analyze_text(payload: OllamaTextAnalysisRequest):
     language = payload.language
 
     TEXT_MODEL = _settings.ollama_vision_model
-    print(
-        f"[Ollama Text] Received text analysis request - length: {len(text)}, "
-        f"mode: {mode}, model: {TEXT_MODEL}"
-    )
+    logger.debug(f"[Ollama Text] Received text analysis request - length: {len(text)}, "
+        f"mode: {mode}, model: {TEXT_MODEL}")
 
     try:
         import requests as req
@@ -176,7 +175,7 @@ Provide a concise analysis:
 
         if response.status_code != 200:
             error_text = response.text[:200] if response.text else "Unknown error"
-            print(f"[Ollama Text] Error response: {error_text}")
+            logger.error(f"[Ollama Text] Error response: {error_text}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Ollama returned {response.status_code}: {error_text}",
@@ -190,7 +189,7 @@ Provide a concise analysis:
             thinking_text = message_obj.get("thinking", "")
             if thinking_text:
                 analysis_text = thinking_text
-                print(f"[Ollama Text] Used thinking field as response ({len(analysis_text)} chars)")
+                logger.info(f"[Ollama Text] Used thinking field as response ({len(analysis_text)} chars)")
 
         if analysis_text and "</think>" in analysis_text:
             parts = analysis_text.split("</think>")
@@ -198,10 +197,10 @@ Provide a concise analysis:
                 analysis_text = parts[-1].strip()
 
         if not analysis_text:
-            print(f"[Ollama Text] Empty response. Full result: {result}")
+            logger.info(f"[Ollama Text] Empty response. Full result: {result}")
             raise HTTPException(status_code=500, detail="No analysis text returned")
 
-        print(f"[Ollama Text] Analysis successful - {timing_ms}ms")
+        logger.debug(f"[Ollama Text] Analysis successful - {timing_ms}ms")
 
         return {
             "ok": True,
@@ -214,7 +213,7 @@ Provide a concise analysis:
         raise
     except Exception as e:
         error_msg = str(e).encode("ascii", "replace").decode("ascii")
-        print(f"[Ollama Text] Exception: {error_msg}")
+        logger.error(f"[Ollama Text] Exception: {error_msg}")
         traceback.print_exc()
         if "timed out" in str(e).lower() or "timeout" in str(e).lower():
             raise HTTPException(

@@ -14,6 +14,9 @@ from __future__ import annotations
 import os
 import time
 from contextlib import contextmanager
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 _ENABLED = os.getenv("B6_TIMING") == "1"
@@ -37,4 +40,4 @@ def stage(name: str, **kwargs):
         line = f"[TIMING] stage={name} ms={ms}"
         if extras:
             line = f"{line} {extras}"
-        print(line)
+        logger.info(line)

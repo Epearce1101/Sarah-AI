@@ -12,6 +12,9 @@ import time
 from pathlib import Path
 
 from backend.config import settings as _settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaVision:
@@ -82,10 +85,10 @@ class OllamaVision:
         self.chat_endpoint = f"{self.base_url}/api/chat"
         self.tags_endpoint = f"{self.base_url}/api/tags"
 
-        print(f"[OllamaVision] Initialized")
-        print(f"[OllamaVision] Base URL: {self.base_url}")
-        print(f"[OllamaVision] Model: {self.model}")
-        print(f"[OllamaVision] Timeout: {self.timeout}s")
+        logger.info(f"[OllamaVision] Initialized")
+        logger.info(f"[OllamaVision] Base URL: {self.base_url}")
+        logger.info(f"[OllamaVision] Model: {self.model}")
+        logger.warning(f"[OllamaVision] Timeout: {self.timeout}s")
 
     def check_connection(self) -> Dict[str, Any]:
         """
@@ -95,7 +98,7 @@ class OllamaVision:
             Dict with 'ok', 'available' (bool), 'models' (list), 'error' (optional)
         """
         try:
-            print(f"[OllamaVision] Checking connection to {self.base_url}...")
+            logger.info(f"[OllamaVision] Checking connection to {self.base_url}...")
             response = requests.get(self.tags_endpoint, timeout=5)
 
             if response.status_code != 200:
@@ -110,10 +113,10 @@ class OllamaVision:
 
             model_available = self.model in models
             if not model_available:
-                print(f"[OllamaVision] WARNING: Model '{self.model}' not found in available models: {models}")
+                logger.warning(f"[OllamaVision] WARNING: Model '{self.model}' not found in available models: {models}")
 
-            print(f"[OllamaVision] Connection OK. Available models: {len(models)}")
-            print(f"[OllamaVision] Target model '{self.model}' available: {model_available}")
+            logger.info(f"[OllamaVision] Connection OK. Available models: {len(models)}")
+            logger.info(f"[OllamaVision] Target model '{self.model}' available: {model_available}")
 
             return {
                 "ok": True,
@@ -123,7 +126,7 @@ class OllamaVision:
 
         except requests.ConnectionError:
             error_msg = f"Cannot connect to Ollama at {self.base_url}. Is Ollama running?"
-            print(f"[OllamaVision] {error_msg}")
+            logger.error(f"[OllamaVision] {error_msg}")
             return {
                 "ok": False,
                 "available": False,
@@ -131,7 +134,7 @@ class OllamaVision:
             }
         except Exception as e:
             error_msg = f"Connection check failed: {str(e)}"
-            print(f"[OllamaVision] {error_msg}")
+            logger.error(f"[OllamaVision] {error_msg}")
             return {
                 "ok": False,
                 "available": False,
@@ -164,9 +167,9 @@ class OllamaVision:
         start_time = time.time()
         request_id = int(start_time * 1000) % 1000000  # Simple request ID
 
-        print(f"[OllamaVision #{request_id}] Starting analysis")
-        print(f"[OllamaVision #{request_id}] Mode: {mode}")
-        print(f"[OllamaVision #{request_id}] Image size: {len(image_data)} bytes ({len(image_data) / 1024:.1f} KB)")
+        logger.info(f"[OllamaVision #{request_id}] Starting analysis")
+        logger.info(f"[OllamaVision #{request_id}] Mode: {mode}")
+        logger.info(f"[OllamaVision #{request_id}] Image size: {len(image_data)} bytes ({len(image_data) / 1024:.1f} KB)")
 
         # Validate mode
         if mode not in self.PROMPTS and custom_prompt is None:
@@ -181,13 +184,13 @@ class OllamaVision:
 
         # Get prompt
         prompt = custom_prompt if custom_prompt else self.PROMPTS[mode]
-        print(f"[OllamaVision #{request_id}] Prompt: {prompt[:100]}...")
+        logger.info(f"[OllamaVision #{request_id}] Prompt: {prompt[:100]}...")
 
         # Encode image to base64
         try:
             image_b64 = base64.b64encode(image_data).decode('utf-8')
             # Don't print base64 (security/privacy)
-            print(f"[OllamaVision #{request_id}] Base64 encoding: {len(image_b64)} chars")
+            logger.info(f"[OllamaVision #{request_id}] Base64 encoding: {len(image_b64)} chars")
         except Exception as e:
             return {
                 "ok": False,
@@ -213,7 +216,7 @@ class OllamaVision:
 
         # Call Ollama API
         try:
-            print(f"[OllamaVision #{request_id}] Calling Ollama API...")
+            logger.info(f"[OllamaVision #{request_id}] Calling Ollama API...")
             response = requests.post(
                 self.chat_endpoint,
                 json=payload,
@@ -224,7 +227,7 @@ class OllamaVision:
 
             if response.status_code != 200:
                 error_detail = response.text[:500]
-                print(f"[OllamaVision #{request_id}] API error {response.status_code}: {error_detail}")
+                logger.error(f"[OllamaVision #{request_id}] API error {response.status_code}: {error_detail}")
                 return {
                     "ok": False,
                     "model": self.model,
@@ -235,12 +238,12 @@ class OllamaVision:
                 }
 
             result = response.json()
-            print(f"[OllamaVision #{request_id}] Response received")
+            logger.info(f"[OllamaVision #{request_id}] Response received")
 
             # Extract response text
             if "message" in result and "content" in result["message"]:
                 analysis_text = result["message"]["content"]
-                print(f"[OllamaVision #{request_id}] Analysis complete: {len(analysis_text)} chars in {timing_ms}ms")
+                logger.info(f"[OllamaVision #{request_id}] Analysis complete: {len(analysis_text)} chars in {timing_ms}ms")
 
                 return {
                     "ok": True,
@@ -250,7 +253,7 @@ class OllamaVision:
                     "timing_ms": timing_ms
                 }
             else:
-                print(f"[OllamaVision #{request_id}] Unexpected response format")
+                logger.info(f"[OllamaVision #{request_id}] Unexpected response format")
                 return {
                     "ok": False,
                     "model": self.model,
@@ -262,7 +265,7 @@ class OllamaVision:
 
         except requests.Timeout:
             timing_ms = int((time.time() - start_time) * 1000)
-            print(f"[OllamaVision #{request_id}] Request timed out after {timing_ms}ms")
+            logger.warning(f"[OllamaVision #{request_id}] Request timed out after {timing_ms}ms")
             return {
                 "ok": False,
                 "model": self.model,
@@ -273,7 +276,7 @@ class OllamaVision:
             }
         except requests.ConnectionError:
             timing_ms = int((time.time() - start_time) * 1000)
-            print(f"[OllamaVision #{request_id}] Connection error")
+            logger.error(f"[OllamaVision #{request_id}] Connection error")
             return {
                 "ok": False,
                 "model": self.model,
@@ -284,7 +287,7 @@ class OllamaVision:
             }
         except Exception as e:
             timing_ms = int((time.time() - start_time) * 1000)
-            print(f"[OllamaVision #{request_id}] Exception: {type(e).__name__}: {str(e)}")
+            logger.error(f"[OllamaVision #{request_id}] Exception: {type(e).__name__}: {str(e)}")
             import traceback
             traceback.print_exc()
             return {
@@ -304,7 +307,7 @@ class OllamaVision:
         Returns:
             True if warmup successful, False otherwise
         """
-        print("[OllamaVision] Starting model warmup...")
+        logger.info("[OllamaVision] Starting model warmup...")
 
         # Create a tiny 1x1 red PNG image
         tiny_png = base64.b64decode(
@@ -317,10 +320,10 @@ class OllamaVision:
         )
 
         if result["ok"]:
-            print(f"[OllamaVision] Warmup successful ({result['timing_ms']}ms)")
+            logger.info(f"[OllamaVision] Warmup successful ({result['timing_ms']}ms)")
             return True
         else:
-            print(f"[OllamaVision] Warmup failed: {result.get('error')}")
+            logger.error(f"[OllamaVision] Warmup failed: {result.get('error')}")
             return False
 
 
@@ -339,5 +342,5 @@ def get_ollama_vision(
             base_url=base_url or _settings.ollama_base_url,
             model=model or _settings.ollama_vision_model,
         )
-        print(f"[OllamaVision] Singleton created")
+        logger.info(f"[OllamaVision] Singleton created")
     return _ollama_vision

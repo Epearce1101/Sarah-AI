@@ -17,6 +17,9 @@ from enum import Enum
 
 from .config import MemoryConfig, get_memory_config
 from .memory_store import MemoryStore, get_memory_store, TaskState
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class IntentType(Enum):
@@ -84,7 +87,7 @@ class IntentResolver:
         ]
 
         if self.config.debug_memory:
-            print("[IntentResolver] Initialized")
+            logger.info("[IntentResolver] Initialized")
 
     def _is_short_reply(self, message: str) -> bool:
         """Check if message is a short reply."""

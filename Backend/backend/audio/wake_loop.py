@@ -34,6 +34,9 @@ from backend.audio.wake_words import (
     get_wake_words,
     match_wake_transcript,
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 WAKE_MODEL_PATH = str(_settings.wake_model_path)
 WAKE_WORDS = get_wake_words()
@@ -46,7 +49,7 @@ _thread: Optional[threading.Thread] = None
 
 def _wake_word_listener() -> None:
     try:
-        print("[WAKE] Initializing Vosk wake model...")
+        logger.info("[WAKE] Initializing Vosk wake model...")
         model = Model(WAKE_MODEL_PATH)
         recognizer = KaldiRecognizer(model, 16000, json.dumps(WAKE_GRAMMAR))
         try:
@@ -71,7 +74,7 @@ def _wake_word_listener() -> None:
                 return
             last_raw_log_at = now
             conf = "unknown" if confidence is None else f"{confidence:.2f}"
-            print(f"[WAKE RAW] {source} text='{text}' confidence={conf}")
+            logger.info(f"[WAKE RAW] {source} text='{text}' confidence={conf}")
 
         def match_wake(text: str, source: str, confidence: float | None = None) -> bool:
             now = time.monotonic()
@@ -95,16 +98,16 @@ def _wake_word_listener() -> None:
             if _settings.wake_raw_transcript_logging:
                 if result.reason == "prefix_pending":
                     needed = max(1, _settings.wake_prefix_fallback_hits)
-                    print(f"[WAKE DEBUG] Prefix fallback hit: {result.match} ({result.prefix_hit_count}/{needed})")
+                    logger.info(f"[WAKE DEBUG] Prefix fallback hit: {result.match} ({result.prefix_hit_count}/{needed})")
                 elif result.reason == "low_confidence":
                     conf = "n/a" if result.confidence is None else f"{result.confidence:.2f}"
-                    print(f"[WAKE DEBUG] Suppressed low-confidence {result.match_type}: {result.match} (confidence={conf})")
+                    logger.info(f"[WAKE DEBUG] Suppressed low-confidence {result.match_type}: {result.match} (confidence={conf})")
                 elif result.reason == "cooldown":
-                    print(f"[WAKE DEBUG] Suppressed wake during cooldown: {result.match}")
+                    logger.info(f"[WAKE DEBUG] Suppressed wake during cooldown: {result.match}")
 
             if result.wake:
                 suffix = " prefix fallback" if result.match_type == "prefix_fallback" else ""
-                print(f"[WAKE] Wake word detected ({source}{suffix}): {result.match}")
+                logger.info(f"[WAKE] Wake word detected ({source}{suffix}): {result.match}")
                 wake_events.put("wake")
             record_wake_transcript(
                 text=text,
@@ -120,7 +123,7 @@ def _wake_word_listener() -> None:
 
         def audio_callback(indata, frames, time_info, status):
             if status:
-                print(f"[WAKE] Audio status: {status}")
+                logger.info(f"[WAKE] Audio status: {status}")
 
             data = indata[:, 0].copy()
             downsample_ratio = max(1, round(_settings.wake_input_samplerate / 16000))
@@ -146,20 +149,16 @@ def _wake_word_listener() -> None:
         # Issue #30: collapse verbose boot dump into a single concise line.
         # Detailed config (phrases, prefix-fallback knobs, cooldown, grammar size)
         # is now only emitted when SARAH_WAKE_RAW_TRANSCRIPT_LOGGING=true.
-        print(f"[WAKE] Engine started: {len(WAKE_WORDS)} phrase(s), grammar={len(WAKE_GRAMMAR)}, device={device or 'default'}.")
+        logger.info(f"[WAKE] Engine started: {len(WAKE_WORDS)} phrase(s), grammar={len(WAKE_GRAMMAR)}, device={device or 'default'}.")
         if _settings.wake_raw_transcript_logging:
-            print(f"[WAKE] Phrases: {', '.join(WAKE_WORDS)}")
-            print(
-                f"[WAKE] Prefix fallback: enabled={_settings.wake_prefix_fallback_enabled}, "
+            logger.info(f"[WAKE] Phrases: {', '.join(WAKE_WORDS)}")
+            logger.info(f"[WAKE] Prefix fallback: enabled={_settings.wake_prefix_fallback_enabled}, "
                 f"phrases={', '.join(WAKE_PREFIXES)}, hits={_settings.wake_prefix_fallback_hits}, "
-                f"final_only=True"
-            )
-            print(
-                f"[WAKE] Cooldown={_settings.wake_cooldown_seconds}s, "
+                f"final_only=True")
+            logger.info(f"[WAKE] Cooldown={_settings.wake_cooldown_seconds}s, "
                 f"min_confidence={_settings.wake_min_confidence}, "
-                f"single_prefix_confidence={_settings.wake_prefix_single_confidence}"
-            )
-            print(f"[WAKE] Samplerate={_settings.wake_input_samplerate}, downsampled to 16000Hz mono.")
+                f"single_prefix_confidence={_settings.wake_prefix_single_confidence}")
+            logger.info(f"[WAKE] Samplerate={_settings.wake_input_samplerate}, downsampled to 16000Hz mono.")
 
         while True:
             data = audio_q.get()
@@ -184,7 +183,7 @@ def _wake_word_listener() -> None:
                             pass
 
     except Exception as e:
-        print("[WAKE] ERROR in wake-word thread:", e)
+        logger.error("%s %s", "[WAKE] ERROR in wake-word thread:", e)
         set_wake_listener_error(str(e))
 
 

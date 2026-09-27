@@ -10,6 +10,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from backend.config import settings as _settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -240,7 +243,7 @@ def get_memory_config() -> MemoryConfig:
         )
 
         if _memory_config.debug_memory:
-            print(f"[MemoryConfig] Loaded: {_memory_config}")
+            logger.info(f"[MemoryConfig] Loaded: {_memory_config}")
 
     return _memory_config
 

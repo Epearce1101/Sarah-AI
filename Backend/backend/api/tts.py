@@ -10,10 +10,12 @@ from fastapi import APIRouter, HTTPException, Response
 from backend.api.schemas import TTSRequest
 from backend.diagnostics.telemetry import record_voice_latency
 
+logger = logging.getLogger(__name__)
+
 try:
     from backend.piper.piper_tts import piper_tts
 except Exception as e:
-    print("[ERROR] Piper TTS import failed:", e)
+    logger.error("%s %s", "[ERROR] Piper TTS import failed:", e)
     piper_tts = None
 
 router = APIRouter()

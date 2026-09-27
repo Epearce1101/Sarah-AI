@@ -20,6 +20,9 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 
 from .config import MemoryConfig, get_memory_config
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -152,7 +155,7 @@ class MemoryStore:
         self._ensure_tables()
 
         if self.config.debug_memory:
-            print(f"[MemoryStore] Initialized with db={self.db_path}")
+            logger.info(f"[MemoryStore] Initialized with db={self.db_path}")
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get database connection with row factory."""
@@ -247,7 +250,7 @@ class MemoryStore:
         conn.close()
 
         if self.config.debug_memory:
-            print(f"[MemoryStore] Saved task state for conv={conversation_id}")
+            logger.info(f"[MemoryStore] Saved task state for conv={conversation_id}")
 
     def update_task_state(
         self,
@@ -340,7 +343,7 @@ class MemoryStore:
         conn.close()
 
         if self.config.debug_memory:
-            print(f"[MemoryStore] Saved rolling summary for conv={conversation_id}")
+            logger.info(f"[MemoryStore] Saved rolling summary for conv={conversation_id}")
 
     # ============================================================
     # CHUNK SUMMARY OPERATIONS
@@ -366,7 +369,7 @@ class MemoryStore:
         conn.close()
 
         if self.config.debug_memory:
-            print(f"[MemoryStore] Added chunk {chunk_id} for conv={conversation_id}")
+            logger.info(f"[MemoryStore] Added chunk {chunk_id} for conv={conversation_id}")
 
         return chunk_id
 

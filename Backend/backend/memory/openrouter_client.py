@@ -109,7 +109,7 @@ class OpenRouterClient:
         }
 
         if self.config.debug_memory:
-            print(f"[OpenRouterClient] Initialized with model={self.config.llm_model}")
+            logger.info(f"[OpenRouterClient] Initialized with model={self.config.llm_model}")
 
     def set_llm_mode_info(self, mode: str, model_name: str, provider: str = ""):
         """Update the current LLM mode info for model awareness."""
@@ -130,10 +130,8 @@ class OpenRouterClient:
             "token_budget": token_budget,
             "completion_token_budget": completion_token_budget,
         }
-        print(
-            f"[OpenRouterClient] LLM mode updated: {mode} / {model_name} / {provider} "
-            f"(context={token_budget}, completion={completion_token_budget})"
-        )
+        logger.info(f"[OpenRouterClient] LLM mode updated: {mode} / {model_name} / {provider} "
+            f"(context={token_budget}, completion={completion_token_budget})")
 
     def _init_client(self):
         """Initialize the OpenAI SDK client pointed at OpenRouter."""
@@ -143,12 +141,12 @@ class OpenRouterClient:
                 api_key=self.api_key,
                 base_url=_settings.openrouter_base_url,
             )
-            print("[OpenRouterClient] OpenAI SDK client initialized (base_url=OpenRouter)")
+            logger.info("[OpenRouterClient] OpenAI SDK client initialized (base_url=OpenRouter)")
         except ImportError:
-            print("[OpenRouterClient] WARNING: openai package not installed")
+            logger.warning("[OpenRouterClient] WARNING: openai package not installed")
             self._client = None
         except Exception as e:
-            print(f"[OpenRouterClient] WARNING: Failed to init client: {e}")
+            logger.warning(f"[OpenRouterClient] WARNING: Failed to init client: {e}")
             self._client = None
 
     def _ensure_summarizer(self):

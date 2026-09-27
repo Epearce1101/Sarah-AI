@@ -13,6 +13,8 @@ from backend.config import settings
 from backend.models.core import get_all_settings, get_setting, set_setting
 from backend.state import get_sarah, set_llm_mode
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -114,18 +116,16 @@ def api_set_llm_mode(payload: Dict[str, str]):
     os.environ["SARAH_LLM_MODE"] = state.LLM_MODE
     os.environ["SARAH_LOCAL_MODEL"] = state.LOCAL_LLM_MODEL
 
-    print(f"[LLM MODE] Changing mode to {state.LLM_MODE} (local_model={state.LOCAL_LLM_MODEL})")
+    logger.info(f"[LLM MODE] Changing mode to {state.LLM_MODE} (local_model={state.LOCAL_LLM_MODEL})")
 
     try:
         sarah = get_sarah()
         if sarah:
             sarah.set_llm_mode(state.LLM_MODE, state.LOCAL_LLM_MODEL)
-            print(
-                f"[LLM MODE] SarahCore now using mode={state.LLM_MODE}, "
-                f"local_model={state.LOCAL_LLM_MODEL}"
-            )
+            logger.info(f"[LLM MODE] SarahCore now using mode={state.LLM_MODE}, "
+                f"local_model={state.LOCAL_LLM_MODEL}")
         else:
-            print("[LLM MODE] SarahCore not initialized yet.")
+            logger.info("[LLM MODE] SarahCore not initialized yet.")
     except Exception as e:
         logging.warning(f"[LLM MODE] Failed to update SarahCore: {e}")
 

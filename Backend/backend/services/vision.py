@@ -72,7 +72,7 @@ Format:
         self._last_error: Optional[str] = None
         self._warmup_done: bool = False
         self._session: Optional[aiohttp.ClientSession] = None
-        print(f"[VisionManager] Initialized with model={self.config.model}, url={self.config.ollama_url}")
+        logger.info(f"[VisionManager] Initialized with model={self.config.model}, url={self.config.ollama_url}")
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session"""
@@ -193,22 +193,22 @@ Format:
         Non-blocking - called via asyncio.create_task on startup
         """
         if not self.config.warmup_enabled:
-            print("[VisionManager] Warmup disabled")
+            logger.info("[VisionManager] Warmup disabled")
             return False
 
-        print(f"[VisionManager] Starting warmup for {self.config.model}...")
+        logger.info(f"[VisionManager] Starting warmup for {self.config.model}...")
         start = time.time()
 
         try:
             # First check health
             health = await self._ollama_health()
             if not health.get("ollama_reachable") or not health.get("ok"):
-                print(f"[VisionManager] Warmup skipped - Ollama not reachable")
+                logger.info(f"[VisionManager] Warmup skipped - Ollama not reachable")
                 return False
 
             # Check if model is available
             if self.config.model not in health.get("models_available", []):
-                print(f"[VisionManager] Warmup skipped - model {self.config.model} not found")
+                logger.warning(f"[VisionManager] Warmup skipped - model {self.config.model} not found")
                 self._last_error = f"Model {self.config.model} not installed"
                 return False
 
@@ -230,7 +230,7 @@ Format:
             ) as resp:
                 if resp.status != 200:
                     error_text = await resp.text()
-                    print(f"[VisionManager] Warmup failed: HTTP {resp.status} - {error_text[:200]}")
+                    logger.error(f"[VisionManager] Warmup failed: HTTP {resp.status} - {error_text[:200]}")
                     self._last_error = f"Warmup failed: {resp.status}"
                     return False
 
@@ -241,15 +241,15 @@ Format:
                 self._warmup_done = True
                 self._last_error = None
 
-                print(f"[VisionManager] Warmup successful ({elapsed_ms}ms)")
+                logger.info(f"[VisionManager] Warmup successful ({elapsed_ms}ms)")
                 return True
 
         except asyncio.TimeoutError:
-            print("[VisionManager] Warmup timeout")
+            logger.warning("[VisionManager] Warmup timeout")
             self._last_error = "Warmup timeout"
             return False
         except Exception as e:
-            print(f"[VisionManager] Warmup error: {e}")
+            logger.error(f"[VisionManager] Warmup error: {e}")
             self._last_error = f"Warmup error: {str(e)}"
             return False
 
@@ -274,7 +274,7 @@ Format:
                 ratio = min(max_w / width, max_h / height)
                 new_size = (int(width * ratio), int(height * ratio))
                 img = img.resize(new_size, Image.Resampling.LANCZOS)
-                print(f"[VisionManager] Resized image from {width}x{height} to {new_size[0]}x{new_size[1]}")
+                logger.debug(f"[VisionManager] Resized image from {width}x{height} to {new_size[0]}x{new_size[1]}")
 
             # Convert to RGB if necessary (handles RGBA, grayscale, etc.)
             if img.mode not in ("RGB", "L"):
@@ -291,12 +291,12 @@ Format:
             img.save(output, format="JPEG", quality=90, optimize=True)
             processed_bytes = output.getvalue()
 
-            print(f"[VisionManager] Image preprocessing: {len(image_bytes)} -> {len(processed_bytes)} bytes")
+            logger.debug(f"[VisionManager] Image preprocessing: {len(image_bytes)} -> {len(processed_bytes)} bytes")
 
             return processed_bytes, "JPEG"
 
         except Exception as e:
-            print(f"[VisionManager] Image preprocessing failed: {e}, using original")
+            logger.warning(f"[VisionManager] Image preprocessing failed: {e}, using original")
             return image_bytes, "original"
 
     async def analyze(

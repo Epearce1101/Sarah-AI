@@ -17,6 +17,9 @@ from typing import Optional, List, Dict, Any
 
 from backend.db import get_connection
 from backend.models.projects import build_file_tree
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def analyze_project_full(project_id: int) -> Dict[str, Any]:
@@ -178,7 +181,7 @@ def extract_dependencies(root_path: str) -> Dict[str, Any]:
                 dependencies["go"] = {"error": str(e)}
 
     except Exception as e:
-        print(f"[Dependencies] Error: {e}")
+        logger.error(f"[Dependencies] Error: {e}")
 
     return dependencies
 
@@ -234,7 +237,7 @@ def get_git_commit_history(repo_path: str, limit: int = 20) -> List[Dict[str, st
                     })
 
     except Exception as e:
-        print(f"[Git History] Error: {e}")
+        logger.error(f"[Git History] Error: {e}")
 
     return commits
 
@@ -312,7 +315,7 @@ def detect_entry_points(root_path: str, language: Optional[str]) -> List[Dict[st
                 pass
 
     except Exception as e:
-        print(f"[Entry Points] Error: {e}")
+        logger.error(f"[Entry Points] Error: {e}")
 
     return entry_points
 
@@ -382,7 +385,7 @@ def analyze_project_structure(root_path: str) -> Dict[str, Any]:
                     structure["file_types"][ext] = structure["file_types"].get(ext, 0) + 1
 
     except Exception as e:
-        print(f"[Project Structure] Error: {e}")
+        logger.error(f"[Project Structure] Error: {e}")
 
     return structure
 

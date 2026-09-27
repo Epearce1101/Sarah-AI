@@ -8,6 +8,9 @@ from backend.api.settings import _format_model_label
 from backend.config import settings
 from backend.memory import get_memory_config, get_memory_store
 from backend.memory.context_builder import ContextBuilder
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -92,7 +95,7 @@ def api_get_context_info_for_conversation(conversation_id: int):
     try:
         tokens_used = _readonly_packet(conversation_id).estimated_tokens
     except Exception as e:
-        print(f"[ContextInfo] Error estimating tokens: {e}")
+        logger.error(f"[ContextInfo] Error estimating tokens: {e}")
 
     return _context_payload(tokens_used)
 

@@ -4,10 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from backend import state
 from backend.state import get_sarah
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -29,6 +32,24 @@ def api_health():
         info["error"] = str(e)
 
     return info
+
+
+@router.post("/api/shutdown")
+def api_shutdown():
+    """Graceful stop for the launcher (runs the lifespan cleanup).
+
+    Only enabled when an API token is configured: then the token middleware
+    has already authenticated the caller. Without a token, any local page
+    could stop the backend, so it's refused.
+    """
+    from backend.config import settings
+    from backend import lifecycle
+
+    if not settings.api_token:
+        raise HTTPException(status_code=403, detail="shutdown requires API token mode")
+    if not lifecycle.request_shutdown():
+        raise HTTPException(status_code=503, detail="server runner not managing shutdown")
+    return {"ok": True, "shutting_down": True}
 
 
 @router.get("/api/state")
@@ -54,12 +75,10 @@ async def health_vision():
     ollama_status = ollama_mgr.get_status()
     health["ollama_manager"] = ollama_status
 
-    print(
-        f"[HealthVision] vision_ready={health.get('vision_ready')}, "
+    logger.debug(f"[HealthVision] vision_ready={health.get('vision_ready')}, "
         f"warmup_done={health.get('warmup_done')}, "
         f"model_available={health.get('ok')}, "
-        f"models={health.get('models_available', [])[:3]}"
-    )
+        f"models={health.get('models_available', [])[:3]}")
 
     return health
 

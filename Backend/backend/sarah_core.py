@@ -7,6 +7,9 @@
 # ============================================================
 
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["PYTHONUTF8"] = "1"
 
@@ -59,10 +62,10 @@ try:
         spawn_background,
     )
     MEMORY_SYSTEM_AVAILABLE = True
-    print("[SARAH INIT] Enhanced memory system loaded")
+    logger.info("[SARAH INIT] Enhanced memory system loaded")
 except ImportError as e:
     MEMORY_SYSTEM_AVAILABLE = False
-    print(f"[SARAH INIT] Memory system not available: {e}")
+    logger.info(f"[SARAH INIT] Memory system not available: {e}")
 
 
 def _with_project_context(message: str, project_context: Optional[str]) -> str:
@@ -97,12 +100,12 @@ class LLMClient:
         self.openrouter_api_key = _settings.openrouter_api_key
 
         if self.openrouter_api_key:
-            print("[LLM INIT] OpenRouter API Key loaded: YES (env)")
+            logger.info("[LLM INIT] OpenRouter API Key loaded: YES (env)")
         else:
-            print("[LLM INIT] ERROR: SARAH_OPENROUTER_API_KEY not set")
+            logger.error("[LLM INIT] ERROR: SARAH_OPENROUTER_API_KEY not set")
 
-        print(f"[LLM INIT] Online model: {self.online_model}")
-        print(f"[LLM INIT] Default local model: {self.local_model}")
+        logger.info(f"[LLM INIT] Online model: {self.online_model}")
+        logger.info(f"[LLM INIT] Default local model: {self.local_model}")
 
         self._client = None
         try:
@@ -112,7 +115,7 @@ class LLMClient:
                 base_url=_settings.openrouter_base_url,
             )
         except Exception as e:
-            print(f"[LLM INIT] Failed to initialize OpenRouter client: {e}")
+            logger.warning(f"[LLM INIT] Failed to initialize OpenRouter client: {e}")
             self._client = None
 
 
@@ -126,7 +129,7 @@ class LLMClient:
         self.mode = mode
         if local_model:
             self.local_model = local_model
-        print(f"[LLM] set_mode({self.mode}, {self.local_model})")
+        logger.info(f"[LLM] set_mode({self.mode}, {self.local_model})")
 
     # ------------------------------------------------------------
     # PUBLIC ENTRY: async completion
@@ -142,7 +145,7 @@ class LLMClient:
     # ------------------------------------------------------------
     async def _a_online_completion(self, prompt: str, max_tokens: int = 512) -> str:
         if not self.openrouter_api_key or not self._client:
-            print("[LLM] OpenRouter unavailable; falling back to local Ollama completion.")
+            logger.warning("[LLM] OpenRouter unavailable; falling back to local Ollama completion.")
             return await self._a_local_completion(prompt, max_tokens=max_tokens)
 
         loop = asyncio.get_running_loop()
@@ -167,7 +170,7 @@ class LLMClient:
         try:
             return await loop.run_in_executor(None, _call)
         except Exception as e:
-            print(f"[LLM] OpenRouter completion failed; falling back to local Ollama: {e}")
+            logger.warning(f"[LLM] OpenRouter completion failed; falling back to local Ollama: {e}")
             return await self._a_local_completion(prompt, max_tokens=max_tokens)
 
     # ------------------------------------------------------------
@@ -261,7 +264,7 @@ class SarahCore:
 
     def __init__(self, drive: Optional[Path] = None):
         self.core_version: str = "InfinityCore-V11"
-        print(f"[SARAH INIT] SarahCore loaded (version={self.core_version})")
+        logger.info(f"[SARAH INIT] SarahCore loaded (version={self.core_version})")
 
         self.drive = drive or Path.cwd()
 
@@ -279,7 +282,7 @@ class SarahCore:
             online_model=self.online_model_name,
             local_model=self.local_model_name,
         )
-        print(f"[SARAH INIT] LLM client initialized. Mode = {self.llm_mode}")
+        logger.info(f"[SARAH INIT] LLM client initialized. Mode = {self.llm_mode}")
 
         # Bond engine (affinity tracking only — emotion is now sourced from
         # `backend.mood.MoodState` per conversation_id, not stored on self).
@@ -309,27 +312,27 @@ class SarahCore:
 
         llm_models.on_model_change(self._on_online_model_change)
 
-        print("[SARAH INIT] SarahCore initialized. Core version:", self.core_version)
+        logger.info("%s %s", "[SARAH INIT] SarahCore initialized. Core version:", self.core_version)
 
     def _init_memory_system(self):
         """Initialize V11 memory system components."""
         try:
-            print("[SARAH INIT] Initializing memory config...")
+            logger.info("[SARAH INIT] Initializing memory config...")
             self._memory_config = get_memory_config()
-            print(f"[SARAH INIT] Memory config: {self._memory_config}")
+            logger.info(f"[SARAH INIT] Memory config: {self._memory_config}")
 
-            print("[SARAH INIT] Initializing memory store...")
+            logger.info("[SARAH INIT] Initializing memory store...")
             self._memory_store = get_memory_store()
-            print(f"[SARAH INIT] Memory store: {self._memory_store}")
+            logger.info(f"[SARAH INIT] Memory store: {self._memory_store}")
 
-            print("[SARAH INIT] Initializing OpenRouter client...")
+            logger.info("[SARAH INIT] Initializing OpenRouter client...")
             self._openrouter = get_openrouter_client()
-            print(f"[SARAH INIT] OpenRouter client: {self._openrouter}")
+            logger.info(f"[SARAH INIT] OpenRouter client: {self._openrouter}")
 
-            print("[SARAH INIT] Initializing context builder...")
+            logger.info("[SARAH INIT] Initializing context builder...")
             self._context_builder = ContextBuilder(store=self._memory_store)
 
-            print("[SARAH INIT] Initializing summarizer...")
+            logger.info("[SARAH INIT] Initializing summarizer...")
             self._summarizer = Summarizer(
                 llm_call_fn=self._call_llm,
                 store=self._memory_store,
@@ -351,10 +354,10 @@ class SarahCore:
                         provider="OpenRouter",
                     )
 
-            print(f"[SARAH INIT] Memory system initialized successfully. memory_enabled={self.memory_enabled}, has_openrouter={self._openrouter is not None}")
+            logger.info(f"[SARAH INIT] Memory system initialized successfully. memory_enabled={self.memory_enabled}, has_openrouter={self._openrouter is not None}")
         except Exception as e:
             import traceback
-            print(f"[SARAH INIT] Memory system init failed: {e}")
+            logger.warning(f"[SARAH INIT] Memory system init failed: {e}")
             traceback.print_exc()
             self.memory_enabled = False
 
@@ -369,17 +372,15 @@ class SarahCore:
     # ------------------------------------------------------------
     def set_llm_mode(self, mode: str, local_model: Optional[str] = None):
         if mode == "online" and not _settings.openrouter_api_key:
-            print("[LLM MODE] OpenRouter key missing; using local Ollama instead of online mode.")
+            logger.warning("[LLM MODE] OpenRouter key missing; using local Ollama instead of online mode.")
             mode = "local"
 
         self.llm.set_mode(mode, local_model)
         self.llm_mode = self.llm.mode
         if local_model:
             self.local_model_name = local_model
-        print(
-            f"[LLM MODE] SarahCore set to {self.llm_mode} "
-            f"(local_model={self.local_model_name})"
-        )
+        logger.info(f"[LLM MODE] SarahCore set to {self.llm_mode} "
+            f"(local_model={self.local_model_name})")
 
         # Update OpenRouterClient's LLM mode info for model awareness
         if self._openrouter:
@@ -418,14 +419,14 @@ class SarahCore:
             if task_summary:
                 parts.append("Active tasks:\n" + task_summary)
         except Exception as exc:
-            print(f"[SARAH] Legacy task summary unavailable: {exc}")
+            logger.warning(f"[SARAH] Legacy task summary unavailable: {exc}")
 
         try:
             reflection_summary = self.reflection_engine.build_reflection_summary()
             if reflection_summary:
                 parts.append("Self-improvement notes:\n" + reflection_summary)
         except Exception as exc:
-            print(f"[SARAH] Legacy reflection summary unavailable: {exc}")
+            logger.warning(f"[SARAH] Legacy reflection summary unavailable: {exc}")
 
         if self.memory_enabled:
             parts.append("Conversation memory system is enabled for saved conversation threads.")
@@ -494,10 +495,10 @@ class SarahCore:
         # ============================================================
         # V11: Enhanced Memory Mode (if conversation_id provided)
         # ============================================================
-        print(f"[SARAH] handle_message check: conversation_id={conversation_id}, memory_enabled={self.memory_enabled}, has_openrouter={self._openrouter is not None}")
+        logger.debug(f"[SARAH] handle_message check: conversation_id={conversation_id}, memory_enabled={self.memory_enabled}, has_openrouter={self._openrouter is not None}")
 
         if conversation_id is not None and self.memory_enabled and self._openrouter:
-            print(f"[SARAH] Using ENHANCED MEMORY mode for conversation {conversation_id}")
+            logger.debug(f"[SARAH] Using ENHANCED MEMORY mode for conversation {conversation_id}")
             return await self._handle_message_with_memory(
                 message=message,
                 conversation_id=conversation_id,
@@ -509,7 +510,7 @@ class SarahCore:
         # ============================================================
         # V10 Fallback: MultiAgentBrain (no conversation_id)
         # ============================================================
-        print(f"[SARAH] FALLBACK to legacy mode - conversation_id={conversation_id}, memory_enabled={self.memory_enabled}")
+        logger.debug(f"[SARAH] FALLBACK to legacy mode - conversation_id={conversation_id}, memory_enabled={self.memory_enabled}")
         return await self._handle_message_legacy(
             _with_project_context(message, project_context)
         )
@@ -534,7 +535,7 @@ class SarahCore:
 
         All memory operations are SILENT - never shown to user.
         """
-        print(f"[SARAH] _handle_message_with_memory called for conversation {conversation_id}")
+        logger.debug(f"[SARAH] _handle_message_with_memory called for conversation {conversation_id}")
         try:
             # Set goal from first substantial message
             if self._summarizer and len(message) > 20:
@@ -556,7 +557,7 @@ class SarahCore:
             return self._reply_from_response(response, message, conversation_id)
 
         except Exception as e:
-            print(f"[SARAH] Memory-enhanced handling failed: {e}")
+            logger.warning(f"[SARAH] Memory-enhanced handling failed: {e}")
             # Fall back to legacy mode
             return await self._handle_message_legacy(
                 _with_project_context(message, project_context)
@@ -605,7 +606,7 @@ class SarahCore:
         if not tokens_used and response.usage:
             tokens_used = response.usage.get("total_tokens", 0) or response.usage.get("prompt_tokens", 0)
 
-        print(f"[SARAH] Token usage: {tokens_used} / {token_budget}")
+        logger.debug(f"[SARAH] Token usage: {tokens_used} / {token_budget}")
 
         emotion_str, emotion_intensity = self._derive_emotion(conversation_id)
         return SarahReply(
@@ -693,7 +694,7 @@ class SarahCore:
                 message_id=None,
             )
         except Exception as e:
-            print("[SARAH REFLECTION] Failed to store reflection:", e)
+            logger.warning("%s %s", "[SARAH REFLECTION] Failed to store reflection:", e)
 
         # Affinity nudge on positive content (cheap heuristic, kept from V8).
         if any(w in reply_text.lower() for w in ("great job", "nice", "awesome", "proud")):
@@ -776,6 +777,6 @@ class SarahCore:
             self._memory_store.clear_task_state(conversation_id)
             # Note: Rolling summary and chunks are tied to conversation
             # and will be rebuilt as needed
-            print(f"[SARAH] Cleared memory for conversation {conversation_id}")
+            logger.info(f"[SARAH] Cleared memory for conversation {conversation_id}")
         except Exception as e:
-            print(f"[SARAH] Failed to clear memory: {e}")
+            logger.warning(f"[SARAH] Failed to clear memory: {e}")

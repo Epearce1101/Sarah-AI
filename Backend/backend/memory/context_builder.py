@@ -34,6 +34,9 @@ from datetime import datetime
 
 from backend.config import settings as _settings
 from backend.identity import get_user_name
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Mood system integration
 try:
@@ -144,7 +147,7 @@ Respond as if you naturally remember the conversation.
         self.intent_resolver = intent_resolver or IntentResolver(self.store, self.config)
 
         if self.config.debug_memory:
-            print("[ContextBuilder] Initialized")
+            logger.info("[ContextBuilder] Initialized")
 
     def _estimate_tokens(self, text: str) -> int:
         """Estimate token count from text."""
@@ -198,7 +201,7 @@ Respond as if you naturally remember the conversation.
             timezone_str = row[0] if row else None
         except Exception as e:
             if self.config.debug_memory:
-                print(f"[ContextBuilder] Timezone lookup failed: {e}")
+                logger.warning(f"[ContextBuilder] Timezone lookup failed: {e}")
 
         for candidate in (timezone_str, _settings.default_timezone):
             if not candidate:
@@ -214,7 +217,7 @@ Respond as if you naturally remember the conversation.
             except Exception:
                 pass
             if self.config.debug_memory:
-                print(f"[ContextBuilder] Unknown timezone {candidate!r}; trying next fallback")
+                logger.info(f"[ContextBuilder] Unknown timezone {candidate!r}; trying next fallback")
 
         local = datetime.now().astimezone()
         return local, local.tzname() or "local time"
@@ -249,7 +252,7 @@ Respond as if you naturally remember the conversation.
             )
         except Exception as e:
             if self.config.debug_memory:
-                print(f"[ContextBuilder] Long-term memory unavailable: {e}")
+                logger.warning(f"[ContextBuilder] Long-term memory unavailable: {e}")
             return "", []
 
         lines: List[str] = []
@@ -551,13 +554,13 @@ When asked about your feelings, share this naturally and briefly. Don't over-exp
                     }
 
                     if self.config.debug_memory:
-                        print(f"[ContextBuilder] Mood: {mood.emotion.value} (intensity={mood.intensity:.2f}, affinity={mood.affinity:.2f})")
+                        logger.info(f"[ContextBuilder] Mood: {mood.emotion.value} (intensity={mood.intensity:.2f}, affinity={mood.affinity:.2f})")
 
                 except Exception as e:
                     # Mood system failure should not break context building
                     debug_info["mood_error"] = str(e)
                     if self.config.debug_memory:
-                        print(f"[ContextBuilder] Mood system error: {e}")
+                        logger.error(f"[ContextBuilder] Mood system error: {e}")
 
             # ============================================================
             # RECENT IMAGE/VISION OBSERVATIONS (SILENT - never shown to user)
@@ -599,7 +602,7 @@ When asked about your feelings, share this naturally and briefly. Don't over-exp
                 # Vision memory failure should not break context building
                 debug_info["vision_memory_error"] = str(e)
                 if self.config.debug_memory:
-                    print(f"[ContextBuilder] Vision memory error: {e}")
+                    logger.error(f"[ContextBuilder] Vision memory error: {e}")
 
             # Time is already in the system prompt (time_context above); it is
             # resolved once per turn and only recorded here for debugging.
@@ -788,7 +791,7 @@ When asked about your feelings, share this naturally and briefly. Don't over-exp
             debug_info["budget_warnings"] = budget_warnings
 
         if self.config.debug_memory:
-            print(f"[ContextBuilder] Built context: {total_tokens} tokens, {len(messages)} messages")
+            logger.info(f"[ContextBuilder] Built context: {total_tokens} tokens, {len(messages)} messages")
 
         return LLMContextPacket(
             messages=messages,

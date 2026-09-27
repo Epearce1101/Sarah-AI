@@ -13,6 +13,8 @@ from backend.api.schemas import STTRequest, STTRequest2
 from backend.whisper_stt import get_whisper_stt
 from backend.diagnostics.telemetry import record_voice_latency
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 CURRENT_DIR = Path(__file__).resolve().parent.parent  # backend/
@@ -53,27 +55,25 @@ def api_stt_legacy(payload: STTRequest):
 @router.post("/api/stt")
 def api_stt(payload: STTRequest2):
     started_at = time.perf_counter()
-    print(
-        f"[STT] Received request, audio size: {len(payload.audio_b64)}, mime: {payload.mime_type}"
-    )
+    logger.debug(f"[STT] Received request, audio size: {len(payload.audio_b64)}, mime: {payload.mime_type}")
 
     try:
-        print("[STT] Getting Whisper STT instance...")
+        logger.debug("[STT] Getting Whisper STT instance...")
         stt = get_whisper_stt()
-        print("[STT] Whisper instance ready, starting transcription...")
+        logger.debug("[STT] Whisper instance ready, starting transcription...")
 
         result = stt.stt_from_base64(payload.audio_b64, payload.mime_type)
-        print(f"[STT] Transcription complete: {result}")
+        logger.debug(f"[STT] Transcription complete: {result}")
 
         if not result.get("ok"):
-            print(f"[STT] Transcription failed: {result.get('error')}")
+            logger.error(f"[STT] Transcription failed: {result.get('error')}")
             raise HTTPException(status_code=500, detail=result.get("error", "stt_failed"))
 
-        print(f"[STT] Success! Text: {result.get('text', '')}")
+        logger.debug(f"[STT] Success! Text: {result.get('text', '')}")
         record_voice_latency("stt", (time.perf_counter() - started_at) * 1000, ok=True)
         return {"ok": True, "text": result.get("text", "")}
     except Exception as e:
         record_voice_latency("stt", (time.perf_counter() - started_at) * 1000, ok=False)
-        print(f"[STT] Exception occurred: {e}")
+        logger.error(f"[STT] Exception occurred: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

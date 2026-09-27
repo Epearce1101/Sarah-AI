@@ -5,6 +5,9 @@ from fastapi import APIRouter
 
 from backend.audio.wake_diagnostics import get_wake_diagnostics, set_wake_event_pending
 from backend.audio.wake_loop import is_wake_listener_running, wake_events
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -14,7 +17,7 @@ def api_wake():
     if not wake_events.empty():
         wake_events.get()
         set_wake_event_pending(not wake_events.empty())
-        print("[WAKE] Wake word detected!")
+        logger.info("[WAKE] Wake word detected!")
         return {"wake": True}
     set_wake_event_pending(False)
     return {"wake": False}

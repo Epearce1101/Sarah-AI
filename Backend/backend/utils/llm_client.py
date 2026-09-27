@@ -5,6 +5,9 @@ from typing import Any
 import requests
 
 from backend.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class LLMClient:
@@ -26,9 +29,9 @@ class LLMClient:
         self.ollama_base_url: str = settings.ollama_base_url.rstrip("/")
         self.default_local_model: str = settings.default_local_model
 
-        print(f"[LLM INIT] Online model: {self.online_model}")
-        print(f"[LLM INIT] Default local model: {self.default_local_model}")
-        print(f"[LLM INIT] OpenRouter API Key loaded: {'YES' if self.openrouter_api_key else 'NO'}")
+        logger.info(f"[LLM INIT] Online model: {self.online_model}")
+        logger.info(f"[LLM INIT] Default local model: {self.default_local_model}")
+        logger.info(f"[LLM INIT] OpenRouter API Key loaded: {'YES' if self.openrouter_api_key else 'NO'}")
 
     def generate(
         self,
@@ -46,7 +49,7 @@ class LLMClient:
         llm_mode = (kwargs.get("llm_mode") or settings.llm_mode).lower()
         local_model = kwargs.get("local_model") or self.default_local_model
 
-        print(f"[LLM] generate(mode={llm_mode}, local_model={local_model})")
+        logger.info(f"[LLM] generate(mode={llm_mode}, local_model={local_model})")
 
         try:
             if llm_mode == "local":
@@ -58,19 +61,19 @@ class LLMClient:
             return self._call_openrouter_chat(system_prompt, user_message)
 
         except Exception as e:
-            print(f"[LLM ERROR] Primary LLM failed (mode={llm_mode}): {e}")
+            logger.error(f"[LLM ERROR] Primary LLM failed (mode={llm_mode}): {e}")
             if llm_mode == "local":
-                print("[LLM] Falling back to OpenRouter after Ollama failure.")
+                logger.warning("[LLM] Falling back to OpenRouter after Ollama failure.")
                 try:
                     return self._call_openrouter_chat(system_prompt, user_message)
                 except Exception as e2:
-                    print(f"[LLM ERROR] OpenRouter fallback failed: {e2}")
+                    logger.error(f"[LLM ERROR] OpenRouter fallback failed: {e2}")
                     return ""
             return ""
 
     def _call_openrouter_chat(self, system_prompt: str, user_message: str) -> str:
         if not self.openrouter_api_key:
-            print("[LLM WARNING] SARAH_OPENROUTER_API_KEY not set; cannot call OpenRouter.")
+            logger.warning("[LLM WARNING] SARAH_OPENROUTER_API_KEY not set; cannot call OpenRouter.")
             return ""
 
         url = f"{self.openrouter_base_url}/chat/completions"
@@ -88,7 +91,7 @@ class LLMClient:
             "max_tokens": 1024,
         }
 
-        print(f"[LLM] Calling OpenRouter model={self.online_model}")
+        logger.info(f"[LLM] Calling OpenRouter model={self.online_model}")
         resp = requests.post(url, json=payload, headers=headers, timeout=60)
         resp.raise_for_status()
         data = resp.json()
@@ -96,7 +99,7 @@ class LLMClient:
         try:
             content = data["choices"][0]["message"]["content"]
         except Exception as e:
-            print("[LLM ERROR] Unexpected OpenRouter response:", e, data)
+            logger.error("%s %s %s", "[LLM ERROR] Unexpected OpenRouter response:", e, data)
             return ""
 
         return (content or "").strip()
@@ -111,19 +114,19 @@ class LLMClient:
         payload = {"model": model, "prompt": prompt, "stream": False}
         url = f"{self.ollama_base_url}/api/generate"
 
-        print(f"[LLM OLLAMA] Calling Ollama model={model} at {url}")
+        logger.info(f"[LLM OLLAMA] Calling Ollama model={model} at {url}")
         resp = requests.post(url, json=payload, timeout=300)
 
         try:
             resp.raise_for_status()
         except Exception as e:
-            print("[LLM ERROR] Ollama returned HTTP error:", e)
+            logger.error("%s %s", "[LLM ERROR] Ollama returned HTTP error:", e)
             raise
 
         data = resp.json()
         return (data.get("response") or "").strip()
 
     def set_mode(self, llm_mode: str, local_model: str):
-        print(f"[LLM] set_mode({llm_mode}, {local_model})")
+        logger.info(f"[LLM] set_mode({llm_mode}, {local_model})")
         self._mode = llm_mode
         self._local_model = local_model

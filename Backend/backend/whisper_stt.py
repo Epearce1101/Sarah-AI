@@ -8,6 +8,9 @@ from faster_whisper import WhisperModel
 
 from backend.config import settings as _settings
 from backend.timing import stage as _timing_stage
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class WhisperSTT:
@@ -36,10 +39,8 @@ class WhisperSTT:
         # LOAD WHISPER MODEL
         # ---------------------------
 
-        print(
-            f"[WhisperSTT] Loading model={self.model_size} "
-            f"device={self.device} type={self.compute_type}"
-        )
+        logger.info(f"[WhisperSTT] Loading model={self.model_size} "
+            f"device={self.device} type={self.compute_type}")
 
         self.model = WhisperModel(
             self.model_size,
@@ -47,7 +48,7 @@ class WhisperSTT:
             compute_type=self.compute_type,
         )
 
-        print("[WhisperSTT] Model loaded.")
+        logger.info("[WhisperSTT] Model loaded.")
 
     # ======================================================
     # PUBLIC API
@@ -60,11 +61,11 @@ class WhisperSTT:
             return {"ok": False, "text": "", "error": "decode_failed"}
 
         audio_seconds = len(samples) / sr if sr else 0.0
-        print(f"[WhisperSTT] Audio decoded: {len(samples)} samples at {sr} Hz ({audio_seconds:.2f} seconds)")
+        logger.info(f"[WhisperSTT] Audio decoded: {len(samples)} samples at {sr} Hz ({audio_seconds:.2f} seconds)")
 
         with _timing_stage("stt.transcribe", audio_seconds=f"{audio_seconds:.2f}"):
             transcript = self._transcribe(samples, sr)
-        print(f"[WhisperSTT] Transcription result: '{transcript}'")
+        logger.info(f"[WhisperSTT] Transcription result: '{transcript}'")
         return {"ok": True, "text": transcript}
 
     # ======================================================
@@ -75,7 +76,7 @@ class WhisperSTT:
         try:
             audio_bytes = base64.b64decode(audio_b64)
         except Exception as e:
-            print("[WhisperSTT] base64 decode failed:", e)
+            logger.warning("%s %s", "[WhisperSTT] base64 decode failed:", e)
             return None, 0
         return self._decode_bytes(audio_bytes)
 
@@ -88,7 +89,7 @@ class WhisperSTT:
                 data = np.mean(data, axis=1)
             return data, sr
         except Exception as e:
-            print("[WhisperSTT] soundfile failed:", e)
+            logger.warning("%s %s", "[WhisperSTT] soundfile failed:", e)
 
         # Fall back to pydub (more flexible ffmpeg handling)
         try:
@@ -101,10 +102,10 @@ class WhisperSTT:
             audio_segment = audio_segment.set_channels(1).set_frame_rate(16000)
             # Get raw samples
             samples = np.array(audio_segment.get_array_of_samples()).astype("float32") / 32768.0
-            print(f"[WhisperSTT] pydub decode successful, {len(samples)} samples")
+            logger.info(f"[WhisperSTT] pydub decode successful, {len(samples)} samples")
             return samples, 16000
         except Exception as e:
-            print("[WhisperSTT] pydub decode failed:", e)
+            logger.warning("%s %s", "[WhisperSTT] pydub decode failed:", e)
 
         # Fall back to ffmpeg-python direct
         try:
@@ -126,14 +127,14 @@ class WhisperSTT:
             )
             out, err = process.communicate(input=audio_bytes)
             if process.returncode != 0:
-                print("[WhisperSTT] ffmpeg error:", err.decode(errors="ignore"))
+                logger.error("%s %s", "[WhisperSTT] ffmpeg error:", err.decode(errors="ignore"))
                 return None, 0
 
             audio = np.frombuffer(out, np.int16).astype("float32") / 32768.0
             return audio, 16000
 
         except Exception as e:
-            print("[WhisperSTT] ffmpeg decode failed:", e)
+            logger.warning("%s %s", "[WhisperSTT] ffmpeg decode failed:", e)
             return None, 0
 
     # ======================================================
@@ -148,28 +149,28 @@ class WhisperSTT:
                 samples = resampy.resample(samples, sr, 16000)
                 sr = 16000
             except Exception as e:
-                print("[WhisperSTT] resample failed:", e)
+                logger.warning("%s %s", "[WhisperSTT] resample failed:", e)
 
-        print(f"[WhisperSTT] Starting transcription with Whisper...")
+        logger.info(f"[WhisperSTT] Starting transcription with Whisper...")
         segments, info = self.model.transcribe(samples, beam_size=1, vad_filter=False, language="en")
 
         # Don't print info object directly - it may contain unicode characters
-        print(f"[WhisperSTT] Transcription completed")
+        logger.info(f"[WhisperSTT] Transcription completed")
 
         text_parts = [seg.text.strip() for seg in segments]
-        print(f"[WhisperSTT] Segments found: {len(text_parts)}")
+        logger.info(f"[WhisperSTT] Segments found: {len(text_parts)}")
         for i, seg_text in enumerate(text_parts):
             try:
-                print(f"[WhisperSTT] Segment {i}: '{seg_text}'")
+                logger.info(f"[WhisperSTT] Segment {i}: '{seg_text}'")
             except UnicodeEncodeError:
-                print(f"[WhisperSTT] Segment {i}: <contains unicode>")
+                logger.info(f"[WhisperSTT] Segment {i}: <contains unicode>")
 
         transcript = " ".join(text_parts).strip().lower()
 
         try:
-            print(f"[WhisperSTT] Final transcript: '{transcript}'")
+            logger.info(f"[WhisperSTT] Final transcript: '{transcript}'")
         except UnicodeEncodeError:
-            print(f"[WhisperSTT] Final transcript length: {len(transcript)} chars")
+            logger.info(f"[WhisperSTT] Final transcript length: {len(transcript)} chars")
 
         return transcript
 

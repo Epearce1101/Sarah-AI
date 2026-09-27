@@ -11,11 +11,13 @@ from typing import Optional
 
 from backend.config import settings as _settings
 
+logger = logging.getLogger(__name__)
+
 SarahCore = None
 try:
     from backend.sarah_core import SarahCore  # type: ignore
 except Exception as e:
-    print("[ERROR] Failed to import SarahCore:", e)
+    logger.error("%s %s", "[ERROR] Failed to import SarahCore:", e)
 
 _sarah: Optional["SarahCore"] = None
 
@@ -58,29 +60,26 @@ def get_sarah() -> "SarahCore":
         from backend.sarah_core import SarahCore as _SarahCore
     except Exception as e:
         import traceback
-        print("\n=========== SARAHCORE IMPORT ERROR ===========")
+        logger.error("\n=========== SARAHCORE IMPORT ERROR ===========")
         traceback.print_exc()
-        print("==============================================\n")
+        logger.info("==============================================\n")
         raise RuntimeError(f"SarahCore crashed during import: {e}")
 
     if _SarahCore is None:
         raise RuntimeError("SarahCore imported as None; cannot handle chat.")
 
-    print("[SARAH INIT] Initializing SarahCore...")
+    logger.info("[SARAH INIT] Initializing SarahCore...")
 
     try:
         _sarah = _SarahCore()
     except Exception as e:
         import traceback
-        print("\n=========== SARAHCORE INSTANTIATION ERROR ===========")
+        logger.error("\n=========== SARAHCORE INSTANTIATION ERROR ===========")
         traceback.print_exc()
-        print("=====================================================\n")
+        logger.info("=====================================================\n")
         raise RuntimeError(f"SarahCore failed to initialize: {e}")
 
-    print(
-        "[SARAH INIT] SarahCore initialized. Core version:",
-        getattr(_sarah, "core_version", "unknown"),
-    )
+    logger.info("%s %s", "[SARAH INIT] SarahCore initialized. Core version:", getattr(_sarah, "core_version", "unknown"))
 
     try:
         if hasattr(_sarah, "set_llm_mode"):
@@ -95,6 +94,6 @@ def preload_sarah() -> None:
     """Best-effort warmup; failures don't abort startup."""
     try:
         get_sarah()
-        print("[BACKEND] SarahCore preloaded.")
+        logger.info("[BACKEND] SarahCore preloaded.")
     except Exception as e:
-        print("[BACKEND] Could not preload SarahCore:", e)
+        logger.warning("%s %s", "[BACKEND] Could not preload SarahCore:", e)

@@ -115,7 +115,7 @@ Output valid JSON only (empty strings for missing fields):"""
         self._update_locks: Dict[int, asyncio.Lock] = {}
 
         if self.config.debug_memory:
-            print("[Summarizer] Initialized")
+            logger.info("[Summarizer] Initialized")
 
     # ============================================================
     # CHUNK SUMMARIES
@@ -183,12 +183,12 @@ Output valid JSON only (empty strings for missing fields):"""
             )
 
             if self.config.debug_memory:
-                print(f"[Summarizer] Created chunk {chunk_id}: {summary[:100]}...")
+                logger.info(f"[Summarizer] Created chunk {chunk_id}: {summary[:100]}...")
 
             return chunk_id
 
         except Exception as e:
-            print(f"[Summarizer] Chunk summary error: {e}")
+            logger.error(f"[Summarizer] Chunk summary error: {e}")
             return None
 
     async def create_chunks_if_needed(self, conversation_id: int) -> List[int]:
@@ -293,15 +293,15 @@ Output valid JSON only (empty strings for missing fields):"""
                     logger.warning("Could not store long-term facts: %s", e)
 
             if self.config.debug_memory:
-                print(f"[Summarizer] Updated rolling summary: goal={updated.goal[:50] if updated.goal else 'none'}...")
+                logger.info(f"[Summarizer] Updated rolling summary: goal={updated.goal[:50] if updated.goal else 'none'}...")
 
             return updated
 
         except json.JSONDecodeError as e:
-            print(f"[Summarizer] Rolling summary JSON parse error: {e}")
+            logger.error(f"[Summarizer] Rolling summary JSON parse error: {e}")
             return None
         except Exception as e:
-            print(f"[Summarizer] Rolling summary error: {e}")
+            logger.error(f"[Summarizer] Rolling summary error: {e}")
             return None
 
     # ============================================================
@@ -356,7 +356,7 @@ pending_choices: {current.pending_choices}
             )
 
             if self.config.debug_memory:
-                print(f"[Summarizer] Extracted task state: q={updated.pending_question[:30] if updated.pending_question else 'none'}...")
+                logger.info(f"[Summarizer] Extracted task state: q={updated.pending_question[:30] if updated.pending_question else 'none'}...")
 
             return updated
 
@@ -367,7 +367,7 @@ pending_choices: {current.pending_choices}
                 increment_turn=True,
             )
         except Exception as e:
-            print(f"[Summarizer] Task state extraction error: {e}")
+            logger.error(f"[Summarizer] Task state extraction error: {e}")
             return current
 
     async def set_goal_from_message(

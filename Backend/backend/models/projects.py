@@ -10,6 +10,9 @@ import sqlite3
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from backend.db import get_connection
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def create_project(
@@ -379,7 +382,7 @@ def detect_git_info(path: str) -> Dict[str, Any]:
                 result["current_branch"] = branch_check.stdout.strip()
 
     except Exception as e:
-        print(f"[Git Detection] Error: {e}")
+        logger.error(f"[Git Detection] Error: {e}")
 
     return result
 
@@ -496,7 +499,7 @@ def get_recent_commits(project_id: int, limit: int = 10) -> List[Dict[str, Any]]
         return commits
 
     except Exception as e:
-        print(f"[Git Commits] Error: {e}")
+        logger.error(f"[Git Commits] Error: {e}")
         return []
 
 
@@ -912,7 +915,7 @@ def detect_project_metadata(root_path: str) -> Dict[str, Any]:
             metadata["framework"] = ".NET"
 
     except Exception as e:
-        print(f"[Metadata Detection] Error: {e}")
+        logger.error(f"[Metadata Detection] Error: {e}")
 
     return metadata
 
@@ -957,7 +960,7 @@ def build_file_tree(root_path: str, max_depth: int = 5, ignore_patterns: Optiona
             return result
 
         except Exception as e:
-            print(f"[File Tree] Error at {path}: {e}")
+            logger.error(f"[File Tree] Error at {path}: {e}")
             return None
 
     return build_tree(root_path) or {}

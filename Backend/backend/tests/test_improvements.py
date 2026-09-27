@@ -352,6 +352,34 @@ def test_memory_delete_endpoint(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Graceful shutdown
+# ---------------------------------------------------------------------------
+
+def test_shutdown_endpoint_requires_token_mode_and_calls_handler(monkeypatch):
+    import backend.app as app_module
+    import backend.config as config_module
+    from backend import lifecycle
+    from fastapi.testclient import TestClient
+
+    calls = []
+    monkeypatch.setattr(lifecycle, "_shutdown_handler", lambda: calls.append(1))
+
+    # No token configured: refused (any local page could otherwise stop it).
+    monkeypatch.setattr(app_module, "settings", dataclasses.replace(app_module.settings, api_token=""))
+    monkeypatch.setattr(config_module, "settings", dataclasses.replace(config_module.settings, api_token=""))
+    assert TestClient(app_module.create_app()).post("/api/shutdown").status_code == 403
+    assert calls == []
+
+    token_settings = dataclasses.replace(config_module.settings, api_token="tok")
+    monkeypatch.setattr(app_module, "settings", token_settings)
+    monkeypatch.setattr(config_module, "settings", token_settings)
+    client = TestClient(app_module.create_app())
+    assert client.post("/api/shutdown").status_code == 401
+    assert client.post("/api/shutdown", headers={"X-Sarah-Token": "tok"}).status_code == 200
+    assert calls == [1]
+
+
+# ---------------------------------------------------------------------------
 # Vision falls back to OpenRouter without Ollama
 # ---------------------------------------------------------------------------
 

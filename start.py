@@ -1,4 +1,4 @@
-﻿import os
+import os
 import secrets
 import shutil
 import subprocess
@@ -85,12 +85,40 @@ def _resolve_npm_start_command() -> list[str]:
 # ---------------------------------------------------------------------
 # Backend helpers
 # ---------------------------------------------------------------------
+LOG_MAX_BYTES = 20 * 1024 * 1024   # rotate a launch log past this size
+LOG_KEEP_LAUNCHES = 10             # launcher_backend_*.log files kept
+
+
+def prune_old_logs() -> None:
+    """Keep only the newest LOG_KEEP_LAUNCHES launch logs (plus rotations)."""
+    logs = sorted(LOG_DIR.glob("launcher_backend_*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in logs[LOG_KEEP_LAUNCHES:]:
+        for path in (old, old.with_name(old.name + ".1")):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def stream_backend_output(process, log_path: Path):
-    with log_path.open("a", encoding="utf-8", errors="replace") as log:
+    log = log_path.open("a", encoding="utf-8", errors="replace")
+    try:
         for line in process.stdout:
             print("[BACKEND]", line, end="")
             log.write(line)
             log.flush()
+            if log.tell() > LOG_MAX_BYTES:
+                # Long sessions: keep one previous chunk (.1), start fresh.
+                log.close()
+                rotated = log_path.with_name(log_path.name + ".1")
+                try:
+                    rotated.unlink(missing_ok=True)
+                    log_path.rename(rotated)
+                except OSError:
+                    pass
+                log = log_path.open("a", encoding="utf-8", errors="replace")
+    finally:
+        log.close()
 
 
 def start_backend_process(log_path: Path):
@@ -117,11 +145,35 @@ def start_backend_process(log_path: Path):
     return backend_process
 
 
-def stop_process(process, label: str) -> None:
+def request_backend_shutdown(process, timeout: float = 15.0) -> bool:
+    """Ask the backend to exit on its own so its shutdown cleanup runs.
+
+    process.terminate() on Windows is TerminateProcess: the lifespan
+    shutdown (Ollama manager, vision session, Piper daemon) never runs.
+    """
+    try:
+        requests.post(
+            HEALTH_URL.replace("/api/health", "/api/shutdown"),
+            headers={"X-Sarah-Token": API_TOKEN},
+            timeout=3,
+        )
+    except Exception:
+        return False
+    try:
+        process.wait(timeout=timeout)
+        return True
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def stop_process(process, label: str, graceful_backend: bool = False) -> None:
     if not process or process.poll() is not None:
         return
 
     print(f"[Sarah Launcher] Stopping {label}...")
+    if graceful_backend and request_backend_shutdown(process):
+        print(f"[Sarah Launcher] {label} shut down cleanly")
+        return
     process.terminate()
     try:
         process.wait(timeout=5)
@@ -156,6 +208,7 @@ def main() -> None:
     print("[Launcher] Using Python:", VENV_PY)
     print("[Launcher] Health URL:", HEALTH_URL)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
+    prune_old_logs()
     backend_log_path = LOG_DIR / f"launcher_backend_{datetime.now():%Y%m%d_%H%M%S}.log"
     print("[Launcher] Backend log:", backend_log_path)
     print("[Sarah Launcher] Starting backend Python server...")
@@ -164,7 +217,7 @@ def main() -> None:
 
     if not wait_for_backend():
         print("[Sarah Launcher] Shutting down backend...")
-        stop_process(backend_process, "backend")
+        stop_process(backend_process, "backend", graceful_backend=True)
         sys.exit(1)
 
     print("[Sarah Launcher] Launching Sarah's desktop UI...")
@@ -205,7 +258,7 @@ def main() -> None:
         time.sleep(2)
 
     print("[Sarah Launcher] UI closed. Shutting down backend...")
-    stop_process(backend_process, "backend")
+    stop_process(backend_process, "backend", graceful_backend=True)
 
 
 if __name__ == "__main__":

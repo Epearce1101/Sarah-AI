@@ -25,6 +25,8 @@ from backend.db import init_db
 from backend.identity import load as load_identity
 from backend.state import preload_sarah
 
+logger = logging.getLogger(__name__)
+
 API_TOKEN_HEADER = "X-Sarah-Token"
 # The launcher polls health before Electron (the token carrier) exists.
 _AUTH_EXEMPT_PATHS = frozenset({"/api/health"})
@@ -70,7 +72,7 @@ def create_app() -> FastAPI:
                 )
             return await call_next(request)
 
-        print("[INIT] API token enforcement enabled.")
+        logger.info("[INIT] API token enforcement enabled.")
 
     app.add_middleware(
         CORSMiddleware,
@@ -97,98 +99,96 @@ async def _lifespan(app: FastAPI):
 
 
 async def _startup() -> None:
-    print("[INIT] Booting SQL database...")
+    logger.info("[INIT] Booting SQL database...")
     init_db()
-    print("[INIT] SQL ready.")
+    logger.info("[INIT] SQL ready.")
 
     # Restore a model picked in the UI, then check (off the event loop) that
     # it and its fallbacks still exist on OpenRouter.
     llm_models.load_persisted_model()
     asyncio.get_running_loop().run_in_executor(None, llm_models.check_availability)
 
-    print("[INIT] Loading identity from USER.md...")
+    logger.info("[INIT] Loading identity from USER.md...")
     try:
         load_identity()
-        print("[INIT] Identity ready.")
+        logger.info("[INIT] Identity ready.")
     except Exception as e:
-        print(f"[INIT] Identity load failed (using fallback): {e}")
+        logger.warning(f"[INIT] Identity load failed (using fallback): {e}")
 
-    print("[INIT] Loading persona from IDENTITY.md / SOUL.md...")
+    logger.info("[INIT] Loading persona from IDENTITY.md / SOUL.md...")
     try:
         from backend.persona import load as load_persona
         psnap = load_persona()
         slug = psnap.slug or "(none)"
-        print(
-            f"[INIT] Persona ready: slug={slug} "
+        logger.info(f"[INIT] Persona ready: slug={slug} "
             f"identity={len(psnap.identity_md)}c soul={len(psnap.soul_md)}c "
-            f"fallback={psnap.fallback_used}"
-        )
+            f"fallback={psnap.fallback_used}")
     except Exception as e:
-        print(f"[INIT] Persona load failed (continuing without persona): {e}")
+        logger.warning(f"[INIT] Persona load failed (continuing without persona): {e}")
 
-    print("[INIT] Discovering skills...")
+    logger.info("[INIT] Discovering skills...")
     try:
         from backend.skills import load as load_skills
         snap = load_skills()
         disk_count = sum(1 for s in snap if not s.stale)
         stale_count = sum(1 for s in snap if s.stale)
-        print(f"[INIT] Skills ready: {disk_count} on disk, {stale_count} stale.")
+        logger.info(f"[INIT] Skills ready: {disk_count} on disk, {stale_count} stale.")
     except Exception as e:
-        print(f"[INIT] Skills load failed (continuing without skills): {e}")
+        logger.warning(f"[INIT] Skills load failed (continuing without skills): {e}")
 
-    print("[INIT] Initializing memory system...")
+    logger.info("[INIT] Initializing memory system...")
     try:
         from backend.memory import get_memory_store
         get_memory_store()
-        print("[INIT] Memory system ready.")
+        logger.info("[INIT] Memory system ready.")
     except Exception as e:
-        print(f"[INIT] Memory system unavailable: {e}")
+        logger.warning(f"[INIT] Memory system unavailable: {e}")
 
     preload_sarah()
     start_wake_listener()
 
-    print("[INIT] Prewarming Piper TTS daemon...")
+    logger.info("[INIT] Prewarming Piper TTS daemon...")
     try:
         from backend.piper.piper_tts import prewarm as prewarm_piper
         prewarm_piper()
-        print("[INIT] Piper daemon spawned (voice loads in background).")
+        logger.info("[INIT] Piper daemon spawned (voice loads in background).")
     except Exception as e:
-        print(f"[INIT] Piper prewarm failed (will lazy-spawn on first call): {e}")
+        logger.warning(f"[INIT] Piper prewarm failed (will lazy-spawn on first call): {e}")
 
-    print("[INIT] Starting Ollama manager...")
+    logger.info("[INIT] Starting Ollama manager...")
 
 
 async def _shutdown() -> None:
-    print(f"\n{'=' * 60}")
-    print("[SHUTDOWN] Backend shutdown initiated")
-    print("=" * 60)
+    logger.info(f"\n{'=' * 60}")
+    logger.info("[SHUTDOWN] Backend shutdown initiated")
+    logger.info("=" * 60)
 
-    print("[SHUTDOWN] Stopping Ollama manager...")
+    logger.info("[SHUTDOWN] Stopping Ollama manager...")
     try:
         from backend.services.ollama_manager import get_ollama_manager
         ollama_mgr = get_ollama_manager()
         await ollama_mgr.stop_monitoring()
         ollama_mgr.cleanup()
     except Exception as e:
-        print(f"[SHUTDOWN] Ollama manager cleanup error (best-effort): {e}")
+        logger.error(f"[SHUTDOWN] Ollama manager cleanup error (best-effort): {e}")
 
-    print("[SHUTDOWN] Cleaning up vision manager...")
+    logger.info("[SHUTDOWN] Cleaning up vision manager...")
     try:
         from backend.services.vision import cleanup_vision_manager
         await cleanup_vision_manager()
     except Exception as e:
-        print(f"[SHUTDOWN] Vision cleanup error (best-effort): {e}")
+        logger.error(f"[SHUTDOWN] Vision cleanup error (best-effort): {e}")
 
-    print("[SHUTDOWN] Tearing down Piper TTS daemon...")
+    logger.info("[SHUTDOWN] Tearing down Piper TTS daemon...")
     try:
         from backend.piper.piper_tts import cleanup_warm_proc
         cleanup_warm_proc()
     except Exception as e:
-        print(f"[SHUTDOWN] Piper cleanup error (best-effort): {e}")
+        logger.error(f"[SHUTDOWN] Piper cleanup error (best-effort): {e}")
 
-    print(f"\n{'=' * 60}")
-    print("[SHUTDOWN] All services stopped - Backend offline")
-    print(f"{'=' * 60}\n")
+    logger.info(f"\n{'=' * 60}")
+    logger.info("[SHUTDOWN] All services stopped - Backend offline")
+    logger.info(f"{'=' * 60}\n")
 
 
 async def _start_ollama_manager() -> None:
@@ -196,32 +196,28 @@ async def _start_ollama_manager() -> None:
         from backend.services.ollama_manager import get_ollama_manager
         ollama_mgr = get_ollama_manager()
 
-        print("[INIT] Starting Ollama server and performing health check...")
+        logger.info("[INIT] Starting Ollama server and performing health check...")
         is_healthy = await ollama_mgr.start_and_verify_simple()
 
         status = ollama_mgr.get_status()
-        print(f"\n{'=' * 60}")
-        print("[OLLAMA STATUS REPORT]")
-        print(f"  Status: {status['status'].upper()}")
-        print(
-            f"  Monitoring: "
-            f"{'Active' if status['monitoring_active'] else 'Inactive'}"
-        )
-        print(
-            f"  Health Check Interval: {status['health_check_interval']}s "
-            f"({status['health_check_interval'] // 60} minutes)"
-        )
+        logger.info(f"\n{'=' * 60}")
+        logger.info("[OLLAMA STATUS REPORT]")
+        logger.info(f"  Status: {status['status'].upper()}")
+        logger.info(f"  Monitoring: "
+            f"{'Active' if status['monitoring_active'] else 'Inactive'}")
+        logger.info(f"  Health Check Interval: {status['health_check_interval']}s "
+            f"({status['health_check_interval'] // 60} minutes)")
         if is_healthy:
-            print("\n  [OK] OLLAMA IS OPERATIONAL AND READY")
+            logger.info("\n  [OK] OLLAMA IS OPERATIONAL AND READY")
             await asyncio.to_thread(_prewarm_ollama_text_model)
         else:
-            print(f"\n  [!] OLLAMA STATUS: {status['status']}")
-        print(f"{'=' * 60}\n")
+            logger.info(f"\n  [!] OLLAMA STATUS: {status['status']}")
+        logger.info(f"{'=' * 60}\n")
 
         await ollama_mgr.start_monitoring()
     except Exception as e:
         error_msg = str(e).encode("ascii", "replace").decode("ascii")
-        print(f"[INIT] Ollama manager error: {error_msg}")
+        logger.error(f"[INIT] Ollama manager error: {error_msg}")
 
 
 def _prewarm_ollama_text_model() -> None:
@@ -240,13 +236,13 @@ def _prewarm_ollama_text_model() -> None:
         },
     }
     try:
-        print(f"[INIT] Prewarming Ollama text model: {settings.default_local_model}")
+        logger.info(f"[INIT] Prewarming Ollama text model: {settings.default_local_model}")
         response = requests.post(
             url,
             json=payload,
             timeout=settings.local_request_timeout_seconds,
         )
         response.raise_for_status()
-        print("[INIT] Ollama text model prewarmed.")
+        logger.info("[INIT] Ollama text model prewarmed.")
     except Exception as exc:
-        print(f"[INIT] Ollama text prewarm failed: {exc}")
+        logger.warning(f"[INIT] Ollama text prewarm failed: {exc}")
