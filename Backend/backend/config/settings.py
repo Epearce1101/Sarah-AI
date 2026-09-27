@@ -214,6 +214,13 @@ class Settings:
         "SARAH_DB_PATH", BACKEND_ROOT / "data" / "sarah.db",
     ))
 
+    # Daily database snapshots (backend/backup.py)
+    backup_enabled: bool = field(default_factory=lambda: _bool("SARAH_BACKUP_ENABLED", True))
+    backup_dir: Path = field(default_factory=lambda: _path(
+        "SARAH_BACKUP_DIR", BACKEND_ROOT / "data" / "backups",
+    ))
+    backup_keep: int = field(default_factory=lambda: _int("SARAH_BACKUP_KEEP", 7))
+
     # Skills (B4)
     skills_enabled: bool = field(default_factory=lambda: _bool("SARAH_SKILLS_ENABLED", True))
     skills_inject_char_cap: int = field(default_factory=lambda: _int("SARAH_SKILLS_INJECT_CHAR_CAP", 8000))

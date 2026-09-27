@@ -89,13 +89,29 @@ def create_app() -> FastAPI:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     await _startup()
-    ollama_task = asyncio.create_task(_start_ollama_manager())
+    background = [
+        asyncio.create_task(_start_ollama_manager()),
+        asyncio.create_task(_backup_loop()),
+    ]
     try:
         yield
     finally:
-        if not ollama_task.done():
-            ollama_task.cancel()
+        for task in background:
+            if not task.done():
+                task.cancel()
         await _shutdown()
+
+
+BACKUP_CHECK_INTERVAL_SECONDS = 6 * 3600
+
+
+async def _backup_loop() -> None:
+    """Daily DB snapshot: checked at boot, then every 6 h (runs off-loop)."""
+    from backend.backup import ensure_recent_backup
+
+    while True:
+        await asyncio.to_thread(ensure_recent_backup)
+        await asyncio.sleep(BACKUP_CHECK_INTERVAL_SECONDS)
 
 
 async def _startup() -> None:

@@ -352,6 +352,44 @@ def test_memory_delete_endpoint(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Database backups
+# ---------------------------------------------------------------------------
+
+def test_backup_snapshot_is_consistent_and_pruned(tmp_path):
+    import sqlite3
+    import time as _time
+    from backend import backup, db
+    from backend.models import core
+
+    cid = core.create_conversation("backup-me")
+    core.add_message(cid, "user", "remember this line")
+    made = []
+    for _ in range(4):
+        made.append(backup.backup_database(directory=tmp_path, keep=3))
+        _time.sleep(1.1)  # distinct timestamped names
+    kept = backup.list_backups(tmp_path)
+    assert len(kept) == 3 and made[-1] in kept and made[0] not in kept
+    assert not list(tmp_path.glob("*.partial"))
+    conn = sqlite3.connect(kept[0])
+    try:
+        assert conn.execute("SELECT count(*) FROM messages WHERE content = 'remember this line'").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_ensure_recent_backup_skips_when_fresh(tmp_path, monkeypatch):
+    from backend import backup
+
+    monkeypatch.setattr(backup, "settings", dataclasses.replace(
+        backup.settings, backup_dir=tmp_path, backup_enabled=True, backup_keep=7))
+    first = backup.ensure_recent_backup()
+    assert first is not None and first.exists()
+    assert backup.ensure_recent_backup() is None  # newest is < 24 h old
+    monkeypatch.setattr(backup, "settings", dataclasses.replace(backup.settings, backup_enabled=False))
+    assert backup.ensure_recent_backup(max_age_seconds=0) is None
+
+
+# ---------------------------------------------------------------------------
 # Graceful shutdown
 # ---------------------------------------------------------------------------
 
