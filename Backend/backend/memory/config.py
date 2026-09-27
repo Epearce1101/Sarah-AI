@@ -78,6 +78,11 @@ class MemoryConfig:
     # Max tokens for task state block
     task_state_tokens: int = 600
 
+    # Task-state extraction is an extra LLM call. Run it only when the reply
+    # asks a question / offers choices / a pending question needs clearing,
+    # or every N turns as a catch-all (0 = every turn, the old behaviour).
+    task_state_every_n_turns: int = 4
+
     # ============================================================
     # TOKEN BUDGETS
     # ============================================================
@@ -197,6 +202,9 @@ def get_memory_config() -> MemoryConfig:
             # Task state
             task_state_tokens=int(os.environ.get(
                 "SARAH_TASK_STATE_TOKENS", "600"
+            )),
+            task_state_every_n_turns=int(os.environ.get(
+                "SARAH_TASK_STATE_EVERY_N_TURNS", "4"
             )),
 
             # Token budgets

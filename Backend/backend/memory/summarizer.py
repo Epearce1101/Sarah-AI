@@ -388,9 +388,30 @@ pending_choices: {current.pending_choices}
             # Update rolling summary if needed
             await self.update_rolling_summary(conversation_id)
 
-            # Extract task state from response
+            # Extract task state from response (an LLM call) only when it can
+            # change something; otherwise just advance the turn counter.
             if assistant_response:
-                await self.extract_task_state_from_response(
-                    conversation_id,
-                    assistant_response,
-                )
+                if self.needs_task_state_update(conversation_id, assistant_response):
+                    await self.extract_task_state_from_response(
+                        conversation_id,
+                        assistant_response,
+                    )
+                else:
+                    self.store.update_task_state(conversation_id, increment_turn=True)
+
+    _CHOICE_LINE = re.compile(r"^\s*(?:\d+[.)]|[-*•]|[A-Da-d][.)])\s+\S", re.M)
+
+    def needs_task_state_update(self, conversation_id: int, assistant_response: str) -> bool:
+        """Cheap heuristic gate for `extract_task_state_from_response`."""
+        every = self.config.task_state_every_n_turns
+        if every <= 0:
+            return True
+        state = self.store.get_task_state(conversation_id)
+        if state.has_pending_question() or state.has_pending_choices():
+            return True  # this reply may have resolved it; re-extract to clear
+        tail = assistant_response[-400:]
+        if "?" in tail:
+            return True
+        if len(self._CHOICE_LINE.findall(assistant_response)) >= 2:
+            return True
+        return (state.turn_count + 1) % every == 0

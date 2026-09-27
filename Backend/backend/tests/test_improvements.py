@@ -90,6 +90,58 @@ def test_catalog_summary_is_text_only_and_free_first(models_env):
     assert vision["vendor/fallback-a"] is True
 
 
+@pytest.fixture
+def memory_store(tmp_path):
+    import sqlite3
+    from backend.memory.config import MemoryConfig
+    from backend.memory.memory_store import MemoryStore
+
+    db = tmp_path / "mem.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT)")
+    conn.execute(
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER,"
+        " role TEXT, content TEXT, meta_json TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+    )
+    conn.execute("INSERT INTO conversations (title) VALUES ('t')")
+    conn.commit()
+    conn.close()
+    config = MemoryConfig(debug_memory=False, task_state_every_n_turns=4)
+    return MemoryStore(db_path=db, config=config), config
+
+
+def test_task_state_extraction_is_skipped_for_plain_replies(memory_store):
+    import asyncio
+    from backend.memory.summarizer import Summarizer
+
+    store, config = memory_store
+    calls = []
+
+    async def fake_llm(prompt, max_tokens):
+        calls.append(prompt)
+        return '{"pending_question": "", "pending_choices": [], "next_step": "", "current_task": "", "last_assistant_action": "x"}'
+
+    summ = Summarizer(llm_call_fn=fake_llm, store=store, config=config)
+    for _ in range(8):
+        asyncio.run(summ.update_all(1, "Sure, done. Here is the answer."))
+    # Every 4th turn only (turns 4 and 8), not all 8.
+    assert len(calls) == 2
+    assert store.get_task_state(1).turn_count == 8
+
+
+@pytest.mark.parametrize("reply", [
+    "Which one would you like?",
+    "Options:\n1. Fast path\n2. Safe path",
+])
+def test_task_state_extraction_runs_for_questions_and_choices(memory_store, reply):
+    from backend.memory.summarizer import Summarizer
+
+    store, config = memory_store
+    summ = Summarizer(llm_call_fn=None, store=store, config=config)
+    assert summ.needs_task_state_update(1, reply) is True
+    assert summ.needs_task_state_update(1, "All set.") is False
+
+
 def test_vision_body_has_token_floor_and_vision_model(models_env):
     body = llm_models.vision_request_body([{"role": "user", "content": "x"}], max_tokens=96)
     assert body["model"] == "vendor/fallback-a"
