@@ -3186,7 +3186,12 @@ class SarahUI {
       const health = await response.json();
       console.log("[LLM Mode] Ollama health:", health);
 
-      if (!health.ollama_reachable) {
+      if (health.vision_ready && health.provider === "openrouter") {
+        this.setStatus("Ollama not reachable - vision uses OpenRouter");
+        if (statusDot) statusDot.className = "vision-status-dot status-ready";
+        if (statusText) statusText.textContent = "Vision: Ready";
+        if (statusMeta) statusMeta.textContent = `cloud · ${String(health.model || "").split("/").pop()}`;
+      } else if (!health.ollama_reachable) {
         this.setStatus("Ollama not reachable - start Ollama first");
         if (statusDot) statusDot.className = "vision-status-dot status-offline";
         if (statusText) statusText.textContent = "Vision: Offline";
@@ -5767,7 +5772,13 @@ function startVisionStatusMonitor() {
       // Update UI based on health status and Ollama manager state
       const ollamaStatus = health.ollama_manager?.status || "unknown";
 
-      if (!health.ollama_reachable) {
+      if (health.vision_ready === true && health.provider === "openrouter") {
+        // Ollama is unavailable, but images go to the OpenRouter vision model.
+        statusDot.className = "vision-status-dot status-ready";
+        statusText.textContent = "Vision: Ready";
+        statusMeta.textContent = `cloud · ${String(health.model || "").split("/").pop()}`;
+        statusMeta.title = `Local Ollama unavailable (${health.fallback_reason || "not running"}); using OpenRouter`;
+      } else if (!health.ollama_reachable) {
         // Check if Ollama is starting
         if (ollamaStatus === "starting" || ollamaStatus === "unknown") {
           statusDot.className = "vision-status-dot status-warming";

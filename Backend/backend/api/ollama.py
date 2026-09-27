@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from backend import llm_models
 from backend.api.schemas import OllamaTextAnalysisRequest
 from backend.config import settings as _settings
 from backend.services.vision_client import get_ollama_vision
@@ -93,6 +94,31 @@ async def api_ollama_analyze_image(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _analyze_text_openrouter(prompt: str, mode: str, start_time: float) -> dict:
+    from openai import OpenAI
+
+    client = OpenAI(api_key=_settings.openrouter_api_key, base_url=_settings.openrouter_base_url)
+    resp = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1500,
+        temperature=0.3,
+        **llm_models.completion_kwargs(reasoning=False),
+    )
+    text = (resp.choices[0].message.content or "").strip()
+    if "</think>" in text:
+        text = text.split("</think>")[-1].strip()
+    if not text:
+        raise HTTPException(status_code=502, detail="Empty analysis from OpenRouter")
+    return {
+        "ok": True,
+        "model": getattr(resp, "model", None) or llm_models.current_online_model(),
+        "provider": "openrouter",
+        "mode": mode,
+        "analysis": text,
+        "timing_ms": int((time.time() - start_time) * 1000),
+    }
+
+
 @router.post("/api/ollama/analyze-text")
 def api_ollama_analyze_text(payload: OllamaTextAnalysisRequest):
     """Analyze text/code snippets using Ollama text model (no image required)."""
@@ -127,16 +153,24 @@ Provide a concise analysis:
         else:
             prompt = f"Analyze this text briefly:\n\n{text}\n\n/no_think"
 
-        response = req.post(
-            f"{_settings.ollama_base_url}/api/chat",
-            json={
-                "model": TEXT_MODEL,
-                "stream": False,
-                "messages": [{"role": "user", "content": prompt}],
-                "options": {"num_predict": 500, "temperature": 0.3},
-            },
-            timeout=90,
-        )
+        try:
+            response = req.post(
+                f"{_settings.ollama_base_url}/api/chat",
+                json={
+                    "model": TEXT_MODEL,
+                    "stream": False,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "options": {"num_predict": 500, "temperature": 0.3},
+                },
+                timeout=90,
+            )
+        except req.ConnectionError:
+            response = None  # Ollama not running
+        if (response is None or response.status_code == 404) and _settings.openrouter_api_key:
+            # No local Ollama (or model not pulled): use the OpenRouter chat model.
+            return _analyze_text_openrouter(prompt.replace("\n\n/no_think", ""), mode, start_time)
+        if response is None:
+            raise HTTPException(status_code=503, detail="Ollama is not running and no OpenRouter key is set.")
 
         timing_ms = int((time.time() - start_time) * 1000)
 

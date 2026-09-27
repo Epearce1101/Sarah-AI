@@ -239,6 +239,68 @@ def test_chat_stream_endpoint_emits_sse(monkeypatch):
     assert done["reply"] == "Hi Zero" and done["assistant_message_id"] == 2
 
 
+# ---------------------------------------------------------------------------
+# Vision falls back to OpenRouter without Ollama
+# ---------------------------------------------------------------------------
+
+def _png_bytes():
+    import io
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "white").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _vision_manager(monkeypatch, *, cloud: bool):
+    import backend.services.vision as vision_mod
+
+    monkeypatch.setattr(vision_mod, "_settings", dataclasses.replace(
+        vision_mod._settings, openrouter_api_key="k" if cloud else ""))
+    # Port 9 (discard) refuses connections: Ollama is "not running".
+    return vision_mod.VisionManager(vision_mod.VisionConfig(ollama_url="http://127.0.0.1:9"))
+
+
+def test_vision_health_reports_cloud_fallback(monkeypatch):
+    import asyncio
+
+    vm = _vision_manager(monkeypatch, cloud=True)
+    health = asyncio.run(vm.health_check())
+    assert health["vision_ready"] is True and health["provider"] == "openrouter"
+    assert health["ollama_reachable"] is False and health["fallback_reason"]
+
+    vm_off = _vision_manager(monkeypatch, cloud=False)
+    health_off = asyncio.run(vm_off.health_check())
+    assert health_off["vision_ready"] is False and health_off["provider"] is None
+
+
+def test_vision_analyze_routes_to_openrouter_when_ollama_down(monkeypatch):
+    import asyncio
+
+    vm = _vision_manager(monkeypatch, cloud=True)
+    seen = {}
+
+    async def fake_cloud(processed_bytes, prompt):
+        seen["prompt"] = prompt
+        return {"ok": True, "provider": "openrouter", "model": "vendor/vision", "analysis": "A white square."}
+
+    monkeypatch.setattr(vm, "_analyze_openrouter", fake_cloud)
+    result = asyncio.run(vm.analyze(_png_bytes(), mode="ocr"))
+    asyncio.run(vm.close())
+    assert result["ok"] and result["provider"] == "openrouter"
+    assert result["analysis"] == "A white square." and result["mode"] == "ocr"
+    assert "Extract ALL visible text" in seen["prompt"]
+
+
+def test_vision_analyze_without_any_backend_explains(monkeypatch):
+    import asyncio
+
+    vm = _vision_manager(monkeypatch, cloud=False)
+    result = asyncio.run(vm.analyze(_png_bytes()))
+    asyncio.run(vm.close())
+    assert result["ok"] is False and "No vision backend" in result["error"]
+
+
 def test_vision_body_has_token_floor_and_vision_model(models_env):
     body = llm_models.vision_request_body([{"role": "user", "content": "x"}], max_tokens=96)
     assert body["model"] == "vendor/fallback-a"

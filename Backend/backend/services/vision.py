@@ -6,6 +6,7 @@ Optimized for screenshots, UI images, and code snippets
 import asyncio
 import aiohttp
 import base64
+import logging
 import time
 import io
 import re
@@ -13,7 +14,11 @@ from typing import Optional, Dict, Any, Tuple
 from PIL import Image
 from dataclasses import dataclass, field
 
+from backend import llm_models
 from backend.config import settings as _settings
+
+logger = logging.getLogger("sarah.vision")
+OPENROUTER_VISION_TIMEOUT = 120
 
 
 @dataclass
@@ -81,7 +86,33 @@ Format:
         if self._session and not self._session.closed:
             await self._session.close()
 
+    @staticmethod
+    def _cloud_available() -> bool:
+        return bool(_settings.openrouter_api_key)
+
     async def health_check(self) -> Dict[str, Any]:
+        """Vision readiness: local Ollama if usable, else the OpenRouter model.
+
+        Returns {ok, ollama_reachable, vision_ready, provider, model, ...}.
+        `provider` is "ollama" or "openrouter"; with neither, vision_ready is
+        False and the Ollama error explains why.
+        """
+        local = await self._ollama_health()
+        if local.get("vision_ready"):
+            return {**local, "provider": "ollama"}
+        if self._cloud_available():
+            return {
+                **local,
+                "ok": True,
+                "vision_ready": True,
+                "provider": "openrouter",
+                "model": llm_models.current_vision_model(),
+                "local_model": self.config.model,
+                "fallback_reason": local.get("error") or local.get("last_error") or "local model not installed",
+            }
+        return {**local, "provider": None}
+
+    async def _ollama_health(self) -> Dict[str, Any]:
         """
         Check if Ollama is reachable and model is available
         Returns: {ok, ollama_reachable, vision_ready, model, models_available}
@@ -116,7 +147,7 @@ Format:
                     for m in models
                 )
 
-                print(f"[VisionManager] Model check: looking for '{self.config.model}' in {models}, found={model_available}")
+                logger.debug("Model check: looking for %r in %s, found=%s", self.config.model, models, model_available)
 
                 self._last_error = None if model_available else f"Model {self.config.model} not found in {models}"
 
@@ -170,7 +201,7 @@ Format:
 
         try:
             # First check health
-            health = await self.health_check()
+            health = await self._ollama_health()
             if not health.get("ollama_reachable") or not health.get("ok"):
                 print(f"[VisionManager] Warmup skipped - Ollama not reachable")
                 return False
@@ -275,132 +306,129 @@ Format:
         model_override: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Analyze image using Ollama vision model
+        Analyze an image: local Ollama when it's usable, else OpenRouter.
 
         Args:
             image_bytes: Raw image bytes
             mode: Analysis mode (general/ocr/ui/code)
-            model_override: Override default model
+            model_override: Force a specific *Ollama* model (no cloud fallback)
 
         Returns:
-            {ok, model, mode, analysis, timing_ms, preprocessing}
+            {ok, model, mode, analysis, timing_ms, provider, preprocessing}
         """
         start = time.time()
-        model = model_override or self.config.model
-
-        try:
-            # Validate mode
-            if mode not in self.PROMPTS:
-                return {
-                    "ok": False,
-                    "error": f"Invalid mode: {mode}. Must be one of: {list(self.PROMPTS.keys())}"
-                }
-
-            # Preprocess image
-            processed_bytes, img_format = self._preprocess_image(image_bytes)
-
-            # Encode to base64
-            image_b64 = base64.b64encode(processed_bytes).decode('utf-8')
-
-            # Get prompt
-            prompt = self.PROMPTS[mode]
-
-            # Build request
-            # Note: qwen3 models may use thinking mode by default
-            # Adding /no_think to prompt disables extended reasoning if needed
-            payload = {
-                "model": model,
-                "stream": False,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt + "\n\n/no_think",
-                        "images": [image_b64]
-                    }
-                ],
-                "options": {
-                    "num_predict": self.config.max_tokens
-                }
+        if mode not in self.PROMPTS:
+            return {
+                "ok": False,
+                "error": f"Invalid mode: {mode}. Must be one of: {list(self.PROMPTS.keys())}"
             }
 
-            print(f"[VisionManager] Analyzing image: mode={mode}, size={len(processed_bytes)} bytes, format={img_format}")
+        processed_bytes, img_format = self._preprocess_image(image_bytes)
+        prompt = self.PROMPTS[mode]
 
-            # Call Ollama
+        local_error = None
+        use_local = bool(model_override) or (await self._ollama_health()).get("vision_ready")
+        if use_local:
+            result = await self._analyze_ollama(processed_bytes, prompt, model_override or self.config.model)
+            if result.get("ok") or model_override or not self._cloud_available():
+                return self._finish(result, start, mode, image_bytes, processed_bytes, img_format)
+            local_error = result.get("error")
+            logger.warning("Ollama vision failed (%s); falling back to OpenRouter", local_error)
+
+        if not self._cloud_available():
+            return {
+                "ok": False,
+                "error": "No vision backend: Ollama isn't available and no OpenRouter API key is set.",
+                "timing_ms": int((time.time() - start) * 1000),
+            }
+
+        result = await self._analyze_openrouter(processed_bytes, prompt)
+        if local_error:
+            result["local_error"] = local_error
+        return self._finish(result, start, mode, image_bytes, processed_bytes, img_format)
+
+    @staticmethod
+    def _finish(result, start, mode, image_bytes, processed_bytes, img_format) -> Dict[str, Any]:
+        result.setdefault("timing_ms", int((time.time() - start) * 1000))
+        if result.get("ok"):
+            result.update(
+                mode=mode,
+                preprocessing={
+                    "original_size": len(image_bytes),
+                    "processed_size": len(processed_bytes),
+                    "format": img_format,
+                },
+            )
+            logger.info("Vision analysis via %s: %sms, %d chars",
+                        result.get("provider"), result["timing_ms"], len(result.get("analysis", "")))
+        return result
+
+    @staticmethod
+    def _clean_analysis(text: str) -> str:
+        # Reasoning models may emit a thinking block before the answer.
+        if text and "</think>" in text:
+            text = text.split("</think>")[-1]
+        return re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL).strip()
+
+    async def _analyze_ollama(self, processed_bytes: bytes, prompt: str, model: str) -> Dict[str, Any]:
+        image_b64 = base64.b64encode(processed_bytes).decode("utf-8")
+        # qwen3 models think by default; /no_think keeps answers short.
+        payload = {
+            "model": model,
+            "stream": False,
+            "messages": [{"role": "user", "content": prompt + "\n\n/no_think", "images": [image_b64]}],
+            "options": {"num_predict": self.config.max_tokens},
+        }
+        try:
             session = await self._get_session()
-            async with session.post(
-                f"{self.config.ollama_url}/api/chat",
-                json=payload
-            ) as resp:
+            async with session.post(f"{self.config.ollama_url}/api/chat", json=payload) as resp:
                 if resp.status != 200:
                     error_text = await resp.text()
-                    print(f"[VisionManager] Ollama error {resp.status}: {error_text[:300]}")
-                    return {
-                        "ok": False,
-                        "error": f"Ollama API error {resp.status}: {error_text[:200]}"
-                    }
-
+                    return {"ok": False, "error": f"Ollama API error {resp.status}: {error_text[:200]}"}
                 data = await resp.json()
-                print(f"[VisionManager] Raw Ollama response keys: {list(data.keys())}")
-
-                # Extract analysis text
-                analysis_text = data.get("message", {}).get("content", "")
-
-                # Debug: print full response if empty
-                if not analysis_text:
-                    print(f"[VisionManager] Empty content. Full response: {data}")
-                    # Try alternative response formats
-                    if "response" in data:
-                        analysis_text = data["response"]
-                    elif "content" in data:
-                        analysis_text = data["content"]
-
-                # Handle qwen3 thinking blocks - extract content after </think> if present
-                if analysis_text and "</think>" in analysis_text:
-                    parts = analysis_text.split("</think>")
-                    if len(parts) > 1:
-                        analysis_text = parts[-1].strip()
-                        print(f"[VisionManager] Extracted content after thinking block")
-
-                # Strip thinking block tags if they exist
-                analysis_text = re.sub(r'<think>.*?</think>', '', analysis_text, flags=re.DOTALL).strip()
-
-                if not analysis_text:
-                    return {
-                        "ok": False,
-                        "error": f"Empty response from Ollama. Keys: {list(data.keys())}"
-                    }
-
-                elapsed_ms = int((time.time() - start) * 1000)
-
-                print(f"[VisionManager] Analysis complete: {elapsed_ms}ms, {len(analysis_text)} chars")
-
-                return {
-                    "ok": True,
-                    "model": model,
-                    "mode": mode,
-                    "analysis": analysis_text,
-                    "timing_ms": elapsed_ms,
-                    "preprocessing": {
-                        "original_size": len(image_bytes),
-                        "processed_size": len(processed_bytes),
-                        "format": img_format
-                    }
-                }
-
         except asyncio.TimeoutError:
-            elapsed_ms = int((time.time() - start) * 1000)
-            return {
-                "ok": False,
-                "error": f"Request timeout after {elapsed_ms}ms"
-            }
+            return {"ok": False, "error": "Ollama request timed out"}
         except Exception as e:
-            elapsed_ms = int((time.time() - start) * 1000)
-            print(f"[VisionManager] Analysis error: {e}")
-            return {
-                "ok": False,
-                "error": f"Analysis error: {str(e)}",
-                "timing_ms": elapsed_ms
-            }
+            return {"ok": False, "error": f"Ollama error: {e}"}
+
+        text = (data.get("message") or {}).get("content") or data.get("response") or data.get("content") or ""
+        text = self._clean_analysis(text)
+        if not text:
+            return {"ok": False, "error": f"Empty response from Ollama. Keys: {list(data.keys())}"}
+        return {"ok": True, "provider": "ollama", "model": model, "analysis": text}
+
+    async def _analyze_openrouter(self, processed_bytes: bytes, prompt: str) -> Dict[str, Any]:
+        image_b64 = base64.b64encode(processed_bytes).decode("utf-8")
+        body = llm_models.vision_request_body(
+            [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                ],
+            }],
+            max_tokens=self.config.max_tokens,
+        )
+        url = f"{_settings.openrouter_base_url.rstrip('/')}/chat/completions"
+        headers = {"Authorization": f"Bearer {_settings.openrouter_api_key}", "Content-Type": "application/json"}
+        try:
+            session = await self._get_session()
+            async with session.post(url, json=body, headers=headers,
+                                    timeout=aiohttp.ClientTimeout(total=OPENROUTER_VISION_TIMEOUT)) as resp:
+                data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    message = (data.get("error") or {}).get("message") if isinstance(data, dict) else None
+                    return {"ok": False, "error": f"OpenRouter vision error {resp.status}: {message or str(data)[:200]}"}
+        except asyncio.TimeoutError:
+            return {"ok": False, "error": "OpenRouter vision request timed out"}
+        except Exception as e:
+            return {"ok": False, "error": f"OpenRouter vision error: {e}"}
+
+        choices = data.get("choices") or []
+        text = self._clean_analysis(((choices[0] if choices else {}).get("message") or {}).get("content") or "")
+        if not text:
+            return {"ok": False, "error": "Empty response from OpenRouter vision model"}
+        return {"ok": True, "provider": "openrouter", "model": data.get("model") or body["model"], "analysis": text}
 
 
 # Global singleton
