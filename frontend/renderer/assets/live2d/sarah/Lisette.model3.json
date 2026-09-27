@@ -1,0 +1,56 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "Lisette.moc3",
+		"Textures": [
+			"Lisette.4096/texture_00.png",
+			"Lisette.4096/texture_01.png",
+			"Lisette.4096/texture_02.png"
+		],
+		"Physics": "Lisette.physics3.json",
+		"UserData": "Lisette.userdata3.json",
+		"DisplayInfo": "Lisette.cdi3.json",
+		"Expressions": [
+			{ "Name": "angry", "File": "Expressions/angry.exp3.json" },
+			{ "Name": "sad", "File": "Expressions/sad.exp3.json" },
+			{ "Name": "shy", "File": "Expressions/shy.exp3.json" },
+			{ "Name": "frenzy", "File": "Expressions/frenzy.exp3.json" },
+			{ "Name": "tear", "File": "Expressions/tear.exp3.json" },
+			{ "Name": "tongue_out", "File": "Expressions/tongue_out.exp3.json" },
+			{ "Name": "dark_mask", "File": "Expressions/dark_mask.exp3.json" },
+			{ "Name": "sans_eye_glow", "File": "Expressions/sans_eye_glow.exp3.json" },
+			{ "Name": "walking_toggle", "File": "Expressions/walking_toggle.exp3.json" }
+		],
+		"Motions": {
+			"Idle": [
+				{ "File": "Animations/breathing.motion3.json" },
+				{ "File": "Animations/hand_fiddle_idle.motion3.json" }
+			],
+			"Hello": [{ "File": "Animations/hello_ani.motion3.json" }],
+			"Happy": [{ "File": "Animations/happy_transition.motion3.json" }],
+			"Sad": [
+				{ "File": "Animations/sad_idle.motion3.json" },
+				{ "File": "Animations/sad_expression.motion3.json" }
+			],
+			"Angry": [
+				{ "File": "Animations/angry_idle.motion3.json" },
+				{ "File": "Animations/angry_face_expression.motion3.json" }
+			],
+			"Shy": [{ "File": "Animations/shy_idle.motion3.json" }],
+			"Jump": [{ "File": "Animations/jump_ani.motion3.json" }],
+			"Run": [{ "File": "Animations/run_idle.motion3.json" }]
+		}
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": ["ParamMouthOpenY"]
+		},
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": ["ParamEyeLOpen", "ParamEyeROpen"]
+		}
+	]
+}

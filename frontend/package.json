@@ -1,0 +1,21 @@
+{
+  "name": "sarah-v10",
+  "version": "10.0.0",
+  "description": "Sarah V10 Electron dashboard",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  },
+  "dependencies": {
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^6.5.8",
+    "tesseract.js": "^6.0.1",
+    "three": "^0.184.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

@@ -1,0 +1,225 @@
+{
+	"Version": 3,
+	"Meta": {
+		"Duration": 1,
+		"Fps": 30.0,
+		"Loop": true,
+		"AreBeziersRestricted": true,
+		"CurveCount": 19,
+		"TotalSegmentCount": 19,
+		"TotalPointCount": 38,
+		"UserDataCount": 0,
+		"TotalUserDataSize": 0
+	},
+	"Curves": [
+		{
+			"Target": "Parameter",
+			"Id": "ParamAngleY",
+			"Segments": [
+				0,
+				-15,
+				0,
+				1,
+				-15
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamEyeBallSize",
+			"Segments": [
+				0,
+				-0.124,
+				0,
+				1,
+				-0.124
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamEyehighlightL",
+			"Segments": [
+				0,
+				-1,
+				0,
+				1,
+				-1
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamEyehighlightR",
+			"Segments": [
+				0,
+				-1,
+				0,
+				1,
+				-1
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamSad",
+			"Segments": [
+				0,
+				1,
+				0,
+				1,
+				1
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamDarkSad",
+			"Segments": [
+				0,
+				1,
+				0,
+				1,
+				1
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamTear",
+			"Segments": [
+				0,
+				1,
+				0,
+				1,
+				1
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamBodyAngleY",
+			"Segments": [
+				0,
+				-5,
+				0,
+				1,
+				-5
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamBreath",
+			"Segments": [
+				0,
+				0,
+				0,
+				1,
+				0
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamFingerRelaxL",
+			"Segments": [
+				0,
+				10,
+				0,
+				1,
+				10
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamHandLMove",
+			"Segments": [
+				0,
+				0,
+				0,
+				1,
+				0
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamLowerArmLMove",
+			"Segments": [
+				0,
+				-6,
+				0,
+				1,
+				-6
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamArmLMove2",
+			"Segments": [
+				0,
+				-8,
+				0,
+				1,
+				-8
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamFingerRelaxR",
+			"Segments": [
+				0,
+				10,
+				0,
+				1,
+				10
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamLowerArmRPerspective",
+			"Segments": [
+				0,
+				-7,
+				0,
+				1,
+				-7
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamLowerArmRMove",
+			"Segments": [
+				0,
+				-5,
+				0,
+				1,
+				-5
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamScissorLOpacity",
+			"Segments": [
+				0,
+				0,
+				0,
+				1,
+				0
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamScissorROpacity",
+			"Segments": [
+				0,
+				0,
+				0,
+				1,
+				0
+			]
+		},
+		{
+			"Target": "Parameter",
+			"Id": "ParamLegStraightCurve",
+			"Segments": [
+				0,
+				10,
+				0,
+				1,
+				10
+			]
+		}
+	]
+}

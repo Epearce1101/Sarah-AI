@@ -1,0 +1,36 @@
+# --- Environments / dependencies -------------------------------------------
+Backend/.venv/
+frontend/node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Secrets & local config --------------------------------------------------
+.env
+Backend/.env
+.claude/settings.local.json
+
+# --- Runtime data (conversations DB, backups, per-run API token) -------------
+Backend/data/
+Backend/SARAH_DRIVE/logs/
+*.log
+Backend/tts_cache/
+Backend/backend/piper/output/
+Backend/backend/temp_stt.webm
+frontend/tests/artifacts/
+
+# --- Large third-party binaries & models (restore manually; see README) ------
+# ffmpeg/ffplay/ffprobe (~95 MB each) and the SarahVision helper
+Backend/backend/screen/*.exe
+# Piper runtime, espeak data and the jenny voice (~80 MB)
+Backend/backend/piper/*.exe
+Backend/backend/piper/*.dll
+Backend/backend/piper/*.ort
+Backend/backend/piper/espeak-ng-data/
+Backend/backend/piper/models/
+# Vosk wake-word model (~68 MB)
+Backend/backend/wake/models/
+
+# --- Editor / tool state -------------------------------------------------------
+.obsidian/
+.vscode/

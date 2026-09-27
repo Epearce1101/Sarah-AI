@@ -1,0 +1,544 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sarah V10 - Multimodal</title>
+
+  <!-- SECURITY POLICY - DISABLED TO TEST CLIPBOARD -->
+  <!-- <meta http-equiv="Content-Security-Policy"
+        content="
+        default-src 'self' data: blob: filesystem: http: https:;
+        img-src 'self' data: blob:;
+        media-src 'self' data: blob:;
+        connect-src 'self' http://127.0.0.1:8907 http://localhost:8907 ws://127.0.0.1:8907 ws://localhost:8907 https://cdnjs.cloudflare.com;
+        script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://cdnjs.cloudflare.com;
+        style-src 'self' 'unsafe-inline';
+        font-src 'self' data:;
+    " /> -->
+
+  <!-- ORIGINAL STYLES -->
+  <link rel="stylesheet" href="styles/theme.css" />
+  <link rel="stylesheet" href="styles/styles.css" />
+  <link rel="stylesheet" href="styles/avatar.css" />
+  <link rel="stylesheet" href="styles/sarah-avatar.css" />
+  <link rel="stylesheet" href="styles/a1-components.css" />
+
+  <!-- LIVE2D LIBRARIES -->
+  <script src="libs/pixi.min.js"></script>
+  <script src="libs/live2dcubismcore.min.js"></script>
+  <script src="libs/cubism4.min.js"></script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../node_modules/three/build/three.module.js"
+      }
+    }
+  </script>
+
+  <!-- HTML2CANVAS for Screenshot Capture -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <!-- LIVE2D CONTROLLER -->
+  <script src="scripts/live2d/avatar-config.js"></script>
+  <script src="scripts/live2d/avatar-emotion-engine.js"></script>
+  <script src="scripts/live2d/avatar-lipsync.js"></script>
+  <script src="scripts/live2d/avatar-motion-controller.js"></script>
+  <script src="scripts/live2d/avatar-ai-sync.js"></script>
+  <script src="scripts/live2d-sarah.js"></script>
+  <script src="scripts/live2d/avatar-system.js"></script>
+  <script type="module" src="scripts/three-avatar-test.js"></script>
+  <script src="scripts/model-status.js"></script>
+
+  <!-- DASHBOARD -->
+  <script type="module" src="dashboard.js" defer></script>
+
+</head>
+
+<body>
+
+<!-- ========================================================= -->
+<!-- SCREENSHOT PREVIEW MODAL (UPGRADED)                       -->
+<!-- ========================================================= -->
+<div id="screenshot-preview" class="screenshot-modal">
+  <div class="screenshot-backdrop"></div>
+  <div class="screenshot-window">
+    <img id="preview-img" class="screenshot-image"/>
+
+    <div class="screenshot-actions">
+      <button id="preview-ollama" class="pill-btn pill-btn-small pill-btn-accent">Analyze</button>
+      <button id="preview-describe" class="pill-btn pill-btn-small">Gemini (Backup)</button>
+      <button id="preview-ocr" class="pill-btn pill-btn-small">OCR</button>
+      <button id="preview-send" class="pill-btn pill-btn-small">Send to Chat</button>
+      <button id="preview-close" class="pill-btn pill-btn-small">Close</button>
+    </div>
+    <!-- Ollama mode selector (always visible) -->
+    <div id="ollama-mode-selector">
+      <label>Mode:</label>
+      <select id="ollama-mode-select">
+        <option value="ui">UI Analysis (Screenshots)</option>
+        <option value="general">General Description</option>
+        <option value="code">Code Extraction</option>
+        <option value="ocr">Text Extraction (OCR)</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- DIAGNOSTICS DASHBOARD WINDOW                             -->
+<!-- ========================================================= -->
+<div id="diagnostics-dashboard" class="diagnostics-modal hidden" aria-hidden="true"></div>
+
+<!-- ========================================================= -->
+<!-- ORIGINAL UI ROOT LAYOUT (UNTOUCHED STRUCTURE)            -->
+<!-- ========================================================= -->
+<div class="app-root">
+
+  <!-- ========================================================= -->
+  <!-- VISION STATUS INDICATOR (NEW)                            -->
+  <!-- ========================================================= -->
+  <div id="vision-status-bar" class="vision-status-bar">
+    <div class="vision-status-content">
+      <div id="vision-status-dot" class="vision-status-dot status-checking"></div>
+      <span id="vision-status-text" class="vision-status-text">Checking vision service...</span>
+      <span id="vision-status-meta" class="vision-status-meta"></span>
+    </div>
+    <div class="model-context-status">
+      <span id="model-status-text" class="model-status-text">OpenRouter - Owl Alpha</span>
+      <span id="model-context-text" class="model-context-text">1.0M window</span>
+    </div>
+    <!-- TOKEN CONTEXT INDICATOR -->
+    <div class="token-context-indicator">
+      <span class="token-label">Context:</span>
+      <div class="token-bar-container">
+        <div id="token-bar-fill" class="token-bar-fill" style="width: 0%"></div>
+      </div>
+      <span id="token-usage-text" class="token-usage-text">0 / 1.0M (0%)</span>
+    </div>
+  </div>
+
+  <!-- TOP BAR (ORIGINAL) -->
+  <header class="top-bar">
+    <div class="top-bar-left">
+      <div class="top-logo-dot"></div>
+      <div class="top-logo-text">SARAH AI</div>
+      <span class="top-title-sub">Infinity Core V10 / DEV COMPANION</span>
+    </div>
+
+    <div class="top-bar-right">
+      <button id="voice-toggle" class="pill-btn pill-btn-small">Voice: OFF</button>
+      <button id="more-toggle" class="pill-btn pill-btn-small">More</button>
+    </div>
+  </header>
+
+  <!-- MAIN AREA -->
+  <div class="layout">
+
+    <!-- ======================================================= -->
+    <!-- ORIGINAL LEFT SIDEBAR                                  -->
+    <!-- ======================================================= -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-avatar-circle">S</div>
+        <div class="sidebar-title-block">
+          <div class="sidebar-name">SARAH AI</div>
+          <div class="sidebar-subtitle">Infinity Core V10</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="sidebar-btn" id="btn-new-chat">New Chat</button>
+        <button class="sidebar-btn" id="btn-library">Library</button>
+        <button class="sidebar-btn" id="btn-projects">Projects</button>
+        <button class="sidebar-btn" id="btn-screen">Screen Capture</button>
+        <button class="sidebar-btn" id="btn-diagnostics">Diagnostics</button>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <button class="sidebar-btn llm-toggle" id="llm-mode-btn">LLM: ONLINE</button>
+      </div>
+    </aside>
+
+    <!-- ======================================================= -->
+    <!-- CENTER CHAT COLUMN (ORIGINAL)                          -->
+    <!-- ======================================================= -->
+    <main class="chat-column">
+
+      <!-- CHAT LOG -->
+      <div id="chat-log" class="chat-log"></div>
+
+      <!-- CHAT INPUT -->
+      <div class="chat-input-row">
+        <button id="image-upload-btn" class="image-upload-btn" title="Upload image">+</button>
+        <input type="file" id="image-upload-input" accept="image/*" class="hidden-file-input">
+        <textarea id="chat-input" class="chat-input" rows="2"
+                  placeholder="Ask Sarah anything..."></textarea>
+        <button id="chat-send" class="pill-btn pill-btn-accent">SEND</button>
+      </div>
+      <div id="chat-attachment-preview" class="chat-attachment-preview hidden"></div>
+
+      <!-- CODE SNIPPET INPUT SECTION -->
+      <div id="snippet-section" class="snippet-section hidden">
+        <div class="snippet-header">
+          <span class="snippet-title">Code Snippet / Text Context</span>
+          <button id="snippet-close" class="snippet-close-btn">X</button>
+        </div>
+        <textarea id="snippet-input" class="snippet-textarea"
+                  placeholder="Type or paste code here (Ctrl+V works!)&#10;&#10;Example:&#10;function hello() {&#10;  console.log('Hello World');&#10;}&#10;&#10;Click 'Analyze Snippet' when ready!"></textarea>
+        <div class="snippet-actions">
+          <button id="snippet-analyze" class="pill-btn pill-btn-small pill-btn-accent">Analyze Snippet</button>
+          <button id="snippet-attach" class="pill-btn pill-btn-small">Attach to Next Message</button>
+          <button id="snippet-paste" class="pill-btn pill-btn-small pill-btn-accent">Paste from Clipboard</button>
+          <label for="snippet-file-input" class="pill-btn pill-btn-small pill-btn-accent snippet-file-label">Load File</label>
+          <input type="file" id="snippet-file-input" accept=".txt,.js,.py,.java,.cpp,.c,.h,.css,.html,.json,.xml,.md,.ts,.jsx,.tsx" class="hidden-file-input">
+          <button id="snippet-clear" class="pill-btn pill-btn-small">Clear</button>
+        </div>
+        <div id="snippet-status" class="snippet-status"></div>
+      </div>
+
+      <!-- ===================================================== -->
+      <!-- SARAHVISION SCREEN MONITOR TAB (BLENDED + UPGRADED)  -->
+      <!-- ===================================================== -->
+      <section id="screen-tab" class="tab-panel screen-tab hidden">
+
+        <h2 class="screen-title">SarahVision - Screen Monitor</h2>
+
+        <div class="screen-controls">
+          <button id="screen-snapshot" class="pill-btn pill-btn-small pill-btn-accent">Take Screenshot</button>
+          <button id="screen-start" class="pill-btn pill-btn-small">Start Recording</button>
+          <button id="screen-stop" class="pill-btn pill-btn-small">Stop</button>
+          <button id="screen-analyze" class="pill-btn pill-btn-small">Analyze Last</button>
+        </div>
+
+        <!-- Smart Analysis Mode Selector -->
+        <div class="smart-analysis-controls">
+          <label for="analysis-mode">Smart Analysis Mode:</label>
+          <select id="analysis-mode" class="pill-btn pill-btn-small">
+            <option value="general">Auto-Detect (Recommended)</option>
+            <option value="error_detection">Error Detection</option>
+            <option value="ui_analysis">UI Analysis</option>
+            <option value="code_recognition">Code Extraction</option>
+          </select>
+          <button id="screen-smart-analyze" class="pill-btn pill-btn-small pill-btn-accent">Smart Analyze</button>
+        </div>
+
+        <!-- True Video Recording Player -->
+        <video id="screen-recording-player"
+               class="screen-video"
+               controls muted playsinline></video>
+
+        <!-- Timeline Scrubber -->
+        <input id="screen-timeline"
+               type="range"
+               min="0"
+               max="100"
+               value="0"
+               class="screen-timeline-slider"/>
+
+        <!-- Results Log -->
+        <pre id="screen-results" class="screen-results-log"></pre>
+
+      </section>
+    </main>
+
+    <!-- ======================================================= -->
+    <!-- ORIGINAL RIGHT AVATAR COLUMN                            -->
+    <!-- ======================================================= -->
+    <aside class="avatar-column">
+      <div id="avatar-container" class="avatar-container">
+        <canvas id="sarah-canvas" class="sarah-canvas"></canvas>
+        <canvas id="sarah-3d-canvas" class="sarah-3d-canvas sarah-hidden"></canvas>
+
+        <div id="avatar-fallback" class="avatar-fallback">
+          <div class="pill-outer">
+            <div class="pill-inner">
+              <div class="pill-face">^_^</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section class="emotion-panel">
+        <div class="emotion-row">
+          <span class="emotion-label">Emotion:</span>
+          <span id="emotion-name">neutral</span>
+        </div>
+
+        <div class="emotion-row">
+          <span class="emotion-label">Intensity:</span>
+          <span id="emotion-intensity">0.0</span>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ======================================================= -->
+    <!-- ORIGINAL MORE PANEL                                     -->
+    <!-- ======================================================= -->
+    <div id="more-panel" class="more-panel">
+      <div class="more-panel-inner">
+
+        <div class="more-panel-header">
+          <div>
+            <div class="more-panel-title">Sarah Tools</div>
+            <div class="more-panel-subtitle">Conversations / Memories / Projects / Skills</div>
+          </div>
+          <button id="more-close" class="more-close-btn">X</button>
+        </div>
+
+        <div class="more-panel-tabs">
+          <button class="more-tab active" data-view="conversations">Conversations</button>
+          <button class="more-tab" data-view="memories">Memories</button>
+          <button class="more-tab" data-view="projects">Projects</button>
+          <button class="more-tab" data-view="skills">Skills</button>
+        </div>
+
+        <section id="more-view-projects" class="more-panel-body" style="display:none;">
+          <div class="more-conv-toolbar">
+            <button id="more-new-project" class="pill-btn pill-btn-small">+ New Project</button>
+          </div>
+          <div id="more-project-empty" class="more-empty-state">
+            No projects yet. Create one to add files and folders.
+          </div>
+          <div id="more-project-list" class="more-project-list"></div>
+        </section>
+
+        <section id="more-view-conversations" class="more-panel-body">
+          <div class="more-conv-toolbar">
+            <button id="more-new-conversation" class="pill-btn pill-btn-small">+ New Conversation</button>
+          </div>
+          <div id="more-conversation-empty" class="more-empty-state">
+            No conversations yet. Start one to see it here.
+          </div>
+          <div id="more-conversation-list" class="more-conversation-list"></div>
+        </section>
+
+        <section id="more-view-memories" class="more-panel-body" style="display:none;">
+          <form id="more-memory-search" class="more-search-row">
+            <input id="more-memory-query" type="text" class="more-search-input" placeholder="Search all chats..." />
+            <button type="submit" class="pill-btn pill-btn-small">Search</button>
+          </form>
+
+          <div id="more-chat-search-results" class="more-memory-section" style="display:none;">
+            <h3 class="more-section-title">Search Results</h3>
+            <div id="more-chat-search-list" class="more-memory-list"></div>
+          </div>
+
+          <div class="more-memory-section">
+            <h3 class="more-section-title">Pinned Messages</h3>
+            <div id="more-pinned-messages" class="more-memory-list"></div>
+          </div>
+
+          <div class="more-memory-section">
+            <h3 class="more-section-title">Pinned Memories</h3>
+            <div id="more-memory-pinned" class="more-memory-list"></div>
+          </div>
+
+          <div class="more-memory-section">
+            <h3 class="more-section-title">Recent Memories</h3>
+            <div id="more-memory-recent" class="more-memory-list"></div>
+          </div>
+        </section>
+
+        <section id="more-view-skills" class="more-panel-body" style="display:none;">
+          <div class="more-conv-toolbar">
+            <button id="more-discover-skills" class="pill-btn pill-btn-small pill-btn-accent">Discover Skills</button>
+            <button id="more-refresh-skills" class="pill-btn pill-btn-small">Refresh</button>
+          </div>
+          <div class="skills-help-text">
+            Enabled fresh skills are injected into Sarah's future chat context automatically.
+          </div>
+          <div id="more-skills-empty" class="more-empty-state">
+            No skills found. Add SKILL.md folders under your OpenClaw workspace, then discover.
+          </div>
+          <div id="more-skills-list" class="more-skills-list"></div>
+          <div id="more-skill-detail" class="skill-detail hidden"></div>
+        </section>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ========================================================= -->
+<!-- SARAHVISION POPUP (ORIGINAL POSITION, UPGRADED LOGIC)    -->
+<!-- ========================================================= -->
+<div id="sarahvision-modal" class="sv-modal">
+  <div class="sv-backdrop"></div>
+  <div class="sv-window">
+
+    <header class="sv-header">
+      <h2>SarahVision</h2>
+      <button id="sv-close" class="pill-btn pill-btn-small">Close</button>
+    </header>
+
+    <main class="sv-body">
+      <div class="sv-actions">
+        <button id="sv-live" class="pill-btn pill-btn-small">Live Feed</button>
+        <button id="sv-record" class="pill-btn pill-btn-small">Start Recording</button>
+        <button id="sv-shot" class="pill-btn pill-btn-small">Screenshot + Describe</button>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+<script>
+(function () {
+  const modal = document.getElementById("sarahvision-modal");
+  const closeBtn = document.getElementById("sv-close");
+
+  function close() { modal.classList.remove("show"); }
+  function open() { modal.classList.add("show"); }
+
+  window.openSarahVisionModal = open;
+
+  closeBtn?.addEventListener("click", close);
+
+  document.getElementById("sv-live")?.addEventListener("click", () => {
+    close();
+    window.startLiveScreenFeed?.();
+  });
+
+  document.getElementById("sv-record")?.addEventListener("click", () => {
+    close();
+    window.startRecording?.();
+  });
+
+  document.getElementById("sv-shot")?.addEventListener("click", () => {
+    close();
+    window.takeScreenshot?.();
+  });
+})();
+</script>
+
+<!-- ========================================================= -->
+<!-- PROJECT MODAL (Modern UI)                                 -->
+<!-- ========================================================= -->
+<div id="project-modal" class="project-modal">
+  <div class="project-modal-backdrop"></div>
+  <div class="project-modal-window">
+
+    <!-- Header -->
+    <div class="project-modal-header">
+      <div class="project-modal-header-left">
+        <h2 id="project-modal-title" class="project-modal-title">Create a personal project</h2>
+        <p id="project-modal-subtitle" class="project-modal-subtitle">Organize files, code, and conversations</p>
+      </div>
+      <button id="project-modal-close" class="project-modal-close">X</button>
+    </div>
+
+    <!-- Body -->
+    <div class="project-modal-body">
+
+      <!-- View: Create Project -->
+      <div id="project-view-create" class="project-view">
+        <div class="project-form-group">
+          <label class="project-label">What are you working on?</label>
+          <input type="text" id="project-name-input" class="project-input" placeholder="Name your project" />
+        </div>
+
+        <div class="project-form-group">
+          <label class="project-label">What are you trying to achieve?</label>
+          <textarea id="project-desc-input" class="project-textarea" placeholder="Describe your project, goals, subject, etc..."></textarea>
+        </div>
+
+        <div class="project-modal-actions">
+          <button id="project-cancel-btn" class="project-btn project-btn-secondary">Cancel</button>
+          <button id="project-create-btn" class="project-btn project-btn-primary">Create project</button>
+        </div>
+      </div>
+
+      <!-- View: Manage Project -->
+      <div id="project-view-manage" class="project-view" style="display: none;">
+
+        <!-- Tab Navigation -->
+        <div class="project-tabs">
+          <button class="project-tab active" data-tab="files">Files</button>
+          <button class="project-tab" data-tab="chats">Chats</button>
+          <button class="project-tab" data-tab="settings">Settings</button>
+        </div>
+
+        <!-- Files Tab -->
+        <div id="project-tab-files" class="project-tab-content">
+          <div class="project-toolbar">
+            <button id="project-upload-file-btn" class="project-btn project-btn-small">Upload Files</button>
+            <button id="project-create-file-btn" class="project-btn project-btn-small">+ Create File</button>
+            <button id="project-tree-view-btn" class="project-btn project-btn-small">Tree View</button>
+          </div>
+
+          <div class="project-search-box">
+            <input type="text" id="project-file-search" class="project-search-input" placeholder="Search files...">
+          </div>
+
+          <div id="project-files-list" class="project-files-list">
+            <div class="project-empty-state">No files yet. Upload or create files to get started.</div>
+          </div>
+        </div>
+
+        <!-- Chats Tab -->
+        <div id="project-tab-chats" class="project-tab-content" style="display: none;">
+          <div class="project-toolbar">
+            <button id="project-tag-chat-btn" class="project-btn project-btn-small">Tag Current Chat</button>
+          </div>
+
+          <div id="project-chats-list" class="project-chats-list">
+            <div class="project-empty-state">No chats tagged. Tag conversations to keep project context.</div>
+          </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="project-tab-settings" class="project-tab-content" style="display: none;">
+          <div class="project-settings-section">
+            <h3 class="project-settings-heading">Project Information</h3>
+            <div class="project-info-item">
+              <span class="project-info-label">Name:</span>
+              <span id="project-info-name" class="project-info-value">-</span>
+              <button id="project-rename-btn" class="project-btn project-btn-small project-rename-inline">Rename</button>
+            </div>
+            <div class="project-info-item">
+              <span class="project-info-label">Files:</span>
+              <span id="project-info-file-count" class="project-info-value">0</span>
+            </div>
+            <div class="project-info-item">
+              <span class="project-info-label">Total Size:</span>
+              <span id="project-info-size" class="project-info-value">-</span>
+            </div>
+            <div class="project-info-item">
+              <span class="project-info-label">Created:</span>
+              <span id="project-info-created" class="project-info-value">-</span>
+            </div>
+            <div class="project-info-item">
+              <span class="project-info-label">Last Opened:</span>
+              <span id="project-info-last-accessed" class="project-info-value">-</span>
+            </div>
+          </div>
+
+          <div class="project-settings-section">
+            <h3 class="project-settings-heading">Project Analysis</h3>
+            <p class="project-analysis-help">
+              Deep analysis including dependencies, README, git history, and entry points.
+            </p>
+            <button id="project-analyze-btn" class="project-btn">Analyze Project</button>
+            <div id="project-analysis-result" style="display: none;">
+              <pre id="project-analysis-text"></pre>
+            </div>
+          </div>
+
+          <div class="project-settings-section project-danger-zone">
+            <h3 class="project-settings-heading">Danger Zone</h3>
+            <button id="project-delete-btn" class="project-btn project-btn-danger">Delete Project</button>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>
+

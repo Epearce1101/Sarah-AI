@@ -1,0 +1,35 @@
+{
+	"Type": "Live2D Expression",
+	"Parameters": [
+		{
+			"Id": "ParamEyehighlightL",
+			"Value": -1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyehighlightR",
+			"Value": -1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamSad",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeBallSize",
+			"Value": -0.1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamDarkSad",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamTear",
+			"Value": 1,
+			"Blend": "Add"
+		}
+	]
+}

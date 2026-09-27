@@ -1,0 +1,33 @@
+# SARAH V10 — backend runtime dependencies (top-level / direct).
+# For an exact, fully-pinned reproduction of the working environment, install
+# from requirements.lock.txt instead (generated via `pip freeze`).
+
+# --- Web API ---
+fastapi
+uvicorn
+
+# --- Data models / HTTP ---
+pydantic
+requests
+
+# --- LLM client (OpenRouter via the OpenAI SDK) ---
+openai
+
+# --- System / diagnostics ---
+psutil
+
+# --- Timezone data (required: Windows ships no system zoneinfo DB, so
+#     `zoneinfo` cannot resolve IANA zones without these) ---
+tzdata
+pytz
+
+# --- Audio: wake word, speech-to-text, capture, processing ---
+vosk
+faster-whisper
+sounddevice
+numpy
+pydub
+onnxruntime
+
+# --- Vision / image handling ---
+pillow

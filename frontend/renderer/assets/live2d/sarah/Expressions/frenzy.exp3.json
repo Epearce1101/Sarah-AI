@@ -1,0 +1,45 @@
+{
+    "Type": "Live2D Expression",
+    "Parameters": [
+        {
+            "Id": "ParamEyeLSmile",
+            "Value": "1",
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeColorL",
+            "Value": "1",
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeRSmile",
+            "Value": "1",
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyeColorR",
+            "Value": "1",
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamEyehighlightRMove",
+            "Value": "0.767",
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamFrenzy",
+            "Value": "1",
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamDarkFrenzy",
+            "Value": "1",
+            "Blend": "Add"
+        },
+        {
+            "Id": "ParamRedHighlight",
+            "Value": "-1",
+            "Blend": "Add"
+        }
+    ]
+}

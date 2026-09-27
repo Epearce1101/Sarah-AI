@@ -1,0 +1,90 @@
+{
+	"Type": "Live2D Expression",
+	"Parameters": [
+		{
+			"Id": "ParamEyehighlightL",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeColorL",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeballL",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyewhiteL",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyehighlightR",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeColorR",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyewhiteR",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeballR",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeballRShaky",
+			"Value": -0.2,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeballRShaky2",
+			"Value": 0.116,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeballLShaky",
+			"Value": 0.488,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeballLShaky2",
+			"Value": 0.279,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamAngry",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamEyeBallSize",
+			"Value": -0.4,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamDarkAngry",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamRedGlow",
+			"Value": 1,
+			"Blend": "Add"
+		},
+		{
+			"Id": "ParamRedHighlight",
+			"Value": 1,
+			"Blend": "Add"
+		}
+	]
+}

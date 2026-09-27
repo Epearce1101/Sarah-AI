@@ -1,0 +1,165 @@
+﻿/* ======================================================================= */
+/* SARAH V10 Theme Tokens - A1                                                */
+/* ======================================================================= */
+
+:root {
+  color-scheme: dark;
+
+  --font-display: "Bahnschrift", "Segoe UI Variable Display", "Trebuchet MS", sans-serif;
+  --font-body: "Aptos", "Segoe UI Variable Text", "Trebuchet MS", sans-serif;
+  --font-mono: "Cascadia Code", "Consolas", "Courier New", monospace;
+
+  --bg-void: #03020a;
+  --bg-deep: #070214;
+  --bg-panel: #10061f;
+  --bg-panel-strong: #18092f;
+  --surface-glass: rgba(18, 8, 36, 0.78);
+  --surface-glass-strong: rgba(28, 11, 52, 0.88);
+  --surface-track: rgba(3, 2, 10, 0.72);
+  --surface-chrome: rgba(8, 3, 20, 0.86);
+  --surface-button: rgba(22, 9, 44, 0.74);
+  --surface-button-hover: rgba(37, 16, 72, 0.9);
+  --surface-input: rgba(4, 2, 12, 0.72);
+  --surface-input-strong: rgba(4, 2, 12, 0.84);
+  --surface-active: rgba(43, 20, 84, 0.96);
+  --surface-badge: rgba(255, 255, 255, 0.05);
+  --surface-success: rgba(85, 242, 163, 0.14);
+  --surface-warning: rgba(255, 188, 74, 0.12);
+  --surface-scrim: rgba(0, 0, 0, 0.58);
+  --surface-scrim-soft: rgba(0, 0, 0, 0.32);
+  --surface-modal-backdrop: rgba(5, 0, 20, 0.86);
+  --surface-control-wash: rgba(0, 0, 0, 0.2);
+  --surface-status-chrome:
+    linear-gradient(180deg, rgba(28, 11, 52, 0.94), rgba(8, 3, 20, 0.9));
+  --surface-control-glass: rgba(18, 8, 36, 0.58);
+
+  --text-main: #f8f1ff;
+  --text-soft: rgba(238, 221, 255, 0.76);
+  --text-muted: rgba(219, 197, 255, 0.56);
+  --text-invert: #10051c;
+
+  --primary-300: #d9b4ff;
+  --primary-400: #b985ff;
+  --primary-500: #8b5cf6;
+  --primary-600: #6d36de;
+  --primary-700: #4a1b9f;
+
+  --accent-magenta: #f457d7;
+  --accent-cyan: #4dd8ff;
+  --accent-rose: #ff4f7a;
+  --accent-amber: #ffbc4a;
+  --accent-green: #55f2a3;
+
+  --border-faint: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-violet: rgba(185, 133, 255, 0.34);
+  --border-hot: rgba(244, 87, 215, 0.42);
+  --border-cyan: rgba(77, 216, 255, 0.38);
+  --border-success: rgba(85, 242, 163, 0.44);
+  --border-warning: rgba(255, 188, 74, 0.34);
+  --border-danger: rgba(255, 79, 122, 0.28);
+
+  --radius-xs: 6px;
+  --radius-sm: 9px;
+  --radius-md: 13px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  --shadow-soft: 0 14px 36px rgba(0, 0, 0, 0.55);
+  --shadow-panel: 0 18px 52px rgba(0, 0, 0, 0.68), 0 0 42px rgba(109, 54, 222, 0.18);
+  --shadow-active: 0 0 0 1px rgba(217, 180, 255, 0.22), 0 0 28px rgba(139, 92, 246, 0.46);
+  --shadow-danger: 0 0 24px rgba(255, 79, 122, 0.46);
+  --shadow-inset: inset 0 0 18px rgba(139, 92, 246, 0.08);
+  --shadow-inset-strong: inset 0 0 14px rgba(139, 92, 246, 0.12);
+  --shadow-focus: 0 0 0 3px rgba(77, 216, 255, 0.14), inset 0 0 18px rgba(139, 92, 246, 0.08);
+  --shadow-status-danger: 0 0 12px rgba(255, 79, 122, 0.7);
+  --shadow-status-warning: 0 0 12px rgba(255, 188, 74, 0.64);
+  --shadow-status-success: 0 0 12px rgba(85, 242, 163, 0.62);
+  --shadow-status-info: 0 0 12px rgba(77, 216, 255, 0.58);
+  --shadow-action-bevel:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 5px 14px rgba(0, 0, 0, 0.34);
+
+  --grad-app:
+    radial-gradient(circle at 18% 0%, rgba(139, 92, 246, 0.34), transparent 32%),
+    radial-gradient(circle at 82% 18%, rgba(244, 87, 215, 0.16), transparent 26%),
+    linear-gradient(160deg, var(--bg-deep) 0%, var(--bg-void) 62%, #010006 100%);
+  --grad-panel:
+    linear-gradient(150deg, rgba(31, 14, 62, 0.92), rgba(8, 3, 20, 0.96));
+  --grad-panel-hot:
+    radial-gradient(circle at 16% 0%, rgba(185, 133, 255, 0.2), transparent 42%),
+    linear-gradient(145deg, rgba(33, 13, 61, 0.94), rgba(7, 2, 18, 0.98));
+  --grad-primary:
+    linear-gradient(135deg, var(--primary-400) 0%, var(--accent-magenta) 58%, var(--primary-600) 100%);
+  --grad-user:
+    linear-gradient(135deg, rgba(77, 216, 255, 0.88), rgba(109, 54, 222, 0.9));
+  --grad-sarah:
+    linear-gradient(135deg, rgba(139, 92, 246, 0.95), rgba(244, 87, 215, 0.86));
+  --grad-danger:
+    linear-gradient(135deg, var(--accent-rose) 0%, #ff8ab8 100%);
+  --grad-ok:
+    linear-gradient(135deg, rgba(85, 242, 163, 0.28), rgba(8, 56, 34, 0.9));
+  --grad-warning:
+    linear-gradient(90deg, var(--accent-amber), #ff8e3c);
+  --grad-action-bevel:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03)),
+    var(--surface-button);
+  --grad-action-hover:
+    linear-gradient(180deg, rgba(77, 216, 255, 0.2), rgba(139, 92, 246, 0.12)),
+    var(--surface-button-hover);
+  --texture-grid:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  --mask-soft:
+    radial-gradient(circle at center, black, transparent 78%);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-snap: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-fast: 120ms;
+  --motion-med: 220ms;
+  --motion-slow: 420ms;
+}
+
+.ui-panel {
+  border: 1px solid var(--border-faint);
+  border-radius: var(--radius-lg);
+  background: var(--grad-panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.ui-button,
+button {
+  font-family: var(--font-display);
+}
+
+.ui-input,
+input,
+select,
+textarea {
+  font-family: var(--font-body);
+}
+
+pre,
+code,
+.screen-results-log,
+.snippet-textarea,
+.skill-detail pre {
+  font-family: var(--font-mono);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

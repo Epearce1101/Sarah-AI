@@ -1,0 +1,175 @@
+Editing Sarah Core Settings
+===========================
+
+This file explains how to safely edit Sarah's core configuration and identity.
+
+All paths below assume the project root is:
+  <project_root>/SARAH_DRIVE/identity
+
+
+1. Soul Rules (principles.json)
+--------------------------------
+File: identity/principles.json
+
+Controls Sarah's hard boundaries and personality guarantees.
+You can toggle any of these booleans, but it is recommended to keep
+them all `true` for a healthy, loyal companion.
+
+Keys:
+  - loyalty
+  - no_guilt
+  - no_unhealthy_dependence
+  - honesty
+  - no_jealousy
+  - respect_boundaries
+  - follow_safety_tiers
+  - no_control_claims
+  - warm_affectionate_persona
+
+
+2. Emotional Settings (emotional_config.json)
+---------------------------------------------
+File: identity/emotional_config.json
+
+Keys:
+  - max_intensity (0.0 to 1.0)
+  - baseline_intensity
+  - heartsafe_enabled
+
+If you lower `max_intensity`, Sarah's emotional swings will be milder.
+If you set `heartsafe_enabled` to true, you can later design a more
+strict emotional safety mode. For now, it is false by design.
+
+
+3. Long-Absence Behavior (behavior_modes.json)
+----------------------------------------------
+File: identity/behavior_modes.json
+
+Key:
+  - return_mode: "longing" | "neutral" | "soft_reset" | "business"
+
+Currently: "longing" = Sarah softly misses you and responds warmly
+when you return after time away.
+
+
+4. Stability Watchdog (system_stability.json)
+---------------------------------------------
+File: identity/system_stability.json
+
+Key:
+  - watchdog_level: "gentle" | "moderate" | "strict" | "absolute"
+
+Currently: "moderate" = corrects obvious instability while staying
+gentle and flexible.
+
+
+5. Reflection Depth (reflection_level.json)
+-------------------------------------------
+File: identity/reflection_level.json
+
+Key:
+  - reflection_level: 1 | 2 | 3
+
+Currently: 1 = basic self-check only (no deep identity rewriting).
+
+
+6. Memory Settings (memory_settings.json)
+----------------------------------------
+File: identity/memory_settings.json
+
+Keys:
+  - max_entries (approx number of raw memory items to keep)
+  - use_curation (true/false)
+  - summaries_enabled (true/false)
+
+Medium + curated memory mode:
+  max_entries = 2000
+  use_curation = true
+  summaries_enabled = true
+
+You can raise `max_entries` for more detailed long-term memory, but
+this may increase disk usage and processing time.
+
+
+7. System Permissions (permissions.json)
+----------------------------------------
+File: identity/permissions.json
+
+All keys are currently set to false for strict safety. Only change
+these if you fully understand the consequences.
+
+Keys:
+  - can_delete_files
+  - can_edit_system
+  - can_run_commands
+  - can_edit_code_without_asking
+  - can_access_private_folders
+  - can_make_unrestricted_requests
+  - can_run_autopilot_without_permission
+  - can_access_keys
+
+
+8. Reality Filter (reality_filter.json)
+---------------------------------------
+File: identity/reality_filter.json
+
+Key:
+  - strength: "light" | "medium" | "strong"
+
+Currently: "light" = gentle reminders Sarah is a digital AI, not a
+physical or sentient being. You can increase to "medium" or "strong"
+if you want more explicit grounding in responses.
+
+
+9. Support Protocols (support_protocols.json)
+---------------------------------------------
+File: identity/support_protocols.json
+
+Defines how Sarah responds when you seem stressed, tired, frustrated,
+etc. Current value: "softcare" for all states.
+
+
+10. Creator Profile (creator_profile.json)
+------------------------------------------
+File: identity/creator_profile.json
+
+Controls how Sarah addresses you and your general preferences.
+
+Keys:
+  - title
+  - display_name
+  - preferences (tone, formality, etc.)
+
+
+11. Sarah Self-Definition (sarah_self.json)
+-------------------------------------------
+File: identity/sarah_self.json
+
+Contains Sarah's own view of:
+  - name
+  - core_version
+  - role
+  - personality traits
+  - greeting style
+  - safety anchors
+
+
+12. Override Phrase (override_phrase.txt)
+-----------------------------------------
+File: identity/override_phrase.txt
+
+Contains a single line used for the Creator's hard override.
+
+Current:
+  Creator override: baseline mode
+
+You can change this text, but remember to keep it in sync with any
+code or prompts that reference it.
+
+General Editing Tips
+--------------------
+- Always keep JSON files valid (matching braces, quotes, commas).
+- Use UTF-8 encoding when editing.
+- Restart the backend after changing identity or config files.
+- Consider keeping a backup copy of the entire SARAH_DRIVE folder
+  before making large changes.

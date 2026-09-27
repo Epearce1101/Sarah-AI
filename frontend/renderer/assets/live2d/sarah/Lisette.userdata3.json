@@ -1,0 +1,59 @@
+{
+	"Version": 3,
+	"Meta": {
+		"UserDataCount": 10,
+		"TotalUserDataSize": 40
+	},
+	"UserData": [
+		{
+			"Target": "ArtMesh",
+			"Id": "EyePupilR",
+			"Value": "eyeR"
+		},
+		{
+			"Target": "ArtMesh",
+			"Id": "EyeballR",
+			"Value": "eyeR"
+		},
+		{
+			"Target": "ArtMesh",
+			"Id": "EyeWhiteR",
+			"Value": "eyeR"
+		},
+		{
+			"Target": "ArtMesh",
+			"Id": "EyePupilRBlend",
+			"Value": "eyeR"
+		},
+		{
+			"Target": "ArtMesh",
+			"Id": "EyeColorRBlend",
+			"Value": "eyeR"
+		},
+		{
+			"Target": "ArtMesh",
+			"Id": "EyeballRBlend",
+			"Value": "eyeR"
+		},
+		{
+			"Target": "ArtMesh",
+			"Id": "EyeWhiteRBlend",
+			"Value": "eyeR"
+		},
+		{
+			"Target": "ArtMesh",
+			"Id": "EyeHighlightRBlend",
+			"Value": "eyeR"
+		},
+		{
+			"Target": "ArtMesh",
+			"Id": "EyeHighlightR",
+			"Value": "eyeR"
+		},
+		{
+			"Target": "ArtMesh",
+			"Id": "EyeColorR",
+			"Value": "eyeR"
+		}
+	]
+}
