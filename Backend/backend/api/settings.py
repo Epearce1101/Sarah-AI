@@ -7,7 +7,7 @@ from typing import Dict
 
 from fastapi import APIRouter, HTTPException
 
-from backend import state
+from backend import llm_models, state
 from backend.api.schemas import SettingUpdate
 from backend.config import settings
 from backend.models.core import get_all_settings, get_setting, set_setting
@@ -22,7 +22,7 @@ def _format_model_label(provider: str, model_name: str, auto_routed: bool) -> st
         return "Local fallback"
     if auto_routed:
         return "OpenRouter Auto"
-    name = str(model_name or settings.openrouter_model).split("/", 1)[-1]
+    name = str(model_name or llm_models.current_online_model()).split("/", 1)[-1]
     base, _, variant = name.partition(":")
     short = base.replace("-", " ").title()
     return f"OpenRouter - {short}" + (f" ({variant})" if variant else "")
@@ -30,7 +30,7 @@ def _format_model_label(provider: str, model_name: str, auto_routed: bool) -> st
 
 def _llm_status_payload() -> Dict[str, object]:
     provider = "Ollama" if state.LLM_MODE == "local" else "OpenRouter"
-    model_name = state.LOCAL_LLM_MODEL if state.LLM_MODE == "local" else settings.openrouter_model
+    model_name = state.LOCAL_LLM_MODEL if state.LLM_MODE == "local" else llm_models.current_online_model()
     token_budget = settings.local_effective_context_tokens if state.LLM_MODE == "local" else settings.openrouter_context_window_tokens
     context_window_tokens = settings.local_context_window_tokens if state.LLM_MODE == "local" else settings.openrouter_context_window_tokens
     completion_token_budget = settings.local_max_completion_tokens if state.LLM_MODE == "local" else settings.llm_max_completion_tokens
@@ -49,7 +49,32 @@ def _llm_status_payload() -> Dict[str, object]:
         "reasoning_effort": settings.openrouter_reasoning_effort if state.LLM_MODE == "online" else "local",
         "online_available": bool(settings.openrouter_api_key),
         "online_fallback_reason": None if settings.openrouter_api_key else "missing_openrouter_api_key",
+        **llm_models.status_fields(),
     }
+
+
+@router.get("/api/models")
+def api_list_models(refresh: bool = False):
+    """OpenRouter catalog for the UI model picker (free models first)."""
+    if refresh:
+        llm_models.fetch_catalog(max_age=0)
+    models = llm_models.catalog_summary()
+    return {
+        "ok": bool(models),
+        "current": llm_models.current_online_model(),
+        "fallbacks": llm_models.fallback_models(),
+        "models": models,
+    }
+
+
+@router.post("/api/llm_model")
+def api_set_llm_model(payload: Dict[str, str]):
+    """Switch the online chat model at runtime; persisted across restarts."""
+    try:
+        llm_models.set_online_model(payload.get("model") or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, **_llm_status_payload()}
 
 
 @router.get("/api/settings")

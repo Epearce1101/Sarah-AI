@@ -3,7 +3,8 @@
 OpenRouter Client (memory-integrated)
 =====================================
 LLM client with integrated memory system support, using the OpenAI SDK
-pointed at OpenRouter. The model is `openrouter/auto` (auto-routed per prompt).
+pointed at OpenRouter. The model (and its fallbacks) come from
+`backend.llm_models`, so a switch in the UI applies to the next request.
 
 Features:
 - Uses ContextBuilder for intelligent context management
@@ -17,11 +18,15 @@ All memory operations are SILENT - never shown to user.
 
 import os
 import asyncio
-from typing import Optional, List, Dict, Any
+import json
+import logging
+import threading
+from typing import Any, AsyncIterator, Dict, List, Optional
 from dataclasses import dataclass
 
 import requests
 
+from backend import llm_models
 from backend.config import settings as _settings
 from backend.identity import get_user_name
 from backend.reply_sanitizer import sanitize_visible_reply
@@ -30,6 +35,8 @@ from .memory_store import MemoryStore, get_memory_store
 from .summarizer import Summarizer
 from .context_builder import ContextBuilder, LLMContextPacket
 
+
+logger = logging.getLogger("sarah.llm")
 
 # The event loop only keeps weak references to tasks, so a fire-and-forget
 # `asyncio.create_task(...)` can be garbage-collected before it finishes.
@@ -95,7 +102,7 @@ class OpenRouterClient:
 
         self._llm_mode_info: Dict[str, Any] = {
             "mode": "online",
-            "model_name": self.config.llm_model,
+            "model_name": llm_models.current_online_model(),
             "provider": "OpenRouter",
             "token_budget": _settings.openrouter_context_window_tokens,
             "completion_token_budget": self.config.llm_max_completion_tokens,
@@ -158,7 +165,7 @@ class OpenRouterClient:
     def _current_model_name(self) -> str:
         if self._is_local_mode():
             return str(self._llm_mode_info.get("model_name") or _settings.default_local_model)
-        return self.config.llm_model
+        return llm_models.current_online_model()
 
     def _current_completion_budget(self) -> int:
         try:
@@ -228,41 +235,38 @@ class OpenRouterClient:
 
         def _call():
             resp = self._client.chat.completions.create(
-                model=self.config.llm_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
                 temperature=0.3,
+                **llm_models.completion_kwargs(reasoning=False),
             )
             return resp.choices[0].message.content or ""
 
         try:
             return await loop.run_in_executor(None, _call)
         except Exception as e:
-            print(f"[OpenRouterClient] Summarizer completion error: {e}")
+            logger.warning("Summarizer completion error: %s", e)
             return ""
 
-    async def chat(
+    # ------------------------------------------------------------------
+    # One chat turn = prepare (context + save user msg) -> model call ->
+    # finish (sanitize, save reply, background summaries). `chat` and
+    # `chat_stream` share the two ends so they can't drift apart.
+    # ------------------------------------------------------------------
+
+    def _prepare_turn(
         self,
         conversation_id: int,
         user_message: str,
-        vision_observation: Optional[str] = None,
-        save_messages: bool = True,
-        save_user_message: bool = True,
-        project_context: Optional[str] = None,
-    ) -> LLMResponse:
-        use_local = self._is_local_mode()
-
-        if not use_local and not self._client:
-            return LLMResponse(
-                content="I'm sorry, the AI service is not configured properly.",
-                model=self.config.llm_model,
-                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                finish_reason="error",
-                debug_info={"error": "OpenRouter client not initialized"},
-            )
-
-        print(f"[OpenRouterClient] chat() called - conversation_id={conversation_id}, save_messages={save_messages}, save_user_message={save_user_message}")
-
+        vision_observation: Optional[str],
+        save_messages: bool,
+        save_user_message: bool,
+        project_context: Optional[str],
+    ):
+        logger.debug(
+            "chat turn: conversation=%s save_messages=%s save_user_message=%s",
+            conversation_id, save_messages, save_user_message,
+        )
         packet = self.context_builder.build(
             conversation_id=conversation_id,
             user_message=user_message,
@@ -270,11 +274,8 @@ class OpenRouterClient:
             llm_mode_info=self._llm_mode_info,
             project_context=project_context,
         )
-        print(f"[OpenRouterClient] Context packet built, {len(packet.messages)} messages")
 
         user_message_id = None
-        assistant_message_id = None
-
         if save_messages and save_user_message:
             from backend.models.core import add_message
             import json
@@ -287,7 +288,104 @@ class OpenRouterClient:
                 })
 
             user_message_id = add_message(conversation_id, "user", user_message, meta_json=meta_json)
+        return packet, user_message_id
 
+    def _finish_turn(
+        self,
+        *,
+        conversation_id: int,
+        packet: LLMContextPacket,
+        raw_content: str,
+        finish_reason: str,
+        usage: Dict[str, int],
+        model_name: str,
+        provider: str,
+        use_local: bool,
+        save_messages: bool,
+        user_message_id: Optional[int],
+    ) -> LLMResponse:
+        content = sanitize_visible_reply(raw_content) or f"I'm here, {get_user_name()}."
+
+        assistant_message_id = None
+        if save_messages and content:
+            from backend.models.core import add_message
+            assistant_message_id = add_message(conversation_id, "assistant", content)
+
+        self._ensure_summarizer()
+        spawn_background(self.summarizer.update_all(conversation_id, content))
+
+        requested = self._current_model_name()
+        if not use_local and model_name and model_name != requested:
+            logger.warning("Model %s unavailable for this turn; served by fallback %s", requested, model_name)
+
+        logger.debug("Response: %d chars, %s tokens", len(content), usage.get("total_tokens"))
+        return LLMResponse(
+            content=content,
+            model=model_name,
+            usage=usage,
+            finish_reason=finish_reason,
+            debug_info={
+                **packet.debug_info,
+                "actual_prompt_tokens": usage.get("prompt_tokens", 0),
+                "llm_provider": provider,
+                "llm_mode": "local" if use_local else "online",
+                "requested_model": requested,
+                "served_model": model_name,
+            },
+            user_message_id=user_message_id,
+            assistant_message_id=assistant_message_id,
+        )
+
+    def _error_response(self, error: Exception, user_message_id: Optional[int]) -> LLMResponse:
+        text = str(error)
+        logger.error("LLM API error: %s", text)
+        if not self._is_local_mode() and ("No endpoints found" in text or "404" in text):
+            llm_models.mark_unavailable(self._current_model_name(), text)
+        return LLMResponse(
+            content="I encountered an error processing your request. Please try again.",
+            model=self._current_model_name(),
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            finish_reason="error",
+            debug_info={"error": text},
+            # The user turn is already persisted; hand back its id so the
+            # UI can still edit/delete/regenerate it instead of orphaning it.
+            user_message_id=user_message_id,
+        )
+
+    def _not_configured(self) -> LLMResponse:
+        return LLMResponse(
+            content="I'm sorry, the AI service is not configured properly.",
+            model=self._current_model_name(),
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            finish_reason="error",
+            debug_info={"error": "OpenRouter client not initialized"},
+        )
+
+    @staticmethod
+    def _usage_dict(usage) -> Dict[str, int]:
+        return {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0 if usage else 0,
+            "completion_tokens": getattr(usage, "completion_tokens", 0) or 0 if usage else 0,
+            "total_tokens": getattr(usage, "total_tokens", 0) or 0 if usage else 0,
+        }
+
+    async def chat(
+        self,
+        conversation_id: int,
+        user_message: str,
+        vision_observation: Optional[str] = None,
+        save_messages: bool = True,
+        save_user_message: bool = True,
+        project_context: Optional[str] = None,
+    ) -> LLMResponse:
+        use_local = self._is_local_mode()
+        if not use_local and not self._client:
+            return self._not_configured()
+
+        packet, user_message_id = self._prepare_turn(
+            conversation_id, user_message, vision_observation,
+            save_messages, save_user_message, project_context,
+        )
         loop = asyncio.get_running_loop()
 
         try:
@@ -300,80 +398,169 @@ class OpenRouterClient:
                     )
 
                 local_response = await loop.run_in_executor(None, _call_local)
-                content = local_response["content"]
+                raw = local_response["content"]
                 finish_reason = local_response["finish_reason"]
                 usage = local_response["usage"]
                 model_name = local_response["model"]
                 provider = "Ollama"
             else:
+                kwargs = llm_models.completion_kwargs()
+
                 def _call_openrouter():
-                    extra_body = {}
-                    effort = (_settings.openrouter_reasoning_effort or "").strip().lower()
-                    if effort and effort != "none":
-                        extra_body["reasoning"] = {"effort": effort, "exclude": True}
-                    resp = self._client.chat.completions.create(
-                        model=self.config.llm_model,
+                    return self._client.chat.completions.create(
                         messages=packet.messages,
                         max_tokens=self.config.llm_max_completion_tokens,
                         temperature=self.config.llm_temperature,
-                        extra_body=extra_body or None,
+                        **kwargs,
                     )
-                    return resp
 
                 response = await loop.run_in_executor(None, _call_openrouter)
-
-                content = response.choices[0].message.content or ""
+                raw = response.choices[0].message.content or ""
                 finish_reason = response.choices[0].finish_reason or "stop"
-
-                usage = {
-                    "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
-                    "completion_tokens": response.usage.completion_tokens if response.usage else 0,
-                    "total_tokens": response.usage.total_tokens if response.usage else 0,
-                }
-                model_name = self.config.llm_model
+                usage = self._usage_dict(response.usage)
+                model_name = getattr(response, "model", None) or kwargs["model"]
                 provider = "OpenRouter"
 
-            content = sanitize_visible_reply(content) or f"I'm here, {get_user_name()}."
-
-            if save_messages and content:
-                from backend.models.core import add_message
-                assistant_message_id = add_message(conversation_id, "assistant", content)
-
-            self._ensure_summarizer()
-            spawn_background(self.summarizer.update_all(conversation_id, content))
-
-            result = LLMResponse(
-                content=content,
-                model=model_name,
-                usage=usage,
-                finish_reason=finish_reason,
-                debug_info={
-                    **packet.debug_info,
-                    "actual_prompt_tokens": usage["prompt_tokens"],
-                    "llm_provider": provider,
-                    "llm_mode": "local" if use_local else "online",
-                },
+            return self._finish_turn(
+                conversation_id=conversation_id, packet=packet, raw_content=raw,
+                finish_reason=finish_reason, usage=usage, model_name=model_name,
+                provider=provider, use_local=use_local, save_messages=save_messages,
                 user_message_id=user_message_id,
-                assistant_message_id=assistant_message_id,
             )
-
-            if self.config.debug_memory:
-                print(f"[OpenRouterClient] Response: {len(content)} chars, {usage['total_tokens']} tokens")
-
-            return result
-
         except Exception as e:
-            print(f"[OpenRouterClient] API error: {e}")
-            return LLMResponse(
-                content=f"I encountered an error processing your request. Please try again.",
-                model=self.config.llm_model,
-                usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                finish_reason="error",
-                debug_info={"error": str(e)},
-                # The user turn is already persisted; hand back its id so the
-                # UI can still edit/delete/regenerate it instead of orphaning it.
-                user_message_id=user_message_id,
+            return self._error_response(e, user_message_id)
+
+    async def chat_stream(
+        self,
+        conversation_id: int,
+        user_message: str,
+        vision_observation: Optional[str] = None,
+        save_messages: bool = True,
+        save_user_message: bool = True,
+        project_context: Optional[str] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Like `chat`, but yields `{"type": "delta", "text": ...}` as tokens
+        arrive and finally `{"type": "done", "response": LLMResponse}`.
+
+        Deltas are raw model text for live display; the `done` response holds
+        the sanitized reply that is saved and should replace the preview.
+        """
+        use_local = self._is_local_mode()
+        if not use_local and not self._client:
+            yield {"type": "done", "response": self._not_configured()}
+            return
+
+        packet, user_message_id = self._prepare_turn(
+            conversation_id, user_message, vision_observation,
+            save_messages, save_user_message, project_context,
+        )
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        stop = threading.Event()
+        meta: Dict[str, Any] = {"finish_reason": "stop", "usage": None, "model": None}
+        kwargs = None if use_local else llm_models.completion_kwargs()
+
+        def emit(item):
+            loop.call_soon_threadsafe(queue.put_nowait, item)
+
+        def _produce_openrouter():
+            stream = self._client.chat.completions.create(
+                messages=packet.messages,
+                max_tokens=self.config.llm_max_completion_tokens,
+                temperature=self.config.llm_temperature,
+                stream=True,
+                stream_options={"include_usage": True},
+                **kwargs,
             )
+            try:
+                for chunk in stream:
+                    if stop.is_set():
+                        break
+                    meta["model"] = getattr(chunk, "model", None) or meta["model"]
+                    if getattr(chunk, "usage", None):
+                        meta["usage"] = self._usage_dict(chunk.usage)
+                    for choice in chunk.choices or []:
+                        text = getattr(choice.delta, "content", None)
+                        if text:
+                            emit(("delta", text))
+                        if choice.finish_reason:
+                            meta["finish_reason"] = choice.finish_reason
+            finally:
+                stream.close()
+
+        def _produce_local():
+            url = f"{_settings.ollama_base_url.rstrip('/')}/api/chat"
+            payload = {
+                "model": self._current_model_name(),
+                "messages": packet.messages,
+                "stream": True,
+                "options": {
+                    "num_predict": self._current_completion_budget(),
+                    "temperature": min(self.config.llm_temperature, _settings.local_temperature),
+                    "num_ctx": _settings.local_context_window_tokens,
+                    "stop": list(_settings.local_stop_sequences),
+                },
+                "keep_alive": "10m",
+            }
+            with requests.post(url, json=payload, stream=True,
+                               timeout=_settings.local_request_timeout_seconds) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if stop.is_set():
+                        break
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    text = (data.get("message") or {}).get("content") or ""
+                    if text:
+                        emit(("delta", text))
+                    if data.get("done"):
+                        prompt_tokens = int(data.get("prompt_eval_count") or 0)
+                        completion_tokens = int(data.get("eval_count") or 0)
+                        meta["usage"] = {
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "total_tokens": prompt_tokens + completion_tokens,
+                        }
+                        meta["finish_reason"] = data.get("done_reason") or "stop"
+                        meta["model"] = data.get("model")
+
+        def _run():
+            try:
+                (_produce_local if use_local else _produce_openrouter)()
+                emit(("end", None))
+            except Exception as exc:  # surfaced to the consumer below
+                emit(("error", exc))
+
+        worker = loop.run_in_executor(None, _run)
+        parts: List[str] = []
+        try:
+            while True:
+                kind, value = await queue.get()
+                if kind == "delta":
+                    parts.append(value)
+                    yield {"type": "delta", "text": value}
+                elif kind == "error":
+                    yield {"type": "done", "response": self._error_response(value, user_message_id)}
+                    return
+                else:
+                    break
+        finally:
+            stop.set()  # client went away mid-stream: let the worker close up
+        await worker
+
+        usage = meta["usage"] or {
+            "prompt_tokens": packet.estimated_tokens,
+            "completion_tokens": int(len("".join(parts)) / self.config.chars_per_token),
+            "total_tokens": 0,
+        }
+        yield {"type": "done", "response": self._finish_turn(
+            conversation_id=conversation_id, packet=packet, raw_content="".join(parts),
+            finish_reason=meta["finish_reason"], usage=usage,
+            model_name=meta["model"] or (self._current_model_name() if use_local else kwargs["model"]),
+            provider="Ollama" if use_local else "OpenRouter", use_local=use_local,
+            save_messages=save_messages, user_message_id=user_message_id,
+        )}
 
     async def simple_completion(
         self,
@@ -394,7 +581,7 @@ class OpenRouterClient:
             try:
                 return await loop.run_in_executor(None, _call_local)
             except Exception as e:
-                print(f"[OpenRouterClient] Local simple completion error: {e}")
+                logger.warning("Local simple completion error: %s", e)
                 return ""
 
         if not self._client:
@@ -404,17 +591,17 @@ class OpenRouterClient:
 
         def _call():
             resp = self._client.chat.completions.create(
-                model=self.config.llm_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
                 temperature=temperature,
+                **llm_models.completion_kwargs(reasoning=False),
             )
             return resp.choices[0].message.content or ""
 
         try:
             return await loop.run_in_executor(None, _call)
         except Exception as e:
-            print(f"[OpenRouterClient] Simple completion error: {e}")
+            logger.warning("Simple completion error: %s", e)
             return ""
 
     def get_context_debug_info(self, conversation_id: int, user_message: str) -> Dict[str, Any]:

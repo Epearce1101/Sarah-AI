@@ -377,12 +377,13 @@ def _call_llm_format_code(
     Returns:
         Formatted code or None
     """
+    from backend import llm_models
     from backend.config import settings as _settings
     api_key = _settings.openrouter_api_key or os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         return None
 
-    model = _settings.openrouter_model
+    model = llm_models.current_online_model()
     url = f"{_settings.openrouter_base_url}/chat/completions"
 
     style_instructions = {
@@ -403,6 +404,7 @@ IMPORTANT: Return ONLY the formatted code, no explanations or markdown."""
 
     payload = {
         "model": model,
+        "models": llm_models.request_models(),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Format this {language} code:\n\n{code}"},

@@ -9,6 +9,7 @@ from typing import Optional, Dict, Tuple, Any, List
 
 import requests
 
+from backend import llm_models
 from backend.config import settings as _settings
 from backend.screen.ffmpeg_paths import ffmpeg_error_hint, resolve_ffmpeg_path
 
@@ -262,12 +263,13 @@ def _call_llm_vision(image_bytes: bytes) -> Optional[str]:
     if not api_key:
         return None
 
-    model = _settings.openrouter_model
+    model = llm_models.current_vision_model()
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     url = f"{_settings.openrouter_base_url}/chat/completions"
 
     payload = {
         "model": model,
+        "reasoning": {"effort": "low", "exclude": True},
         "messages": [
             {
                 "role": "user",
@@ -291,7 +293,7 @@ def _call_llm_vision(image_bytes: bytes) -> Optional[str]:
                 ],
             }
         ],
-        "max_tokens": 96,
+        "max_tokens": max(96, llm_models.VISION_MIN_COMPLETION_TOKENS),
         "temperature": 0.2,
     }
 
@@ -340,6 +342,7 @@ def _call_ollama_vision(image_bytes: bytes) -> Optional[str]:
     url = f"{host}/api/generate"
     payload = {
         "model": model,
+        "reasoning": {"effort": "low", "exclude": True},
         "prompt": (
             "You are an assistant named Sarah. "
             "Look at this screenshot from a screen recording and describe, "
@@ -410,7 +413,7 @@ def _call_llm_vision_structured(image_bytes: bytes) -> Optional[Dict[str, Any]]:
     if not api_key:
         return None
 
-    model = _settings.openrouter_model
+    model = llm_models.current_vision_model()
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     url = f"{_settings.openrouter_base_url}/chat/completions"
 
@@ -437,6 +440,7 @@ def _call_llm_vision_structured(image_bytes: bytes) -> Optional[Dict[str, Any]]:
 
     payload = {
         "model": model,
+        "reasoning": {"effort": "low", "exclude": True},
         "response_format": {"type": "json_object"},
         "messages": [
             {
@@ -456,7 +460,7 @@ def _call_llm_vision_structured(image_bytes: bytes) -> Optional[Dict[str, Any]]:
                 ],
             },
         ],
-        "max_tokens": 512,
+        "max_tokens": max(512, llm_models.VISION_MIN_COMPLETION_TOKENS),
         "temperature": 0.1,
     }
 

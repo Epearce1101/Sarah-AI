@@ -18,6 +18,7 @@ from enum import Enum
 
 import requests
 
+from backend import llm_models
 from backend.config import settings as _settings
 
 logger = logging.getLogger("sarah.smart_analysis")
@@ -50,7 +51,7 @@ def _call_llm_error_detection(image_bytes: bytes) -> Optional[Dict[str, Any]]:
     if not api_key:
         return None
 
-    model = _settings.openrouter_model
+    model = llm_models.current_vision_model()
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     url = f"{_settings.openrouter_base_url}/chat/completions"
 
@@ -87,6 +88,7 @@ If no error is visible, set has_error to false."""
 
     payload = {
         "model": model,
+        "reasoning": {"effort": "low", "exclude": True},
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -101,7 +103,7 @@ If no error is visible, set has_error to false."""
                 ],
             },
         ],
-        "max_tokens": 1024,
+        "max_tokens": max(1024, llm_models.VISION_MIN_COMPLETION_TOKENS),
         "temperature": 0.1,
     }
 
@@ -151,7 +153,7 @@ def _call_llm_ui_analysis(image_bytes: bytes) -> Optional[Dict[str, Any]]:
     if not api_key:
         return None
 
-    model = _settings.openrouter_model
+    model = llm_models.current_vision_model()
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     url = f"{_settings.openrouter_base_url}/chat/completions"
 
@@ -193,6 +195,7 @@ Be specific and actionable in your feedback."""
 
     payload = {
         "model": model,
+        "reasoning": {"effort": "low", "exclude": True},
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -207,7 +210,7 @@ Be specific and actionable in your feedback."""
                 ],
             },
         ],
-        "max_tokens": 1024,
+        "max_tokens": max(1024, llm_models.VISION_MIN_COMPLETION_TOKENS),
         "temperature": 0.2,
     }
 
@@ -256,7 +259,7 @@ def _call_llm_code_extraction(image_bytes: bytes) -> Optional[Dict[str, Any]]:
     if not api_key:
         return None
 
-    model = _settings.openrouter_model
+    model = llm_models.current_vision_model()
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     url = f"{_settings.openrouter_base_url}/chat/completions"
 
@@ -296,6 +299,7 @@ If no code is visible, set has_code to false."""
 
     payload = {
         "model": model,
+        "reasoning": {"effort": "low", "exclude": True},
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -310,7 +314,7 @@ If no code is visible, set has_code to false."""
                 ],
             },
         ],
-        "max_tokens": 2048,
+        "max_tokens": max(2048, llm_models.VISION_MIN_COMPLETION_TOKENS),
         "temperature": 0.0,  # Maximum precision for code extraction
     }
 

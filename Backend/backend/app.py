@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from backend import llm_models
 from backend.api import register_routers
 from backend.audio.wake_loop import start_wake_listener
 from backend.config import settings
@@ -99,6 +100,11 @@ async def _startup() -> None:
     print("[INIT] Booting SQL database...")
     init_db()
     print("[INIT] SQL ready.")
+
+    # Restore a model picked in the UI, then check (off the event loop) that
+    # it and its fallbacks still exist on OpenRouter.
+    llm_models.load_persisted_model()
+    asyncio.get_running_loop().run_in_executor(None, llm_models.check_availability)
 
     print("[INIT] Loading identity from USER.md...")
     try:

@@ -73,6 +73,17 @@ class Settings:
     # the inkling:free models, which are restricted to approved apps).
     openrouter_model: str = field(default_factory=lambda: _str("SARAH_OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free"))
     openrouter_context_window_tokens: int = field(default_factory=lambda: _int("SARAH_OPENROUTER_CONTEXT_WINDOW_TOKENS", 1000000))
+    # Tried in order when the primary fails (OpenRouter allows 3 models total).
+    # Both answered consistently in a 2026-09-27 probe; openrouter/free and
+    # nemotron-3.5-lightning did not (safety-classifier output / leaked reasoning).
+    openrouter_fallback_models: tuple[str, ...] = field(default_factory=lambda: _csv(
+        "SARAH_OPENROUTER_FALLBACK_MODELS",
+        ("dots-studio/dots-3-note-preview:free", "poolside/laguna-s-2.1:free"),
+    ))
+    # Image-capable model for screenshot/vision analysis (the chat model is
+    # text-only). Used when local Ollama vision isn't available. Free; read a
+    # test image correctly in a 2026-09-27 probe given enough output tokens.
+    openrouter_vision_model: str = field(default_factory=lambda: _str("SARAH_OPENROUTER_VISION_MODEL", "dots-studio/dots-3-note-preview:free"))
     openrouter_reasoning_effort: str = field(default_factory=lambda: _str("SARAH_OPENROUTER_REASONING_EFFORT", "high"))
     llm_max_completion_tokens: int = field(default_factory=lambda: _int("SARAH_LLM_MAX_COMPLETION_TOKENS", 4096))
     llm_temperature: float = field(default_factory=lambda: _float("SARAH_LLM_TEMPERATURE", 0.7))

@@ -16,6 +16,7 @@ from enum import Enum
 
 import requests
 
+from backend import llm_models
 from backend.config import settings as _settings
 
 logger = logging.getLogger("sarah.task_breakdown")
@@ -117,7 +118,7 @@ def _call_llm_task_breakdown(user_request: str, context: Optional[str] = None) -
     if not api_key:
         return None
 
-    model = _settings.openrouter_model
+    model = llm_models.current_online_model()
     url = f"{_settings.openrouter_base_url}/chat/completions"
 
     system_prompt = """You are Sarah's Task Planning Assistant, an expert at breaking down complex development tasks.
@@ -172,6 +173,7 @@ Provide a detailed task breakdown that:
 
     payload = {
         "model": model,
+        "models": llm_models.request_models(),
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system_prompt},

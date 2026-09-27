@@ -426,7 +426,22 @@ select:focus {
 
 .model-status-text {
   color: var(--text-main);
+  font: inherit;
   font-weight: 700;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.model-status-text:hover,
+.model-status-text:focus-visible {
+  text-decoration: underline;
+  outline: none;
+}
+
+.model-status-text[data-model-available="false"] {
+  color: var(--accent-amber);
 }
 
 .model-context-text,

@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional, List
 import time
 import re
 
+from backend import llm_models
 from backend.config import settings as _settings
 from backend.identity import get_user_name
 from backend.reply_sanitizer import sanitize_visible_reply
@@ -148,7 +149,7 @@ class LLMClient:
 
         def _call():
             resp = self._client.chat.completions.create(
-                model=self.online_model,
+                **llm_models.completion_kwargs(reasoning=False),
                 messages=[
                     {
                         "role": "system",
@@ -270,7 +271,7 @@ class SarahCore:
             configured_mode = "local"
         self.llm_mode: str = configured_mode
         self.local_model_name: str = _settings.default_local_model
-        self.online_model_name: str = _settings.openrouter_model
+        self.online_model_name: str = llm_models.current_online_model()
 
         # LLM client (legacy, still used by V10 modules)
         self.llm = LLMClient(
@@ -305,6 +306,8 @@ class SarahCore:
 
         if self.memory_enabled:
             self._init_memory_system()
+
+        llm_models.on_model_change(self._on_online_model_change)
 
         print("[SARAH INIT] SarahCore initialized. Core version:", self.core_version)
 
@@ -341,7 +344,7 @@ class SarahCore:
                         provider="Ollama",
                     )
                 else:
-                    model_name = self._memory_config.llm_model if self._memory_config else _settings.openrouter_model
+                    model_name = llm_models.current_online_model()
                     self._openrouter.set_llm_mode_info(
                         mode="online",
                         model_name=model_name,
@@ -382,7 +385,7 @@ class SarahCore:
         if self._openrouter:
             if mode == "online":
                 # Online mode uses OpenRouter with configured model
-                model_name = self._memory_config.llm_model if self._memory_config else _settings.openrouter_model
+                model_name = llm_models.current_online_model()
                 self._openrouter.set_llm_mode_info(
                     mode="online",
                     model_name=model_name,
@@ -395,6 +398,13 @@ class SarahCore:
                     model_name=local_model or self.local_model_name or _settings.default_local_model,
                     provider="Ollama"
                 )
+
+    def _on_online_model_change(self, model: str) -> None:
+        """Keep display/budget info in sync after a model switch from the UI."""
+        self.online_model_name = model
+        self.llm.online_model = model
+        if self._openrouter and self.llm_mode == "online":
+            self._openrouter.set_llm_mode_info(mode="online", model_name=model, provider="OpenRouter")
 
     # ------------------------------------------------------------
     # Prompt helpers

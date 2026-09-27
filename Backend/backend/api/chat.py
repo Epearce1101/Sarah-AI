@@ -11,7 +11,7 @@ import requests
 from fastapi import APIRouter, HTTPException
 
 from backend.api.schemas import ChatRequest, ChatResponse
-from backend import state
+from backend import llm_models, state
 from backend.config import settings
 from backend.diagnostics.telemetry import record_chat_error, record_chat_result
 from backend.identity import get_user_name
@@ -190,7 +190,7 @@ async def api_chat(payload: ChatRequest):
         tokens_used=tokens_used,
         token_budget=token_budget,
         latency_ms=(time.perf_counter() - started_at) * 1000,
-        model=state.LOCAL_LLM_MODEL if state.LLM_MODE == "local" else settings.openrouter_model,
+        model=state.LOCAL_LLM_MODEL if state.LLM_MODE == "local" else llm_models.current_online_model(),
         success=True,
     )
 

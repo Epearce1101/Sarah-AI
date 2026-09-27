@@ -583,12 +583,13 @@ def _call_llm_multi_file_edit(
     Returns:
         Structured multi-file edit plan
     """
+    from backend import llm_models
     from backend.config import settings as _settings
     api_key = _settings.openrouter_api_key or os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         return None
 
-    model = _settings.openrouter_model
+    model = llm_models.current_online_model()
     url = f"{_settings.openrouter_base_url}/chat/completions"
 
     system_prompt = """You are Sarah's Multi-File Editor, an expert at planning coordinated changes across multiple files.
@@ -640,6 +641,7 @@ Create a detailed plan that:
 
     payload = {
         "model": model,
+        "models": llm_models.request_models(),
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system_prompt},

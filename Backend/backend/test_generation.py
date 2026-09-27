@@ -21,6 +21,7 @@ from enum import Enum
 
 import requests
 
+from backend import llm_models
 from backend.config import settings as _settings
 from backend.utils.proc_jail import minimal_env, run_jailed
 
@@ -191,7 +192,7 @@ def _call_llm_test_generation(
     if not api_key:
         return None
 
-    model = _settings.openrouter_model
+    model = llm_models.current_online_model()
     url = f"{_settings.openrouter_base_url}/chat/completions"
 
     system_prompt = f"""You are Sarah's Test Generator, an expert at writing comprehensive tests.
@@ -254,6 +255,7 @@ Test Type: {test_type}"""
 
     payload = {
         "model": model,
+        "models": llm_models.request_models(),
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system_prompt},

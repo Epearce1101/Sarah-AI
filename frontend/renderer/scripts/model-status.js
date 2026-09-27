@@ -72,8 +72,15 @@
     }
 
     if (elements?.modelText) {
-      elements.modelText.textContent = status.modelLabel;
+      // Backend reports model_available=false when the configured model is
+      // gone from OpenRouter's catalog (requests then use the fallbacks).
+      const unavailable = info.model_available === false && status.mode === "online";
+      elements.modelText.textContent = unavailable ? `⚠ ${status.modelLabel}` : status.modelLabel;
       elements.modelText.dataset.fitState = status.fitState;
+      elements.modelText.dataset.modelAvailable = unavailable ? "false" : "true";
+      elements.modelText.title = unavailable
+        ? (info.model_warning || "This model is unavailable; using fallbacks.") + " Click to choose another model."
+        : "Change chat model";
     }
 
     if (elements?.contextText) {
