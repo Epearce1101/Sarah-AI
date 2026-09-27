@@ -4,6 +4,15 @@ Tracking file for current/previous issues. Tick a box when fixed; leave a short 
 
 ---
 
+## 2026-09-27 — 3D body: Sarah can express herself (#86–#91)
+
+- [x] **#86 Avatar just sat there; gestures fired in one burst at reply end, out of sync with speech** — replaced the Live2D rig (Lisette always held scissors, no real pointing; four systems wrote the same params) with a VRM 1.0 model (`assets/vrm/sarah.vrm`, the user's own "sarah" model, 54 bones incl. fingers) rendered by three.js + `@pixiv/three-vrm`. `scripts/avatar3d/sarah-vrm.js`: mocap clips (132 VRMA clips from the clawatar library) with crossfades, procedural gaze spread over chest/neck/head + eye look-at, arm-IK pointing with finger curl, lean/tilt, expressions (19 recipes + raw morphs), natural blinking, camera framing (upper/face/full; double-click cycles). Live2D stays as the fallback when the VRM can't load (`live2d-sarah.js` waits on `SARAH_AVATAR_3D_PENDING`); `localStorage["sarah.avatar.renderer"]="live2d"` forces it. Cost ~2 ms/frame.
+- [x] **#87 No way for Sarah to direct her body** — stage directions `<face>`, `<look>`, `<point>`, `<gesture>` (legacy `<motion>` still works), parsed by `scripts/avatar3d/cues.js` with exact text offsets. Each streamed sentence's TTS clip carries its cues; `director.speechStart` fires them when playback reaches their words (verified: wave at 1173 ms of a 2.01 s clip = 18/31 of the text). Trailing cues wait for the last sentence; failed synthesis still acts them out; voice off → performed as the text streams. Persona `_BODY_AWARENESS` rewritten for the new body and vocabulary; live model check: "wave and point at the chat" → `<gesture>wave</gesture>…<point>chat</point>`, good news → excited+clap, sad news → worried.
+- [x] **#88 Lip sync was a text-timed guess** — TTS audio now goes through an `AnalyserNode` for any avatar; frequency bands drive the aa/ih/ou/ee/oh visemes, energy drives head beats.
+- [x] **#89 No life between prompts** — `scripts/avatar3d/director.js`: gaze wanders (user/chat/cursor, micro-saccades, blink on big shifts), leans in and watches the input while the user types, thinking pose while waiting, idle actions every 15–40 s from mood-specific sets, stance changes, sleepy idles at night or after 5 min alone, waves when the user returns, head-pat/body-click reactions, mood baseline from the emotion engine; auto body language (nod/wave/tilt/look up) for replies without cues.
+- [x] **#90 History reload replayed gestures** — `_sanitizeAssistantDisplayText` dispatched motion tags and is also used to render history; it is now pure (strips cues only).
+- [x] **#91 Streaming preview leaked half-typed tags** — `<face>happy</fa` showed as text and also broke the TTS stream's prefix match (whole reply collapsed into one clip). Fixed in `cues.js`; covered by `tests/core_cues_unit_test.mjs` and new cases in `core_streaming_unit_test.mjs`.
+
 ## 2026-09-27 — Improvement pass (#75–#85)
 
 The project is now a git repo (portable MinGit at `E:\Tools\MinGit\cmd\git.exe`, not on PATH); each item below is its own commit — see `git log`.

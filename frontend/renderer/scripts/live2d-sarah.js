@@ -1667,8 +1667,15 @@ function updateEmotionPanel(brain) {
 // ======================================================================
 // AUTO INIT
 // ======================================================================
+// The 3D VRM body (scripts/avatar3d/index.js) takes priority; Live2D is the
+// fallback when it can't load.
+function initSarahLive2DUnless3D() {
+  const pending = window.SARAH_AVATAR_3D_PENDING;
+  if (!pending) return initSarahLive2D();
+  pending.then((active3d) => { if (!active3d) initSarahLive2D(); });
+}
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initSarahLive2D);
+  document.addEventListener("DOMContentLoaded", initSarahLive2DUnless3D);
 } else {
-  initSarahLive2D();
+  initSarahLive2DUnless3D();
 }

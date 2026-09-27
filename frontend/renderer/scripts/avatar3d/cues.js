@@ -1,0 +1,79 @@
+// Stage directions Sarah writes inline in her replies. Each cue fires at the
+// moment its surrounding words are spoken (or displayed, when voice is off):
+//
+//   <face>happy</face>  <face>surprised:0.6</face>   facial expression (+ intensity)
+//   <look>chat</look>                                 where to look
+//   <point>chat</point>                               point at something
+//   <gesture>wave</gesture>                           body gesture / animation
+//   <motion>wave</motion>                             legacy alias of <gesture>
+//
+// Attribute forms (<face name="happy"/>) and bare legacy gesture tags
+// (<wave/>, <nod>) are accepted too.
+
+export const CUE_KINDS = ["face", "look", "point", "gesture"];
+
+const PAIRED = /<(face|look|point|gesture|motion)\b[^>]*>([^<]*)<\/\1\s*>/gi;
+const SELF_CLOSING = /<(face|look|point|gesture|motion)\s+(?:name|value|to|at)\s*=\s*["']?([\w:.\- ]+?)["']?\s*\/?>/gi;
+// A cue still being streamed in: "<fa", "<face>hap", "<face>happy</fa",
+// "<gesture name=\"wa".
+const PARTIAL_TAIL = /<(?:(?:face|look|point|gesture|motion)\b[^>]*>[^<]*(?:<\/?[a-z]*)?|\/?[a-z]*(?:\s[^>]*)?)$/i;
+
+function splitValue(raw) {
+  const [value, amount] = String(raw).trim().toLowerCase().split(":");
+  const n = Number(amount);
+  return { value: value.trim().replace(/\s+/g, "_"), amount: Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : undefined };
+}
+
+/**
+ * Split raw reply text into what is shown/spoken and the cues inside it.
+ * `at` is the character offset in the returned `text` where the cue sits.
+ * `bareGestures` (Set of names) turns legacy tags like <wave/> into cues.
+ */
+export function parseCues(raw, { bareGestures = null, streaming = false } = {}) {
+  let source = String(raw || "");
+  if (streaming) source = source.replace(PARTIAL_TAIL, "");
+
+  const matches = [];
+  for (const re of [PAIRED, SELF_CLOSING]) {
+    re.lastIndex = 0;
+    for (const m of source.matchAll(re)) {
+      matches.push({ index: m.index, length: m[0].length, kind: m[1].toLowerCase(), value: m[2] });
+    }
+  }
+  if (bareGestures && bareGestures.size) {
+    const bare = /<\/?([a-z_][\w-]*)\s*\/?>/gi;
+    for (const m of source.matchAll(bare)) {
+      const name = m[1].toLowerCase();
+      if (!bareGestures.has(name)) continue;
+      if (matches.some((x) => m.index >= x.index && m.index < x.index + x.length)) continue;
+      // Only opening/self-closing tags carry a cue; closing tags just vanish.
+      matches.push({ index: m.index, length: m[0].length, kind: m[0][1] === "/" ? null : "gesture", value: name });
+    }
+  }
+  matches.sort((a, b) => a.index - b.index);
+
+  let text = "";
+  const cues = [];
+  let last = 0;
+  // Removing a tag between two words would leave a double space; drop the
+  // duplicate while joining so cue offsets stay exact.
+  const append = (chunk) => {
+    if (text.endsWith(" ") && chunk.startsWith(" ")) chunk = chunk.slice(1);
+    text += chunk;
+  };
+  for (const m of matches) {
+    if (m.index < last) continue; // overlapping forms of the same tag
+    append(source.slice(last, m.index));
+    last = m.index + m.length;
+    if (!m.kind) continue;
+    const { value, amount } = splitValue(m.value);
+    if (!value) continue;
+    cues.push({ type: m.kind === "motion" ? "gesture" : m.kind, value, amount, at: text.length });
+  }
+  append(source.slice(last));
+  return { text, cues };
+}
+
+export function stripCues(raw, options) {
+  return parseCues(raw, options).text;
+}

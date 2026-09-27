@@ -33,6 +33,17 @@
   z-index: 10;
 }
 
+.sarah-vrm-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  cursor: pointer;
+  touch-action: none;
+}
+
 .sarah-3d-canvas {
   width: 100%;
   height: 100%;

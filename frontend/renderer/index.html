@@ -31,7 +31,10 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "../node_modules/three/build/three.module.js"
+        "three": "../node_modules/three/build/three.module.js",
+        "three/addons/": "../node_modules/three/examples/jsm/",
+        "@pixiv/three-vrm": "../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js",
+        "@pixiv/three-vrm-animation": "../node_modules/@pixiv/three-vrm-animation/lib/three-vrm-animation.module.js"
       }
     }
   </script>
@@ -47,6 +50,8 @@
   <script src="scripts/live2d/avatar-ai-sync.js"></script>
   <script src="scripts/live2d-sarah.js"></script>
   <script src="scripts/live2d/avatar-system.js"></script>
+  <!-- 3D VRM body (preferred; Live2D above is the fallback) -->
+  <script type="module" src="scripts/avatar3d/index.js"></script>
   <script type="module" src="scripts/three-avatar-test.js"></script>
   <script src="scripts/model-status.js"></script>
 

@@ -120,6 +120,72 @@ function fakeTTS() {
   assert.deepEqual(played, []);
 }
 
+// --- createStream: stage-direction cues ride with the sentence they're in ---
+{
+  const { parseCues } = await import("../renderer/scripts/avatar3d/cues.js");
+  const requested = [];
+  const clips = [];
+  const tts = new SarahTTS({ tts: async (text) => { requested.push(text); return `url:${text}`; } });
+  tts.setEnabled(true);
+  tts._startClip = async (url, text, cues) => { clips.push({ text, cues }); return Promise.resolve(); };
+  tts._stopLive2DLipSync = () => {};
+  const raw = "<face>happy</face>Hi there, nice to see you! <gesture>wave</gesture>Look at this, <point>chat</point>it is right up there. Bye.";
+  const speech = tts.createStream();
+  for (let i = 1; i <= raw.length; i += 7) {
+    const { text, cues } = parseCues(raw.slice(0, i), { streaming: true });
+    speech.push(text, cues);
+  }
+  const final = parseCues(raw);
+  speech.push(final.text, final.cues);
+  speech.finish(final.text, {}, final.cues);
+  for (let i = 0; i < 8; i++) await tick();
+  assert.equal(clips.length, 2, JSON.stringify(clips));
+  assert.equal(clips[0].text, "Hi there, nice to see you!");
+  assert.deepEqual(clips[0].cues.map((c) => [c.type, c.value, c.at]), [["face", "happy", 0]]);
+  assert.equal(clips[1].text, "Look at this, it is right up there. Bye.");
+  const second = clips[1].cues.map((c) => [c.type, c.value, c.at]);
+  assert.deepEqual(second, [["gesture", "wave", 0], ["point", "chat", "Look at this, ".length]]);
+}
+
+// --- a cue after the last words waits for that clip to finish ---------------
+{
+  const order = [];
+  globalThis.window.SARAH_AVATAR_DIRECTOR = { performSequence: (cues) => order.push("cue:" + cues.map((c) => c.value)), speechCancel() {} };
+  const tts = new SarahTTS({ tts: async (text) => `url:${text}` });
+  tts.setEnabled(true);
+  tts._stopLive2DLipSync = () => {};
+  let endClip;
+  tts._startClip = async (url) => {
+    order.push("play:" + url.slice(4));
+    return new Promise((r) => { endClip = () => { order.push("end"); r(); }; });
+  };
+  const speech = tts.createStream();
+  const text = "Want me to shorten it a bit? ";
+  speech.push(text, [{ type: "gesture", value: "tilt", at: text.length }]);
+  await tick(); await tick();
+  speech.finish(text, {}, [{ type: "gesture", value: "tilt", at: text.length }]);
+  for (let i = 0; i < 4; i++) await tick();
+  assert.deepEqual(order, ["play:Want me to shorten it a bit?"], "cue must not fire mid-sentence");
+  endClip();
+  for (let i = 0; i < 4; i++) await tick();
+  assert.deepEqual(order, ["play:Want me to shorten it a bit?", "end", "cue:tilt"]);
+  delete globalThis.window.SARAH_AVATAR_DIRECTOR;
+}
+
+// --- a clip whose synthesis fails still performs its cues --------------------
+{
+  const performed = [];
+  globalThis.window.SARAH_AVATAR_DIRECTOR = { performSequence: (cues) => performed.push(...cues), speechCancel() {} };
+  const tts = new SarahTTS({ tts: async () => { throw new Error("tts down"); } });
+  tts.setEnabled(true);
+  tts._stopLive2DLipSync = () => {};
+  const speech = tts.createStream();
+  speech.finish("Hello friend.", {}, [{ type: "gesture", value: "wave", at: 0 }]);
+  for (let i = 0; i < 8; i++) await tick();
+  assert.deepEqual(performed.map((c) => c.value), ["wave"]);
+  delete globalThis.window.SARAH_AVATAR_DIRECTOR;
+}
+
 // --- voice off -> no stream --------------------------------------------------
 {
   const tts = new SarahTTS({ tts: async () => "u" });

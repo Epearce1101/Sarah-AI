@@ -25,6 +25,7 @@ import { SarahModelPicker } from "./scripts/core/model-picker.js";
 import { openAttachment } from "./scripts/core/attachments.js";
 import { ProjectModal } from "./scripts/core/project-modal.js";
 import "./scripts/core/screen-capture.js";
+import { parseCues } from "./scripts/avatar3d/cues.js";
 
 // -----------------------------------------------------------------------------
 // UI Controller
@@ -740,39 +741,38 @@ class SarahUI {
     return actions;
   }
 
+  // Legacy bare gesture tags (<wave/>, <nod>) still honoured in replies.
+  // Deliberately a fixed list: bare tags are stripped from the visible
+  // text, so a broad list would eat real content like HTML in code answers.
   _knownMotionNames() {
-    return new Set([
-      "wave",
-      "arms_up",
-      "thinking_pose",
-      "spin",
-      "shrug",
-      "point",
-      "hand_to_chest",
-      "lean_in",
-      "step_back",
-      "nod",
-      "shake_head",
-      "jump",
-      "crouch",
-      "blush",
-      ...(window.SARAH_AVATAR_SYSTEM?.listGestures?.() || []),
-    ]);
+    return (this._legacyMotionNames ||= new Set([
+      "wave", "arms_up", "thinking_pose", "spin", "shrug", "point", "hand_to_chest",
+      "lean_in", "step_back", "nod", "shake_head", "jump", "crouch", "blush",
+      "laugh", "surprise", "distant", "wink", "clap", "bow",
+    ]));
   }
 
-  // Cleanup for text that is still streaming in: hides motion tags (complete
-  // or half-typed) and <think> blocks WITHOUT dispatching gestures. The final
-  // reply goes through _sanitizeAssistantDisplayText exactly once.
+  // Split a reply into readable text and its stage directions (<face>,
+  // <look>, <point>, <gesture>, legacy <motion>/<wave/> tags). Cue `at`
+  // offsets index into the returned text. `streaming` hides a tag that is
+  // still being typed. Nothing is performed here: the TTS player (or the
+  // director, when voice is off) performs cues in time with the reply.
+  _parseReply(raw, { streaming = false } = {}) {
+    const withoutThink = String(raw || "").replace(
+      streaming ? /<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi : /<think\b[^>]*>[\s\S]*?<\/think>/gi,
+      ""
+    );
+    const parsed = parseCues(withoutThink, { bareGestures: this._knownMotionNames(), streaming });
+    const lead = parsed.text.length - parsed.text.trimStart().length;
+    if (!lead) return parsed;
+    return {
+      text: parsed.text.slice(lead),
+      cues: parsed.cues.map((c) => ({ ...c, at: Math.max(0, c.at - lead) })),
+    };
+  }
+
   _previewAssistantText(raw) {
-    const known = this._knownMotionNames();
-    return String(raw || "")
-      .replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, "")
-      .replace(/<motion\b[^>]*>[^<]*(?:<\/motion>)?/gi, "")
-      .replace(/<(\/?)([\w_-]+)\s*\/?>/gi, (match, _closing, tagName) =>
-        known.has(String(tagName || "").toLowerCase()) ? "" : match
-      )
-      .replace(/<[^>\n]*$/, "")
-      .trimStart();
+    return this._parseReply(raw, { streaming: true }).text;
   }
 
   // Send a turn via the streaming endpoint, painting the reply and starting
@@ -785,10 +785,12 @@ class SarahUI {
     let bubble = null;
     let textEl = null;
     const speech = this.tts.isEnabled() ? this.tts.createStream(this._lastReplyVoice || {}) : null;
+    const director = window.SARAH_AVATAR_DIRECTOR;
+    director?.resetStream?.();
 
     const onDelta = (text) => {
       raw += text;
-      const preview = this._previewAssistantText(raw);
+      const { text: preview, cues } = this._parseReply(raw, { streaming: true });
       if (!bubble) {
         if (!preview.trim()) return;
         this._hideLoadingIndicator(loadingEl);
@@ -798,7 +800,8 @@ class SarahUI {
       }
       if (textEl) textEl.textContent = preview;
       this._scrollToBottom();
-      speech?.push(preview);
+      if (speech) speech.push(preview, cues);
+      else director?.streamCues?.(cues);
     };
 
     try {
@@ -815,8 +818,8 @@ class SarahUI {
     }
   }
 
-  // Put the final reply into the streamed bubble (or a new one), dispatching
-  // its motion tags once. Returns the visible reply text.
+  // Put the final reply into the streamed bubble (or a new one). Returns the
+  // visible reply text.
   _finalizeAssistantReply(resp, bubble) {
     const rawReply = resp?.reply || "(no reply)";
     if (bubble) {
@@ -828,48 +831,33 @@ class SarahUI {
     return reply;
   }
 
-  // Voice for the finished reply: complete the TTS stream if one ran,
-  // otherwise speak the whole reply (or return the avatar to idle).
+  // Voice (and body) for the finished reply: complete the TTS stream if one
+  // ran, otherwise speak the whole reply; with voice off the director acts
+  // out any stage directions that haven't been performed yet.
   _speakFinalReply(reply, resp, speech, source) {
     const voice = { emotion: resp?.emotion, intensity: resp?.emotion_intensity };
     this._lastReplyVoice = voice;
+    const { cues } = this._parseReply(resp?.reply || "");
+    const director = window.SARAH_AVATAR_DIRECTOR;
     if (speech) {
-      speech.finish(reply, voice);
+      speech.finish(reply, voice, cues);
     } else if (this.tts.isEnabled()) {
-      this.tts.speak(reply, voice).catch((err) => console.warn("[TTS] Failed:", err));
+      this.tts.speak(reply, { ...voice, cues }).catch((err) => console.warn("[TTS] Failed:", err));
     } else {
+      if (director) {
+        // Cues already acted out while streaming are skipped.
+        if (cues.length) director.streamCues(cues, { final: true });
+        else director.performText(reply);
+      }
       this._setAvatarMode("idle", { source });
     }
   }
 
+  // Display text for an assistant message: stage directions, <think> blocks
+  // and leaked internal notes removed. Pure: it's also used for history, so
+  // it must never make the avatar act.
   _sanitizeAssistantDisplayText(text) {
-    // Issue #33: extract <motion name="..."> / <motion>name</motion>
-    // tokens before stripping. Each tag dispatches to the avatar system
-    // and is removed from the visible reply.
-    const raw = String(text || "");
-    const knownMotionNames = this._knownMotionNames();
-    const dispatchMotion = (candidate) => {
-      const name = String(candidate || "").trim().toLowerCase();
-      if (!name || !knownMotionNames.has(name)) return;
-      console.log("[Sarah/MotionTag] dispatch", name, "from reply");
-      const ok = window.SARAH_AVATAR_SYSTEM?.triggerGesture?.(name, 0.85);
-      if (!ok) console.warn("[Sarah/MotionTag] triggerGesture returned false for", name);
-    };
-    raw.replace(/<motion(?:\s+name=["']?([\w_-]+)["']?)?\s*(?:\/>|>([\w_-]+)<\/motion>)/gi, (_match, attr, body) => {
-      dispatchMotion(attr || body);
-      return "";
-    });
-    raw.replace(/<(\/?)([\w_-]+)\s*\/?>/gi, (_match, closing, tagName) => {
-      if (!closing) dispatchMotion(tagName);
-      return "";
-    });
-
-    let cleaned = raw
-      .replace(/<motion(?:\s+name=["']?[\w_-]+["']?)?\s*(?:\/>|>[\w_-]+<\/motion>)/gi, "")
-      .replace(/<(\/?)([\w_-]+)\s*\/?>/gi, (match, _closing, tagName) =>
-        knownMotionNames.has(String(tagName || "").toLowerCase()) ? "" : match
-      )
-      .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
+    let cleaned = this._parseReply(text).text
       .replace(/\[\s*(?:add\s+)?internal\s+notes?[\w\s,.;:'"!?/-]*\]/gi, "");
 
     const internalHeading =
@@ -5604,7 +5592,7 @@ class SarahUI {
         // Issue #3: re-sync from /api/context_info for cumulative tokens.
         this.syncContextInfo(this.activeConversationId)
           .catch(err => console.warn("[Token] Context sync failed:", err));
-        if (this.tts.isEnabled()) await this.tts.speak(resp.reply);
+        this._speakFinalReply(this._sanitizeAssistantDisplayText(resp.reply), resp, null, "snippet-complete");
       }
 
       if (snippetStatus) snippetStatus.textContent = `✅ Sent to Sarah`;
@@ -5704,12 +5692,7 @@ class SarahUI {
       this.setStatus("Ready");
 
       // Run TTS and mood sync in background (non-blocking)
-      if (this.tts.isEnabled()) {
-        this.tts.speak(reply, { emotion: resp?.emotion, intensity: resp?.emotion_intensity })
-          .catch(err => console.warn("[TTS] Failed:", err));
-      } else {
-        this._setAvatarMode("idle", { source: "multimodal-chat-complete" });
-      }
+      this._speakFinalReply(reply, resp, null, "multimodal-chat-complete");
       this.syncAvatarBaselineFromContext(this.activeConversationId)
         .catch(err => console.warn("[AvatarContext] Sync failed:", err));
       this.syncMoodFromBackend().catch(err => console.warn("[Mood] Sync failed:", err));

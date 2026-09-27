@@ -34,3 +34,8 @@ Backend/backend/wake/models/
 # --- Editor / tool state -------------------------------------------------------
 .obsidian/
 .vscode/
+
+# 3D avatar: personal VRM model + motion-capture clips (restore from source; see README)
+frontend/renderer/assets/vrm/sarah.vrm
+frontend/renderer/assets/vrm/animations/*.vrma
+

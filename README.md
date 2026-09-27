@@ -1,8 +1,9 @@
 # Sarah V10
 
 Desktop AI companion: FastAPI backend (`Backend/`) + Electron renderer with a
-Live2D avatar (`frontend/`). Chat runs through OpenRouter (or a local Ollama
-model), with Piper TTS, Whisper STT, Vosk wake word, screen capture and vision.
+3D VRM avatar (`frontend/`, Live2D fallback). Chat runs through OpenRouter (or
+a local Ollama model), with Piper TTS, Whisper STT, Vosk wake word, screen
+capture and vision.
 
 ## Run
 
@@ -30,6 +31,10 @@ generates a per-run API token that both sides share (see *Security* below).
    | `Backend/backend/piper/piper.exe` + `*.dll`, `libtashkeel_model.ort`, `espeak-ng-data/` | Piper TTS runtime (Windows release) |
    | `Backend/backend/piper/models/en_GB-jenny_dioco-medium.onnx(.json)` | Piper voice |
    | `Backend/backend/wake/models/vosk-model-small-en-us-0.15/` | Vosk wake-word model |
+   | `frontend/renderer/assets/vrm/sarah.vrm` | Sarah's VRM 1.0 model (personal, non-redistributable) |
+   | `frontend/renderer/assets/vrm/animations/*.vrma` | Mocap clips listed in `catalog.json` (from the clawatar animation library) |
+
+   Without the VRM the app falls back to the Live2D avatar.
 
 5. Optional: **Ollama** for local mode and local vision (`SARAH_OLLAMA_EXE_PATH`).
    Without it, vision falls back to OpenRouter (`SARAH_OPENROUTER_VISION_MODEL`).
@@ -40,6 +45,9 @@ generates a per-run API token that both sides share (see *Security* below).
 - `Backend/backend/memory/` — context building, summaries, long-term memory
 - `Backend/backend/sandbox.py`, `utils/proc_jail.py` — confined code execution
 - `frontend/renderer/dashboard.js` — main UI; `renderer/scripts/core/` — extracted modules
+- `frontend/renderer/scripts/avatar3d/` — the 3D body: `sarah-vrm.js` (rendering,
+  animation, face, gaze, pointing), `director.js` (behaviour and stage
+  directions), `cues.js` (the `<face>/<look>/<point>/<gesture>` tag parser)
 - `personalities/sarah/` — Sarah's persona (IDENTITY.md / SOUL.md)
 - `Issues found.md` — issue log with fixes and verification notes
 

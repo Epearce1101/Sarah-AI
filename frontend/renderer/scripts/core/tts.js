@@ -46,6 +46,7 @@ export class SarahTTS {
     }
     this._ttsPlaying = false;
     this._ttsMuteUntil = Date.now() + this._ttsTailMs;
+    window.SARAH_AVATAR_DIRECTOR?.speechCancel?.();
     this._stopLive2DLipSync();
   }
 
@@ -70,7 +71,11 @@ export class SarahTTS {
     this.lipSyncAnalyser = null;
     window.SARAH_LIVE2D?.clearVoiceLevel?.();
     window.SARAH_LIVE2D?.clearVisemeTimeline?.();
-    window.SARAH_LIVE2D?.setAvatarMode?.("idle", { source: "tts-stop" });
+    // The 3D director tracks speech itself (speechStart/End); an idle hint
+    // here would knock it out of "thinking" when a new reply starts.
+    if (!window.SARAH_AVATAR_DIRECTOR) {
+      window.SARAH_LIVE2D?.setAvatarMode?.("idle", { source: "tts-stop" });
+    }
   }
 
   _buildApproxVisemeTimeline(text) {
@@ -113,26 +118,51 @@ export class SarahTTS {
     return timeline;
   }
 
-  async _startLive2DLipSync(audio, text = "") {
-    if (!window.SARAH_LIVE2D?.setVoiceLevel) return;
+  // Route the clip through an analyser and hand it to whichever avatar is
+  // active: the 3D director gets the analyser (lip sync + speech beats) and
+  // the clip's stage-direction cues, timed to this clip's playback; the
+  // Live2D rig gets a voice level per frame.
+  async _attachAvatarAudio(audio, text = "", cues = []) {
+    const director = window.SARAH_AVATAR_DIRECTOR;
+    const live2d = window.SARAH_LIVE2D?.setVoiceLevel && !director;
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextCtor) return;
+    let analyser = null;
 
-    try {
-      this.audioContext = this.audioContext || new AudioContextCtor();
-      if (this.audioContext.state === "suspended") {
-        await this.audioContext.resume();
+    if ((director || live2d) && AudioContextCtor) {
+      try {
+        this.audioContext = this.audioContext || new AudioContextCtor();
+        if (this.audioContext.state === "suspended") {
+          await this.audioContext.resume();
+        }
+        const source = this.audioContext.createMediaElementSource(audio);
+        analyser = this.audioContext.createAnalyser();
+        analyser.fftSize = 1024;
+        analyser.smoothingTimeConstant = 0.5;
+        source.connect(analyser);
+        analyser.connect(this.audioContext.destination);
+        this.lipSyncSource = source;
+        this.lipSyncAnalyser = analyser;
+      } catch (err) {
+        console.warn("[TTS] audio analyser unavailable:", err);
+        analyser = null;
       }
+    }
 
-      const source = this.audioContext.createMediaElementSource(audio);
-      const analyser = this.audioContext.createAnalyser();
-      analyser.fftSize = 1024;
-      source.connect(analyser);
-      analyser.connect(this.audioContext.destination);
+    if (director) {
+      audio.addEventListener("play", () => {
+        director.speechStart({ analyser, text, cues, duration: audio.duration });
+      }, { once: true });
+      const end = () => director.speechEnd();
+      audio.addEventListener("ended", end, { once: true });
+      audio.addEventListener("error", end, { once: true });
+      return;
+    }
+    if (live2d && analyser) this._startLive2DLipSync(audio, text, analyser);
+  }
 
+  _startLive2DLipSync(audio, text, analyser) {
+    try {
       const data = new Uint8Array(analyser.fftSize);
-      this.lipSyncSource = source;
-      this.lipSyncAnalyser = analyser;
 
       const tick = () => {
         analyser.getByteTimeDomainData(data);
@@ -196,7 +226,7 @@ export class SarahTTS {
 
   // Start playing one synthesized clip. Resolves once playback has started
   // with a promise that settles when the clip ends (or is stopped/fails).
-  async _startClip(url, text) {
+  async _startClip(url, text, cues = []) {
     const audio = new Audio(url);
     // Issue #28: greetings ("Hello") were getting clipped at the start
     // because audio.play() fired before the element had decoded its first
@@ -219,7 +249,7 @@ export class SarahTTS {
         audio.addEventListener(evt, () => resolve(), { once: true });
       }
     });
-    await this._startLive2DLipSync(audio, text);
+    await this._attachAvatarAudio(audio, text, cues);
     await new Promise((resolve) => {
       if (audio.readyState >= 3) {
         resolve();
@@ -240,6 +270,7 @@ export class SarahTTS {
     return ended;
   }
 
+  // opts.cues: stage directions ({type, value, at}) with `at` offsets in text.
   async speak(text, opts = {}) {
     if (!this.voiceEnabled) return;
     this.stop();
@@ -248,19 +279,28 @@ export class SarahTTS {
     try {
       const url = await this.backend.tts(text, this._ttsOptions(opts));
       if (window.B6_TIMING) console.log(`[TIMING] stage=tts.response_complete ms=${Math.round(performance.now() - t0)} text_len=${text.length}`);
-      await this._startClip(url, text);
+      await this._startClip(url, text, opts.cues || []);
     } catch (err) {
       console.warn("TTS failed:", err);
       this._ttsPlaying = false;
       this._ttsMuteUntil = Date.now() + this._ttsTailMs;
+      this._performNow(opts.cues);
     }
   }
 
-  // Speak a reply while it is still being written. push(preview) takes the
-  // whole cleaned text so far; each finished sentence is synthesized as soon
-  // as it appears (the next one while the current one plays) and clips play
-  // in order. finish(finalText, voiceOpts) speaks whatever is left. Returns
-  // null when voice is off. Any stop() (new reply, voice toggled) cancels it.
+  // Speech failed: still act out the directions so the body isn't lost.
+  _performNow(cues) {
+    const director = window.SARAH_AVATAR_DIRECTOR;
+    if (director && cues?.length) director.performSequence(cues);
+  }
+
+  // Speak a reply while it is still being written. push(preview, cues) takes
+  // the whole cleaned text so far plus its stage-direction cues (offsets in
+  // that text); each finished sentence is synthesized as soon as it appears
+  // (the next one while the current one plays), clips play in order, and a
+  // clip's cues fire as its audio reaches them. finish(finalText, voiceOpts,
+  // finalCues) speaks whatever is left. Returns null when voice is off. Any
+  // stop() (new reply, voice toggled) cancels it.
   createStream(opts = {}) {
     if (!this.voiceEnabled) return null;
     this.stop();
@@ -270,34 +310,60 @@ export class SarahTTS {
     let voiceOpts = opts;
     let spokenText = "";
     let pending = "";
+    let cues = [];
     const queue = [];
     let playing = false;
     const stale = () => generation !== this._streamGeneration;
 
+    // Cues inside [start, end) of the preview, rebased onto the spoken text.
+    const cuesBetween = (start, end, segment, text) => {
+      const lead = segment.length - segment.trimStart().length;
+      return cues
+        .filter((c) => c.at >= start && c.at < end)
+        .map((c) => ({ ...c, at: Math.max(0, Math.min(text.length, c.at - start - lead)) }));
+    };
+
+    let last = null; // most recent clip; trailing cues wait for it to end
+
     const pump = async () => {
       playing = true;
       while (queue.length && !stale()) {
-        const { text, urlPromise } = queue.shift();
-        const url = await urlPromise;
-        if (!url || stale()) continue;
-        try {
-          const ended = await this._startClip(url, text);
-          await ended;
-        } catch (err) {
-          console.warn("[TTS] Stream clip failed:", err);
+        const item = queue.shift();
+        const url = await item.urlPromise;
+        if (stale()) continue;
+        if (!url) {
+          this._performNow(item.cues);
+        } else {
+          try {
+            const ended = await this._startClip(url, item.text, item.cues);
+            await ended;
+          } catch (err) {
+            console.warn("[TTS] Stream clip failed:", err);
+            this._performNow(item.cues);
+          }
         }
+        item.done = true;
+        if (!stale()) this._performNow(item.after);
       }
       playing = false;
     };
 
-    const enqueue = (segment) => {
+    const enqueue = (segment, clipCues = []) => {
       const text = norm(segment);
-      if (!text || stale()) return;
+      if (stale()) return;
+      if (!text) {
+        // Directions after the last words (e.g. a closing <gesture>) happen
+        // once that sentence has been spoken, not straight away.
+        if (last && !last.done) last.after.push(...clipCues);
+        else this._performNow(clipCues);
+        return;
+      }
       const urlPromise = this.backend.tts(text, this._ttsOptions(voiceOpts)).catch((err) => {
         console.warn("[TTS] Stream synthesis failed:", err);
         return null;
       });
-      queue.push({ text, urlPromise });
+      last = { text, urlPromise, cues: clipCues, after: [], done: false };
+      queue.push(last);
       if (!playing) pump();
     };
 
@@ -315,15 +381,17 @@ export class SarahTTS {
         }
         if (cut < 0) return;
         const segment = pending.slice(0, cut);
+        const start = spokenText.length;
         pending = pending.slice(cut);
         spokenText += segment;
-        enqueue(segment);
+        enqueue(segment, cuesBetween(start, spokenText.length, segment, norm(segment)));
       }
     };
 
     return {
-      push: (preview) => {
+      push: (preview, previewCues = null) => {
         if (stale()) return;
+        if (Array.isArray(previewCues)) cues = previewCues;
         const full = String(preview || "");
         const consumed = spokenText.length + pending.length;
         if (full.length > consumed && full.startsWith(spokenText + pending)) {
@@ -331,18 +399,23 @@ export class SarahTTS {
           drain();
         }
       },
-      finish: (finalText, finalOpts = {}) => {
+      finish: (finalText, finalOpts = {}, finalCues = null) => {
         if (stale()) return;
         if (finalOpts.emotion != null || finalOpts.intensity != null) voiceOpts = finalOpts;
+        if (Array.isArray(finalCues)) cues = finalCues;
         const finalNorm = norm(finalText);
         const spokenNorm = norm(spokenText);
+        const start = spokenText.length;
         if (finalNorm.startsWith(spokenNorm)) {
-          enqueue(finalNorm.slice(spokenNorm.length));
+          const rest = finalNorm.slice(spokenNorm.length);
+          enqueue(rest, cuesBetween(start, Infinity, rest, norm(rest)));
         } else if (!spokenNorm) {
-          enqueue(finalNorm);
+          enqueue(finalNorm, cuesBetween(0, Infinity, finalNorm, finalNorm));
+        } else {
+          // The cleaned final text diverged from what was already spoken;
+          // skip the tail rather than repeat or garble it, but still act.
+          this._performNow(cues.filter((c) => c.at >= start));
         }
-        // Otherwise the cleaned final text diverged from what was already
-        // spoken; skip the tail rather than repeat or garble it.
         pending = "";
       },
       cancel: () => {
