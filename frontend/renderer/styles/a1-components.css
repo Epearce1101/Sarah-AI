@@ -1373,3 +1373,15 @@ select:focus {
   color: var(--text-soft);
   margin-top: 1px;
 }
+
+/* Streaming reply: blinking caret until the final text replaces the preview. */
+.chat-bubble.is-streaming .chat-bubble-text::after {
+  content: "\258D";
+  margin-left: 2px;
+  color: var(--text-soft);
+  animation: streamCaretBlink 1s steps(1) infinite;
+}
+
+@keyframes streamCaretBlink {
+  50% { opacity: 0; }
+}

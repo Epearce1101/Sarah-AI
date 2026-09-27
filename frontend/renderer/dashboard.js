@@ -129,6 +129,57 @@ class SarahBackend {
     return result;
   }
 
+  // Streams /api/chat/stream (Server-Sent Events): calls onDelta(text) for
+  // each chunk as the model writes and resolves with the final payload, which
+  // has the same shape as /api/chat. Errors thrown with `streamUnavailable`
+  // mean the endpoint doesn't exist (older backend) and nothing was sent, so
+  // falling back to chat() is safe; any other failure may already have saved
+  // the user's turn and must not be retried blindly.
+  async chatStream(message, conversationId = null, { regenerate = false, onDelta } = {}) {
+    const payload = { message, from_creator: true };
+    if (conversationId != null) payload.conversation_id = conversationId;
+    if (regenerate) payload.regenerate = true;
+
+    const res = await fetch(`${this.base}/api/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok || !res.body) {
+      const err = new Error(`Chat stream failed: HTTP ${res.status}`);
+      err.streamUnavailable = res.status === 404 || res.status === 405;
+      throw err;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let final = null;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const block = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        let event = "message";
+        const data = [];
+        for (const line of block.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+        }
+        if (!data.length) continue;
+        const parsed = JSON.parse(data.join("\n"));
+        if (event === "delta") onDelta?.(parsed.text || "");
+        else if (event === "done") final = parsed;
+        else if (event === "error") throw new Error(parsed.detail || "Chat stream error");
+      }
+      if (done) break;
+    }
+    if (!final) throw new Error("Chat stream ended without a reply");
+    return final;
+  }
+
   async getLLMMode() {
     const res = await fetch(this.endpoints.llmMode);
     if (!res.ok) throw new Error("Failed LLM mode");
@@ -847,6 +898,7 @@ class SarahTTS {
     this._ttsPlaying = false;
     this._ttsMuteUntil = 0;
     this._ttsTailMs = 1500;
+    this._streamGeneration = 0;
   }
 
   isEnabled() {
@@ -863,6 +915,7 @@ class SarahTTS {
   }
 
   stop() {
+    this._streamGeneration += 1; // invalidates any createStream() in flight
     if (this.currentAudio) {
       this.currentAudio.pause();
       this.currentAudio = null;
@@ -1011,57 +1064,167 @@ class SarahTTS {
     };
   }
 
+  _ttsOptions(opts = {}) {
+    return (opts.emotion != null || opts.intensity != null)
+      ? this._prosodyFor(opts.emotion, opts.intensity)
+      : undefined;
+  }
+
+  // Start playing one synthesized clip. Resolves once playback has started
+  // with a promise that settles when the clip ends (or is stopped/fails).
+  async _startClip(url, text) {
+    const audio = new Audio(url);
+    // Issue #28: greetings ("Hello") were getting clipped at the start
+    // because audio.play() fired before the element had decoded its first
+    // PCM samples. Force eager preload and wait until the buffer has enough
+    // data to play through (readyState >= HAVE_FUTURE_DATA) before starting
+    // playback. Capped at 250ms so a slow decode never deadlocks the call.
+    audio.preload = "auto";
+    this.currentAudio = audio;
+    audio.addEventListener("play", () => {
+      this._ttsPlaying = true;
+    }, { once: true });
+    const release = () => {
+      this._ttsPlaying = false;
+      this._ttsMuteUntil = Date.now() + this._ttsTailMs;
+    };
+    audio.addEventListener("ended", release, { once: true });
+    audio.addEventListener("error", release, { once: true });
+    const ended = new Promise((resolve) => {
+      for (const evt of ["ended", "error", "pause"]) {
+        audio.addEventListener(evt, () => resolve(), { once: true });
+      }
+    });
+    await this._startLive2DLipSync(audio, text);
+    await new Promise((resolve) => {
+      if (audio.readyState >= 3) {
+        resolve();
+        return;
+      }
+      const done = () => {
+        audio.removeEventListener("canplay", done);
+        audio.removeEventListener("canplaythrough", done);
+        resolve();
+      };
+      audio.addEventListener("canplay", done, { once: true });
+      audio.addEventListener("canplaythrough", done, { once: true });
+      setTimeout(done, 250);
+    });
+    const tPlay = performance.now();
+    await audio.play();
+    if (window.B6_TIMING) console.log(`[TIMING] stage=audio.playback_start ms=${Math.round(performance.now() - tPlay)}`);
+    return ended;
+  }
+
   async speak(text, opts = {}) {
     if (!this.voiceEnabled) return;
     this.stop();
 
     const t0 = performance.now();
     try {
-      const ttsOpts = (opts.emotion != null || opts.intensity != null)
-        ? this._prosodyFor(opts.emotion, opts.intensity)
-        : undefined;
-      const url = await this.backend.tts(text, ttsOpts);
+      const url = await this.backend.tts(text, this._ttsOptions(opts));
       if (window.B6_TIMING) console.log(`[TIMING] stage=tts.response_complete ms=${Math.round(performance.now() - t0)} text_len=${text.length}`);
-      const audio = new Audio(url);
-      // Issue #28: greetings ("Hello") were getting clipped at the start
-      // because audio.play() fired before the element had decoded its first
-      // PCM samples. Force eager preload and wait until the buffer has enough
-      // data to play through (readyState >= HAVE_FUTURE_DATA) before starting
-      // playback. Capped at 250ms so a slow decode never deadlocks the call.
-      audio.preload = "auto";
-      this.currentAudio = audio;
-      audio.addEventListener("play", () => {
-        this._ttsPlaying = true;
-      }, { once: true });
-      const release = () => {
-        this._ttsPlaying = false;
-        this._ttsMuteUntil = Date.now() + this._ttsTailMs;
-      };
-      audio.addEventListener("ended", release, { once: true });
-      audio.addEventListener("error", release, { once: true });
-      await this._startLive2DLipSync(audio, text);
-      await new Promise((resolve) => {
-        if (audio.readyState >= 3) {
-          resolve();
-          return;
-        }
-        const done = () => {
-          audio.removeEventListener("canplay", done);
-          audio.removeEventListener("canplaythrough", done);
-          resolve();
-        };
-        audio.addEventListener("canplay", done, { once: true });
-        audio.addEventListener("canplaythrough", done, { once: true });
-        setTimeout(done, 250);
-      });
-      const tPlay = performance.now();
-      await audio.play();
-      if (window.B6_TIMING) console.log(`[TIMING] stage=audio.playback_start ms=${Math.round(performance.now() - tPlay)}`);
+      await this._startClip(url, text);
     } catch (err) {
       console.warn("TTS failed:", err);
       this._ttsPlaying = false;
       this._ttsMuteUntil = Date.now() + this._ttsTailMs;
     }
+  }
+
+  // Speak a reply while it is still being written. push(preview) takes the
+  // whole cleaned text so far; each finished sentence is synthesized as soon
+  // as it appears (the next one while the current one plays) and clips play
+  // in order. finish(finalText, voiceOpts) speaks whatever is left. Returns
+  // null when voice is off. Any stop() (new reply, voice toggled) cancels it.
+  createStream(opts = {}) {
+    if (!this.voiceEnabled) return null;
+    this.stop();
+    const generation = this._streamGeneration;
+    const norm = (s) => String(s || "").replace(/\s+/g, " ").trim();
+    const boundary = /[.!?…]+["')\]]*(?=\s)|\n{2,}/g;
+    let voiceOpts = opts;
+    let spokenText = "";
+    let pending = "";
+    const queue = [];
+    let playing = false;
+    const stale = () => generation !== this._streamGeneration;
+
+    const pump = async () => {
+      playing = true;
+      while (queue.length && !stale()) {
+        const { text, urlPromise } = queue.shift();
+        const url = await urlPromise;
+        if (!url || stale()) continue;
+        try {
+          const ended = await this._startClip(url, text);
+          await ended;
+        } catch (err) {
+          console.warn("[TTS] Stream clip failed:", err);
+        }
+      }
+      playing = false;
+    };
+
+    const enqueue = (segment) => {
+      const text = norm(segment);
+      if (!text || stale()) return;
+      const urlPromise = this.backend.tts(text, this._ttsOptions(voiceOpts)).catch((err) => {
+        console.warn("[TTS] Stream synthesis failed:", err);
+        return null;
+      });
+      queue.push({ text, urlPromise });
+      if (!playing) pump();
+    };
+
+    // Cut complete sentences off `pending`; the first clip may be short so
+    // speech starts quickly, later ones are batched to fewer requests.
+    const drain = () => {
+      for (;;) {
+        const minLen = spokenText ? 60 : 20;
+        boundary.lastIndex = 0;
+        let cut = -1;
+        let m;
+        while ((m = boundary.exec(pending))) {
+          const end = m.index + m[0].length;
+          if (end >= minLen) { cut = end; break; }
+        }
+        if (cut < 0) return;
+        const segment = pending.slice(0, cut);
+        pending = pending.slice(cut);
+        spokenText += segment;
+        enqueue(segment);
+      }
+    };
+
+    return {
+      push: (preview) => {
+        if (stale()) return;
+        const full = String(preview || "");
+        const consumed = spokenText.length + pending.length;
+        if (full.length > consumed && full.startsWith(spokenText + pending)) {
+          pending += full.slice(consumed);
+          drain();
+        }
+      },
+      finish: (finalText, finalOpts = {}) => {
+        if (stale()) return;
+        if (finalOpts.emotion != null || finalOpts.intensity != null) voiceOpts = finalOpts;
+        const finalNorm = norm(finalText);
+        const spokenNorm = norm(spokenText);
+        if (finalNorm.startsWith(spokenNorm)) {
+          enqueue(finalNorm.slice(spokenNorm.length));
+        } else if (!spokenNorm) {
+          enqueue(finalNorm);
+        }
+        // Otherwise the cleaned final text diverged from what was already
+        // spoken; skip the tail rather than repeat or garble it.
+        pending = "";
+      },
+      cancel: () => {
+        if (!stale()) this.stop();
+      },
+    };
   }
 }
 
@@ -1932,12 +2095,8 @@ class SarahUI {
     return actions;
   }
 
-  _sanitizeAssistantDisplayText(text) {
-    // Issue #33: extract <motion name="..."> / <motion>name</motion>
-    // tokens before stripping. Each tag dispatches to the avatar system
-    // and is removed from the visible reply.
-    const raw = String(text || "");
-    const knownMotionNames = new Set([
+  _knownMotionNames() {
+    return new Set([
       "wave",
       "arms_up",
       "thinking_pose",
@@ -1954,6 +2113,96 @@ class SarahUI {
       "blush",
       ...(window.SARAH_AVATAR_SYSTEM?.listGestures?.() || []),
     ]);
+  }
+
+  // Cleanup for text that is still streaming in: hides motion tags (complete
+  // or half-typed) and <think> blocks WITHOUT dispatching gestures. The final
+  // reply goes through _sanitizeAssistantDisplayText exactly once.
+  _previewAssistantText(raw) {
+    const known = this._knownMotionNames();
+    return String(raw || "")
+      .replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, "")
+      .replace(/<motion\b[^>]*>[^<]*(?:<\/motion>)?/gi, "")
+      .replace(/<(\/?)([\w_-]+)\s*\/?>/gi, (match, _closing, tagName) =>
+        known.has(String(tagName || "").toLowerCase()) ? "" : match
+      )
+      .replace(/<[^>\n]*$/, "")
+      .trimStart();
+  }
+
+  // Send a turn via the streaming endpoint, painting the reply and starting
+  // speech as it arrives. Returns { resp, bubble, speech }: `bubble` is the
+  // live assistant bubble (null if nothing streamed) and `speech` the TTS
+  // stream (null if voice is off). Falls back to the non-streaming request
+  // only when the stream endpoint doesn't exist.
+  async _streamAssistantReply(message, { regenerate = false, loadingEl = null } = {}) {
+    let raw = "";
+    let bubble = null;
+    let textEl = null;
+    const speech = this.tts.isEnabled() ? this.tts.createStream(this._lastReplyVoice || {}) : null;
+
+    const onDelta = (text) => {
+      raw += text;
+      const preview = this._previewAssistantText(raw);
+      if (!bubble) {
+        if (!preview.trim()) return;
+        this._hideLoadingIndicator(loadingEl);
+        bubble = this.appendMessage("assistant", "…");
+        textEl = bubble?.querySelector(".chat-bubble-text");
+        bubble?.classList.add("is-streaming");
+      }
+      if (textEl) textEl.textContent = preview;
+      this._scrollToBottom();
+      speech?.push(preview);
+    };
+
+    try {
+      const resp = await this.backend.chatStream(message, this.activeConversationId, { regenerate, onDelta });
+      bubble?.classList.remove("is-streaming");
+      return { resp, bubble, speech };
+    } catch (err) {
+      speech?.cancel();
+      bubble?.classList.remove("is-streaming");
+      if (!err?.streamUnavailable || bubble) throw err;
+      console.warn("[Chat] Streaming endpoint unavailable, using /api/chat:", err);
+      const resp = await this.backend.chat(message, true, this.activeConversationId, regenerate);
+      return { resp, bubble: null, speech: null };
+    }
+  }
+
+  // Put the final reply into the streamed bubble (or a new one), dispatching
+  // its motion tags once. Returns the visible reply text.
+  _finalizeAssistantReply(resp, bubble) {
+    const rawReply = resp?.reply || "(no reply)";
+    if (bubble) {
+      this._addActionsToExistingBubble(bubble, "assistant", rawReply, resp?.assistant_message_id);
+      return bubble.querySelector(".chat-bubble-text")?.textContent || "";
+    }
+    const reply = this._sanitizeAssistantDisplayText(rawReply);
+    this.appendMessage("assistant", reply, null, { messageId: resp?.assistant_message_id });
+    return reply;
+  }
+
+  // Voice for the finished reply: complete the TTS stream if one ran,
+  // otherwise speak the whole reply (or return the avatar to idle).
+  _speakFinalReply(reply, resp, speech, source) {
+    const voice = { emotion: resp?.emotion, intensity: resp?.emotion_intensity };
+    this._lastReplyVoice = voice;
+    if (speech) {
+      speech.finish(reply, voice);
+    } else if (this.tts.isEnabled()) {
+      this.tts.speak(reply, voice).catch((err) => console.warn("[TTS] Failed:", err));
+    } else {
+      this._setAvatarMode("idle", { source });
+    }
+  }
+
+  _sanitizeAssistantDisplayText(text) {
+    // Issue #33: extract <motion name="..."> / <motion>name</motion>
+    // tokens before stripping. Each tag dispatches to the avatar system
+    // and is removed from the visible reply.
+    const raw = String(text || "");
+    const knownMotionNames = this._knownMotionNames();
     const dispatchMotion = (candidate) => {
       const name = String(candidate || "").trim().toLowerCase();
       if (!name || !knownMotionNames.has(name)) return;
@@ -2172,18 +2421,18 @@ class SarahUI {
     const loadingEl = this._showLoadingIndicator();
 
     try {
-      // IMPORTANT: Pass regenerate=true to skip saving user message (already exists)
-      const result = await this.backend.chat(text, true, this.activeConversationId, true);
+      // IMPORTANT: regenerate=true skips saving the user message (already exists)
+      const { resp: result, bubble, speech } = await this._streamAssistantReply(text, {
+        regenerate: true,
+        loadingEl,
+      });
 
       // Remove loading indicator
       this._hideLoadingIndicator(loadingEl);
 
       if (result.reply) {
-        // Add the AI response with message ID
         console.log("[ReRoll] assistant_message_id:", result.assistant_message_id);
-        this.appendMessage("assistant", result.reply, null, {
-          messageId: result.assistant_message_id
-        });
+        const reply = this._finalizeAssistantReply(result, bubble);
 
         // Issue #3: re-sync from /api/context_info for cumulative tokens.
         this.syncContextInfo(this.activeConversationId)
@@ -2197,14 +2446,9 @@ class SarahUI {
           }
         }
 
-        // TTS in background
-        if (this.tts.isEnabled()) {
-          this.tts
-            .speak(result.reply, { emotion: result.emotion, intensity: result.emotion_intensity })
-            .catch(err => console.warn("[TTS] Failed:", err));
-        } else {
-          this._setAvatarMode("idle", { source: "chat-regenerate-complete" });
-        }
+        this._speakFinalReply(reply, result, speech, "chat-regenerate-complete");
+      } else {
+        speech?.cancel();
       }
     } catch (err) {
       console.error("Regenerate failed:", err);
@@ -6290,11 +6534,7 @@ class SarahUI {
     const loadingEl = this._showLoadingIndicator();
 
     try {
-      const resp = await this.backend.chat(
-        content,
-        true,
-        this.activeConversationId
-      );
+      const { resp, bubble, speech } = await this._streamAssistantReply(content, { loadingEl });
 
       // Remove loading indicator
       this._hideLoadingIndicator(loadingEl);
@@ -6305,8 +6545,7 @@ class SarahUI {
         this._addActionsToExistingBubble(userBubble, "user", content, resp.user_message_id);
       }
 
-      const reply = this._sanitizeAssistantDisplayText(resp?.reply || "(no reply)");
-      this.appendMessage("assistant", reply, null, { messageId: resp?.assistant_message_id });
+      const reply = this._finalizeAssistantReply(resp, bubble);
       window.SARAH_AVATAR_SYSTEM?.onAIResponse?.(reply, {
         emotion: resp?.emotion,
         intensity: resp?.emotion_intensity,
@@ -6331,13 +6570,8 @@ class SarahUI {
       if (this.chatInput) this.chatInput.focus();
       this.setStatus("Ready");
 
-      // Run TTS and mood sync in background (non-blocking)
-      if (this.tts.isEnabled()) {
-        this.tts.speak(reply, { emotion: resp?.emotion, intensity: resp?.emotion_intensity })
-          .catch(err => console.warn("[TTS] Failed:", err));
-      } else {
-        this._setAvatarMode("idle", { source: "chat-complete" });
-      }
+      // Finish voice and sync mood in background (non-blocking)
+      this._speakFinalReply(reply, resp, speech, "chat-complete");
       this.syncAvatarBaselineFromContext(this.activeConversationId)
         .catch(err => console.warn("[AvatarContext] Sync failed:", err));
       this.syncMoodFromBackend().catch(err => console.warn("[Mood] Sync failed:", err));
@@ -6489,7 +6723,7 @@ class SarahUI {
       const finalMessage = this._buildAttachmentMessage(prompt, imageSummaries, textAttachments);
       this.setStatus("Thinking...");
       this._setAvatarMode("thinking", { source: "attachment-chat" });
-      const resp = await this.backend.chat(finalMessage, true, this.activeConversationId);
+      const { resp, bubble, speech } = await this._streamAssistantReply(finalMessage, { loadingEl });
 
       this._hideLoadingIndicator(loadingEl);
 
@@ -6498,8 +6732,7 @@ class SarahUI {
         this._addActionsToExistingBubble(userBubble, "user", displayText, resp.user_message_id);
       }
 
-      const reply = this._sanitizeAssistantDisplayText(resp?.reply || "(no reply)");
-      this.appendMessage("assistant", reply, null, { messageId: resp?.assistant_message_id });
+      const reply = this._finalizeAssistantReply(resp, bubble);
       window.SARAH_AVATAR_SYSTEM?.onAIResponse?.(reply, {
         emotion: resp?.emotion,
         intensity: resp?.emotion_intensity,
@@ -6513,12 +6746,7 @@ class SarahUI {
       this._clearPendingAttachments();
 
       this.setStatus("Ready");
-      if (this.tts.isEnabled()) {
-        this.tts.speak(reply, { emotion: resp?.emotion, intensity: resp?.emotion_intensity })
-          .catch(err => console.warn("[TTS] Failed:", err));
-      } else {
-        this._setAvatarMode("idle", { source: "attachment-chat-complete" });
-      }
+      this._speakFinalReply(reply, resp, speech, "attachment-chat-complete");
       this.syncAvatarBaselineFromContext(this.activeConversationId)
         .catch(err => console.warn("[AvatarContext] Sync failed:", err));
       this.syncMoodFromBackend().catch(err => console.warn("[Mood] Sync failed:", err));

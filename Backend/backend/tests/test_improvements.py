@@ -142,6 +142,103 @@ def test_task_state_extraction_runs_for_questions_and_choices(memory_store, repl
     assert summ.needs_task_state_update(1, "All set.") is False
 
 
+# ---------------------------------------------------------------------------
+# Streaming
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace as NS  # noqa: E402
+
+
+class _FakeStream:
+    def __init__(self, chunks):
+        self._chunks = chunks
+        self.closed = False
+
+    def __iter__(self):
+        return iter(self._chunks)
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeCompletions:
+    def __init__(self, pieces):
+        self.pieces = pieces
+        self.stream_calls = []
+
+    def create(self, stream=False, **kwargs):
+        if not stream:  # background summarizer calls
+            return NS(choices=[NS(message=NS(content="{}"), finish_reason="stop")], usage=None, model="m")
+        self.stream_calls.append(kwargs)
+        chunks = [NS(model="vendor/served", usage=None,
+                     choices=[NS(delta=NS(content=p), finish_reason=None)]) for p in self.pieces]
+        chunks.append(NS(model="vendor/served", usage=None, choices=[NS(delta=NS(content=None), finish_reason="stop")]))
+        chunks.append(NS(model="vendor/served", choices=[],
+                         usage=NS(prompt_tokens=11, completion_tokens=7, total_tokens=18)))
+        self.stream = _FakeStream(chunks)
+        return self.stream
+
+
+def test_chat_stream_yields_deltas_then_saves_sanitized_reply():
+    import asyncio
+    import backend.db as db
+    from backend.memory.memory_store import MemoryStore
+    from backend.memory.openrouter_client import OpenRouterClient, _background_tasks
+    from backend.models import core
+
+    cid = core.create_conversation("stream")
+    client = OpenRouterClient(api_key="test", store=MemoryStore(db_path=db.DB_PATH))
+    fake = _FakeCompletions(["Hel", "lo ", "there. <motion>wave</motion>"])
+    client._client = NS(chat=NS(completions=fake))
+
+    async def run():
+        events = [e async for e in client.chat_stream(cid, "hi there")]
+        await asyncio.gather(*list(_background_tasks), return_exceptions=True)
+        return events
+
+    events = asyncio.run(run())
+    deltas = [e["text"] for e in events if e["type"] == "delta"]
+    done = events[-1]
+    assert deltas == ["Hel", "lo ", "there. <motion>wave</motion>"]
+    assert done["type"] == "done"
+    resp = done["response"]
+    assert resp.usage["total_tokens"] == 18
+    assert resp.model == "vendor/served"
+    assert resp.user_message_id and resp.assistant_message_id
+    assert fake.stream_calls and fake.stream_calls[0].get("stream_options") == {"include_usage": True}
+    assert fake.stream.closed
+    saved = [m for m in core.get_messages(cid) if m["role"] == "assistant"]
+    assert saved[-1]["content"] == resp.content
+
+
+def test_chat_stream_endpoint_emits_sse(monkeypatch):
+    import backend.api.chat as chat_api
+    import backend.app as app_module
+    from backend.sarah_core import SarahReply
+    from fastapi.testclient import TestClient
+
+    class FakeSarah:
+        async def handle_message_stream(self, **kwargs):
+            yield {"type": "delta", "text": "Hi "}
+            yield {"type": "delta", "text": "Zero"}
+            yield {"type": "done", "reply": SarahReply(reply="Hi Zero", user_message_id=1, assistant_message_id=2)}
+
+    monkeypatch.setattr(chat_api, "get_sarah", lambda: FakeSarah())
+    monkeypatch.setattr(chat_api, "_ollama_ready", lambda: True)
+    monkeypatch.setattr(app_module, "settings", dataclasses.replace(app_module.settings, api_token=""))
+    client = TestClient(app_module.create_app())
+
+    resp = client.post("/api/chat/stream", json={"message": "hey", "conversation_id": 1})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    blocks = [b for b in resp.text.split("\n\n") if b.strip()]
+    kinds = [b.split("\n")[0] for b in blocks]
+    assert kinds == ["event: delta", "event: delta", "event: done"]
+    import json as _json
+    done = _json.loads(blocks[-1].split("data: ", 1)[1])
+    assert done["reply"] == "Hi Zero" and done["assistant_message_id"] == 2
+
+
 def test_vision_body_has_token_floor_and_vision_model(models_env):
     body = llm_models.vision_request_body([{"role": "user", "content": "x"}], max_tokens=96)
     assert body["model"] == "vendor/fallback-a"

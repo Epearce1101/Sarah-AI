@@ -553,59 +553,7 @@ class SarahCore:
                 project_context=project_context,
             )
 
-            reply_text = sanitize_visible_reply(response.content) or f"I'm here, {get_user_name()}."
-
-            # Affinity nudge on positive content (cheap heuristic, kept from V8).
-            if any(w in reply_text.lower() for w in ("great job", "nice", "awesome", "proud")):
-                self.bond_engine.register_positive(0.02)
-
-            # Reflections are only read back by the legacy (no-conversation)
-            # prompt, so generating one per memory-mode turn cost an extra LLM
-            # call (and queued behind Ollama in local mode) for nothing.
-            if _settings.reflections_in_memory_mode and response.finish_reason != "error":
-                spawn_background(
-                    self.reflection_engine.generate_and_store_reflection(
-                        user_message=message,
-                        assistant_reply=reply_text,
-                        conversation_id=conversation_id,
-                        message_id=None,
-                    )
-                )
-
-            # Extract token usage from debug_info
-            tokens_used = 0
-            token_budget = _settings.openrouter_context_window_tokens  # Default for OpenRouter
-
-            # Get token budget from LLM mode (OpenRouter cloud or actual local context window).
-            if self._openrouter and hasattr(self._openrouter, '_llm_mode_info'):
-                token_budget = self._openrouter._llm_mode_info.get("token_budget", _settings.openrouter_context_window_tokens)
-
-            if response.debug_info:
-                # Use total_estimated_tokens for accurate count
-                tokens_used = response.debug_info.get("total_estimated_tokens", 0)
-                # Fallback to system_tokens + message estimate if total not available
-                if not tokens_used:
-                    tokens_used = response.debug_info.get("system_tokens", 0)
-                    msg_count = response.debug_info.get("trimmed_messages_count", 0)
-                    tokens_used += msg_count * 50  # Estimate ~50 tokens per message
-
-            # If still 0, estimate from actual usage
-            if not tokens_used and response.usage:
-                tokens_used = response.usage.get("total_tokens", 0) or response.usage.get("prompt_tokens", 0)
-
-            print(f"[SARAH] Token usage: {tokens_used} / {token_budget}")
-
-            emotion_str, emotion_intensity = self._derive_emotion(conversation_id)
-            return SarahReply(
-                reply=reply_text,
-                emotion=emotion_str,
-                emotion_intensity=emotion_intensity,
-                affinity_to_creator=float(self.bond_engine.affinity),
-                user_message_id=response.user_message_id,
-                assistant_message_id=response.assistant_message_id,
-                tokens_used=tokens_used,
-                token_budget=token_budget,
-            )
+            return self._reply_from_response(response, message, conversation_id)
 
         except Exception as e:
             print(f"[SARAH] Memory-enhanced handling failed: {e}")
@@ -613,6 +561,111 @@ class SarahCore:
             return await self._handle_message_legacy(
                 _with_project_context(message, project_context)
             )
+
+    def _reply_from_response(self, response, message: str, conversation_id: int) -> SarahReply:
+        """Turn an LLMResponse into the SarahReply the API returns (shared by
+        the blocking and streaming chat paths)."""
+        reply_text = sanitize_visible_reply(response.content) or f"I'm here, {get_user_name()}."
+
+        # Affinity nudge on positive content (cheap heuristic, kept from V8).
+        if any(w in reply_text.lower() for w in ("great job", "nice", "awesome", "proud")):
+            self.bond_engine.register_positive(0.02)
+
+        # Reflections are only read back by the legacy (no-conversation)
+        # prompt, so generating one per memory-mode turn cost an extra LLM
+        # call (and queued behind Ollama in local mode) for nothing.
+        if _settings.reflections_in_memory_mode and response.finish_reason != "error":
+            spawn_background(
+                self.reflection_engine.generate_and_store_reflection(
+                    user_message=message,
+                    assistant_reply=reply_text,
+                    conversation_id=conversation_id,
+                    message_id=None,
+                )
+            )
+
+        # Extract token usage from debug_info
+        tokens_used = 0
+        token_budget = _settings.openrouter_context_window_tokens  # Default for OpenRouter
+
+        # Get token budget from LLM mode (OpenRouter cloud or actual local context window).
+        if self._openrouter and hasattr(self._openrouter, '_llm_mode_info'):
+            token_budget = self._openrouter._llm_mode_info.get("token_budget", _settings.openrouter_context_window_tokens)
+
+        if response.debug_info:
+            # Use total_estimated_tokens for accurate count
+            tokens_used = response.debug_info.get("total_estimated_tokens", 0)
+            # Fallback to system_tokens + message estimate if total not available
+            if not tokens_used:
+                tokens_used = response.debug_info.get("system_tokens", 0)
+                msg_count = response.debug_info.get("trimmed_messages_count", 0)
+                tokens_used += msg_count * 50  # Estimate ~50 tokens per message
+
+        # If still 0, estimate from actual usage
+        if not tokens_used and response.usage:
+            tokens_used = response.usage.get("total_tokens", 0) or response.usage.get("prompt_tokens", 0)
+
+        print(f"[SARAH] Token usage: {tokens_used} / {token_budget}")
+
+        emotion_str, emotion_intensity = self._derive_emotion(conversation_id)
+        return SarahReply(
+            reply=reply_text,
+            emotion=emotion_str,
+            emotion_intensity=emotion_intensity,
+            affinity_to_creator=float(self.bond_engine.affinity),
+            user_message_id=response.user_message_id,
+            assistant_message_id=response.assistant_message_id,
+            tokens_used=tokens_used,
+            token_budget=token_budget,
+        )
+
+    async def handle_message_stream(
+        self,
+        message: str,
+        conversation_id: Optional[int] = None,
+        save_user_message: bool = True,
+        project_context: Optional[str] = None,
+    ):
+        """Streaming variant of `handle_message`.
+
+        Yields ``{"type": "delta", "text": ...}`` while the model writes, then
+        exactly one ``{"type": "done", "reply": SarahReply}``. Paths that can't
+        stream (no conversation, memory system off) yield a single ``done``.
+        """
+        message = (message or "").strip()
+        can_stream = (
+            message and conversation_id is not None
+            and self.memory_enabled and self._openrouter is not None
+        )
+        if not can_stream:
+            reply = await self.handle_message(
+                message=message,
+                conversation_id=conversation_id,
+                save_user_message=save_user_message,
+                project_context=project_context,
+            )
+            yield {"type": "done", "reply": reply}
+            return
+
+        if self._summarizer and len(message) > 20:
+            state = self._memory_store.get_task_state(conversation_id)
+            if not state.goal:
+                await self._summarizer.set_goal_from_message(conversation_id, message)
+
+        async for event in self._openrouter.chat_stream(
+            conversation_id=conversation_id,
+            user_message=message,
+            save_messages=True,
+            save_user_message=save_user_message,
+            project_context=project_context,
+        ):
+            if event["type"] == "delta":
+                yield event
+            else:
+                yield {
+                    "type": "done",
+                    "reply": self._reply_from_response(event["response"], message, conversation_id),
+                }
 
     async def _handle_message_legacy(self, message: str) -> SarahReply:
         """
