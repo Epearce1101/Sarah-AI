@@ -417,6 +417,9 @@ class SarahUI {
           actionEl.dataset.pinned !== "true"
         );
         await this.refreshMemories();
+      } else if (action === "delete-memory") {
+        await this.backend.deleteMemory(Number(actionEl.dataset.id));
+        await this.refreshMemories();
       } else if (action === "goto-message") {
         await this.setActiveConversation(Number(actionEl.dataset.conversationId));
         this.closeMorePanel();
@@ -4564,7 +4567,8 @@ class SarahUI {
 
       const title = document.createElement("span");
       title.className = "memory-card-title";
-      title.textContent = `#${mem.id} - ${mem.role}`;
+      const auto = (mem.tags || "").split(",").includes("auto");
+      title.textContent = auto ? `#${mem.id} - learned fact` : `#${mem.id} - ${mem.role}`;
 
       const pinned = (mem.importance ?? 0) >= 5 || (mem.tags || "").includes("pinned");
       const pinBtn = document.createElement("button");
@@ -4573,6 +4577,19 @@ class SarahUI {
       pinBtn.dataset.memoryAction = "pin-memory";
       pinBtn.dataset.id = String(mem.id);
       pinBtn.dataset.pinned = String(pinned);
+
+      // Sarah learns facts automatically; let the user forget wrong ones.
+      const delBtn = document.createElement("button");
+      delBtn.className = "memory-pin-btn";
+      delBtn.textContent = "Forget";
+      delBtn.title = "Remove this memory";
+      delBtn.dataset.memoryAction = "delete-memory";
+      delBtn.dataset.id = String(mem.id);
+
+      const actions = document.createElement("div");
+      actions.className = "message-card-actions";
+      actions.appendChild(pinBtn);
+      actions.appendChild(delBtn);
 
       const body = document.createElement("div");
       body.className = "memory-card-body";
@@ -4583,7 +4600,7 @@ class SarahUI {
       meta.textContent = mem.created_at ? parseDbTimestamp(mem.created_at).toLocaleString() : "";
 
       head.appendChild(title);
-      head.appendChild(pinBtn);
+      head.appendChild(actions);
       el.appendChild(head);
       el.appendChild(body);
       el.appendChild(meta);

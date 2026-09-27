@@ -467,6 +467,12 @@ export class SarahBackend {
     return res.json();
   }
 
+  async deleteMemory(memoryId) {
+    const res = await fetch(`${this.base}/api/memories/${memoryId}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Delete memory failed");
+    return res.json();
+  }
+
   // Projects
   async listProjects() {
     const res = await fetch(this.endpoints.projects);

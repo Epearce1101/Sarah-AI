@@ -1,3 +1,6 @@
+import difflib
+import re
+import sqlite3
 from typing import Dict, Optional, List, Any
 from backend.db import get_connection
 
@@ -82,21 +85,149 @@ def get_memories(limit: int = 50) -> List[Dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+_STOPWORDS = frozenset(
+    "a an and are as at be but by can do for from have how i if in is it me my "
+    "of on or so that the this to was we what when where which who why will with "
+    "you your about just like please tell know".split()
+)
+
+
+def _fts_terms(text: str, *, drop_stopwords: bool = False, limit: int = 12) -> List[str]:
+    seen: List[str] = []
+    for tok in re.findall(r"\w+", (text or "").lower()):
+        if drop_stopwords and (tok in _STOPWORDS or len(tok) < 3):
+            continue
+        if tok not in seen:
+            seen.append(tok)
+    return seen[:limit]
+
+
+def _fts_query(text: str, *, any_term: bool = False) -> str:
+    """Safe FTS5 MATCH expression: every term quoted, prefix-matched."""
+    terms = _fts_terms(text, drop_stopwords=any_term)
+    joiner = " OR " if any_term else " "
+    return joiner.join(f'"{t}"*' for t in terms)
+
+
 def search_memories(keyword: str) -> List[Dict[str, Any]]:
     conn = get_connection()
     cur = conn.cursor()
-    like = f"%{keyword}%"
-    cur.execute(
-        """
-        SELECT * FROM memories
-        WHERE content LIKE ? OR tags LIKE ?
-        ORDER BY importance DESC, created_at DESC
-        """,
-        (like, like),
-    )
+    query = _fts_query(keyword)
+    try:
+        if not query:
+            raise sqlite3.OperationalError("empty query")
+        cur.execute(
+            """
+            SELECT m.* FROM memories_fts f JOIN memories m ON m.id = f.rowid
+            WHERE memories_fts MATCH ?
+            ORDER BY m.importance DESC, bm25(memories_fts)
+            """,
+            (query,),
+        )
+    except sqlite3.OperationalError:
+        like = f"%{keyword}%"
+        cur.execute(
+            """
+            SELECT * FROM memories
+            WHERE content LIKE ? OR tags LIKE ?
+            ORDER BY importance DESC, created_at DESC
+            """,
+            (like, like),
+        )
     rows = cur.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+def find_relevant_memories(text: str, limit: int = 6) -> List[Dict[str, Any]]:
+    """Memories sharing meaningful words with `text`, best matches first."""
+    query = _fts_query(text, any_term=True)
+    if not query:
+        return []
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT m.id, m.content, m.tags, m.importance, m.created_at
+            FROM memories_fts f JOIN memories m ON m.id = f.rowid
+            WHERE memories_fts MATCH ?
+            ORDER BY bm25(memories_fts)
+            LIMIT ?
+            """,
+            (query, limit),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def _normalize_fact(text: str) -> str:
+    return " ".join(re.findall(r"\w+", (text or "").lower()))
+
+
+def add_auto_memories(facts: List[str], similarity: float = 0.85) -> int:
+    """Store extracted long-term facts, skipping near-duplicates. Returns count added."""
+    cleaned = []
+    for fact in facts or []:
+        if not isinstance(fact, str):
+            continue
+        fact = " ".join(fact.split())
+        if 8 <= len(fact) <= 240:
+            cleaned.append(fact)
+    if not cleaned:
+        return 0
+
+    conn = get_connection()
+    try:
+        existing = [
+            _normalize_fact(r["content"])
+            for r in conn.execute("SELECT content FROM memories ORDER BY id DESC LIMIT 500")
+        ]
+        added = 0
+        for fact in cleaned:
+            norm = _normalize_fact(fact)
+            if any(norm == e or difflib.SequenceMatcher(None, norm, e).ratio() >= similarity for e in existing):
+                continue
+            conn.execute(
+                """
+                INSERT INTO memories (role, content, tags, importance, created_at)
+                VALUES ('fact', ?, 'auto', 2, CURRENT_TIMESTAMP)
+                """,
+                (fact,),
+            )
+            existing.append(norm)
+            added += 1
+        conn.commit()
+        return added
+    finally:
+        conn.close()
+
+
+def delete_memory(memory_id: int) -> bool:
+    conn = get_connection()
+    try:
+        cur = conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def touch_memories(memory_ids: List[int]) -> None:
+    """Record that memories were injected into a prompt."""
+    if not memory_ids:
+        return
+    conn = get_connection()
+    try:
+        conn.executemany(
+            "UPDATE memories SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [(i,) for i in memory_ids],
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------- Pinned memories (importance >= 5 or tag includes 'pinned') ----------
@@ -319,22 +450,44 @@ def delete_messages_after(conversation_id: int, message_id: int) -> int:
 
 
 def search_messages(query: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """Search messages across all conversations."""
+    """Search messages across all conversations, newest first.
+
+    Uses the FTS5 index (word/prefix matching) when available; an empty
+    query lists recent messages; LIKE is the fallback.
+    """
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(
-        """
+    columns = """
         SELECT m.id, m.conversation_id, m.role, m.content, m.created_at,
                COALESCE(m.pinned, 0) AS pinned,
                c.title as conversation_title
-        FROM messages m
-        JOIN conversations c ON m.conversation_id = c.id
-        WHERE m.content LIKE ?
-        ORDER BY m.id DESC
-        LIMIT ?
-        """,
-        (f"%{query}%", limit),
-    )
+    """
+    fts = _fts_query(query)
+    try:
+        if not fts:
+            raise sqlite3.OperationalError("no terms")
+        cur.execute(
+            columns + """
+            FROM messages_fts f
+            JOIN messages m ON m.id = f.rowid
+            JOIN conversations c ON m.conversation_id = c.id
+            WHERE messages_fts MATCH ?
+            ORDER BY m.id DESC
+            LIMIT ?
+            """,
+            (fts, limit),
+        )
+    except sqlite3.OperationalError:
+        cur.execute(
+            columns + """
+            FROM messages m
+            JOIN conversations c ON m.conversation_id = c.id
+            WHERE m.content LIKE ?
+            ORDER BY m.id DESC
+            LIMIT ?
+            """,
+            (f"%{query}%", limit),
+        )
     rows = cur.fetchall()
     conn.close()
     return [dict(row) for row in rows]

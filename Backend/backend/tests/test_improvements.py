@@ -240,6 +240,118 @@ def test_chat_stream_endpoint_emits_sse(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Long-term memory + full-text search
+# ---------------------------------------------------------------------------
+
+def test_message_search_uses_fts_and_tracks_edits():
+    from backend.models import core
+
+    cid = core.create_conversation("fts")
+    mid = core.add_message(cid, "user", "My telescope is a Dobsonian, pointed at Jupiter.")
+    core.add_message(cid, "assistant", "Nice, enjoy the view!")
+
+    hits = [r["id"] for r in core.search_messages("dobsonian jupiter", 20)]
+    assert mid in hits
+    assert mid in [r["id"] for r in core.search_messages("telesc", 20)], "prefix match"
+    assert mid not in [r["id"] for r in core.search_messages("dobsonian nebula", 20)], "all terms required"
+
+    core.update_message(mid, "Actually it is a refractor now.")
+    assert mid not in [r["id"] for r in core.search_messages("dobsonian", 20)]
+    assert mid in [r["id"] for r in core.search_messages("refractor", 20)]
+    core.delete_message(mid)
+    assert mid not in [r["id"] for r in core.search_messages("refractor", 20)]
+    # Odd punctuation must not raise (terms are quoted for FTS).
+    core.search_messages('"unbalanced (quote* OR', 5)
+
+
+def test_auto_memories_dedupe_find_and_delete():
+    from backend.models import core
+
+    added = core.add_auto_memories([
+        "The user keeps a pet axolotl named Pickle.",
+        "The user keeps a pet axolotl named Pickle!",   # near-duplicate
+        "x",                                               # too short
+        "The user's favorite editor is Neovim with the Lazy plugin manager.",
+    ])
+    assert added == 2
+    relevant = core.find_relevant_memories("What should I feed my axolotl?", limit=3)
+    assert relevant and "axolotl" in relevant[0]["content"]
+    assert core.delete_memory(relevant[0]["id"]) is True
+    assert core.delete_memory(relevant[0]["id"]) is False
+    assert not [m for m in core.find_relevant_memories("axolotl pickle") if "Pickle" in m["content"]]
+
+
+def test_rolling_summary_extracts_durable_facts(memory_store):
+    import asyncio
+    import json as _json
+    import sqlite3
+    from backend.memory.summarizer import Summarizer
+    from backend.models import core
+
+    store, config = memory_store
+    conn = sqlite3.connect(store.db_path)
+    for i in range(6):  # 3 exchanges -> early first summary
+        conn.execute("INSERT INTO messages (conversation_id, role, content) VALUES (1, ?, ?)",
+                     ("user" if i % 2 == 0 else "assistant", f"msg {i}"))
+    conn.commit()
+    conn.close()
+
+    async def fake_llm(prompt, max_tokens):
+        assert "durable_facts" in prompt
+        return _json.dumps({"goal": "plan a trip", "durable_facts": ["The user lives near the Bitterroot Mountains."]})
+
+    summ = Summarizer(llm_call_fn=fake_llm, store=store, config=config)
+    assert asyncio.run(summ.should_update_rolling_summary(1)) is True
+    assert asyncio.run(summ.update_rolling_summary(1)) is not None
+    assert any("Bitterroot" in m["content"] for m in core.find_relevant_memories("bitterroot mountains"))
+
+
+def test_context_includes_relevant_long_term_memory(builder):
+    from backend.models import core
+
+    core.add_auto_memories(["The user is allergic to hazelnuts."])
+    ctx, _ = builder
+    packet = ctx.build(1, "Can you suggest a dessert without hazelnuts?", process_mood=False)
+    system = packet.messages[0]["content"]
+    assert "Long-term memory" in system and "allergic to hazelnuts" in system
+    assert packet.debug_info["long_term_memories"] >= 1
+
+
+@pytest.fixture
+def builder(tmp_path):
+    import sqlite3
+    from backend.memory.config import MemoryConfig
+    from backend.memory.context_builder import ContextBuilder
+    from backend.memory.memory_store import MemoryStore
+
+    db = tmp_path / "ctx.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT)")
+    conn.execute(
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER,"
+        " role TEXT, content TEXT, meta_json TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+    )
+    conn.execute("INSERT INTO conversations (title) VALUES ('t')")
+    conn.commit()
+    conn.close()
+    config = MemoryConfig(total_token_budget=20000, llm_max_completion_tokens=1000, debug_memory=False)
+    return ContextBuilder(store=MemoryStore(db_path=db, config=config), config=config), db
+
+
+def test_memory_delete_endpoint(monkeypatch):
+    import backend.app as app_module
+    from backend.models import core
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(app_module, "settings", dataclasses.replace(app_module.settings, api_token=""))
+    client = TestClient(app_module.create_app())
+    core.add_auto_memories(["The user collects vintage fountain pens."])
+    mem = core.find_relevant_memories("fountain pens")[0]
+    assert client.delete(f"/api/memories/{mem['id']}").status_code == 200
+    assert client.delete(f"/api/memories/{mem['id']}").status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Vision falls back to OpenRouter without Ollama
 # ---------------------------------------------------------------------------
 

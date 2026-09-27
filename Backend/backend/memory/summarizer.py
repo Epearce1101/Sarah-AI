@@ -9,6 +9,7 @@ All summaries are SILENT - for internal context building only, never shown to us
 
 import asyncio
 import json
+import logging
 import re
 from typing import Optional, List, Dict, Any, Callable, Awaitable
 
@@ -19,6 +20,9 @@ from .memory_store import (
     RollingSummary,
     TaskState,
 )
+
+
+logger = logging.getLogger("sarah.memory")
 
 
 class Summarizer:
@@ -54,8 +58,16 @@ Extract and update in this JSON format:
     "decisions": ["Decision 1", "Decision 2"],
     "progress": "What has been accomplished so far (1-2 sentences)",
     "constraints": ["Constraint 1", "Constraint 2"],
-    "next_step": "What needs to happen next (1 sentence)"
+    "next_step": "What needs to happen next (1 sentence)",
+    "durable_facts": ["Long-term fact about the user"]
 }}
+
+durable_facts: at most 5 short, self-contained facts about the USER that will
+still matter in future, unrelated conversations - preferences, names of their
+projects/tools/people, personal details they chose to share, recurring goals.
+Write each as a full sentence about "the user" (e.g. "The user prefers short
+answers."). Skip anything temporary, speculative, or about the assistant. Use
+[] if there is nothing durable.
 
 Only include non-empty fields. Output valid JSON only:"""
 
@@ -202,9 +214,16 @@ Output valid JSON only (empty strings for missing fields):"""
         current = self.store.get_rolling_summary(conversation_id)
         total_messages = self.store.get_message_count(conversation_id)
 
+        # The first summary comes early (after 3 exchanges) so short chats
+        # still get a summary and their long-term facts extracted.
+        if current.message_count == 0 and total_messages >= self.FIRST_SUMMARY_AFTER_MESSAGES:
+            return True
+
         # Update if enough new messages since last update
         messages_since_update = total_messages - current.message_count
         return messages_since_update >= (self.config.rolling_update_interval * 2)  # *2 for user+assistant
+
+    FIRST_SUMMARY_AFTER_MESSAGES = 6
 
     async def update_rolling_summary(
         self,
@@ -261,6 +280,17 @@ Output valid JSON only (empty strings for missing fields):"""
             )
 
             self.store.save_rolling_summary(conversation_id, updated)
+
+            # Long-term memory rides on this call (no extra LLM request).
+            facts = data.get("durable_facts") or []
+            if isinstance(facts, list) and facts:
+                try:
+                    from backend.models.core import add_auto_memories
+                    added = add_auto_memories([f for f in facts if isinstance(f, str)])
+                    if added:
+                        logger.info("Stored %d long-term fact(s) from conversation %s", added, conversation_id)
+                except Exception as e:
+                    logger.warning("Could not store long-term facts: %s", e)
 
             if self.config.debug_memory:
                 print(f"[Summarizer] Updated rolling summary: goal={updated.goal[:50] if updated.goal else 'none'}...")

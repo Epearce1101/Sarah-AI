@@ -227,6 +227,52 @@ Respond as if you naturally remember the conversation.
 - Time: {current.strftime("%I:%M %p")} ({label})
 - ALWAYS tell the user the time/date when they ask."""
 
+    LONG_TERM_MEMORY_CHAR_CAP = 1500
+
+    def _long_term_memory_block(self, user_message: str, touch: bool = False) -> Tuple[str, List[int]]:
+        """Pinned memories + those relevant to this message + the newest few.
+
+        Sourced from the `memories` table, which the summarizer fills with
+        durable facts; lets Sarah remember the user across conversations.
+        """
+        try:
+            from backend.models.core import (
+                find_relevant_memories,
+                get_memories,
+                get_pinned_memories,
+                touch_memories,
+            )
+            candidates = (
+                get_pinned_memories(limit=8)
+                + find_relevant_memories(user_message, limit=6)
+                + get_memories(limit=3)
+            )
+        except Exception as e:
+            if self.config.debug_memory:
+                print(f"[ContextBuilder] Long-term memory unavailable: {e}")
+            return "", []
+
+        lines: List[str] = []
+        ids: List[int] = []
+        used = 0
+        for mem in candidates:
+            content = " ".join(str(mem.get("content") or "").split())
+            if not content or mem.get("id") in ids:
+                continue
+            if used + len(content) > self.LONG_TERM_MEMORY_CHAR_CAP:
+                break
+            ids.append(mem.get("id"))
+            lines.append(f"- {content}")
+            used += len(content)
+        if not lines:
+            return "", []
+        if touch:
+            try:
+                touch_memories(ids)
+            except Exception:
+                pass
+        return "Long-term memory (what you know about the user from past conversations):\n" + "\n".join(lines), ids
+
     def _format_rolling_summary(self, summary: RollingSummary) -> str:
         """Format rolling summary for context."""
         if not summary.goal and not summary.progress:
@@ -422,6 +468,15 @@ Rules:
             if chunks_text:
                 internal_parts.append(chunks_text)
                 debug_info["chunk_count"] = len(chunks)
+
+            # Long-term memory: facts about the user from any conversation
+            memory_text, memory_ids = self._long_term_memory_block(
+                user_message if append_user_message else "",
+                touch=append_user_message,
+            )
+            if memory_text:
+                internal_parts.append(memory_text)
+                debug_info["long_term_memories"] = len(memory_ids)
 
             # Vision observation (from Qwen3-VL)
             if vision_observation:

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from backend.api.schemas import MemoryCreate
 from backend.models.core import (
     add_memory,
+    delete_memory,
     get_memories,
     get_pinned_memories,
     search_memories,
@@ -53,6 +54,14 @@ def api_add_memory_manual(payload: MemoryCreate):
     except Exception as e:
         logging.exception("[/api/memories POST] failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/memories/{memory_id}")
+def api_delete_memory(memory_id: int):
+    """Forget a memory (e.g. a wrong auto-extracted fact)."""
+    if not delete_memory(memory_id):
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"ok": True, "deleted_id": memory_id}
 
 
 @router.post("/api/memories/{memory_id}/pin")
