@@ -21,6 +21,7 @@ import { API_BASE, parseDbTimestamp, sarahPerfEnd, sarahPerfStart } from "./scri
 import { SarahBackend } from "./scripts/core/backend-client.js";
 import { SarahTTS } from "./scripts/core/tts.js";
 import { SarahSlashPalette } from "./scripts/core/slash-palette.js";
+import { SarahModelPicker } from "./scripts/core/model-picker.js";
 import { openAttachment } from "./scripts/core/attachments.js";
 import { ProjectModal } from "./scripts/core/project-modal.js";
 import "./scripts/core/screen-capture.js";
@@ -3378,6 +3379,20 @@ class SarahUI {
     }
 
     // Snippet paste binding is in _bindSnippetPaste() method (called via setTimeout at start of _bindEvents)
+
+    // Improvement #8: the header model label opens the model picker.
+    this.modelStatusTextEl?.addEventListener("click", () => {
+      this._modelPicker ??= new SarahModelPicker({
+        anchor: this.modelStatusTextEl,
+        backend: this.backend,
+        onChanged: (status) => {
+          this._mergeLLMStatus(status);
+          this.syncContextInfo(this.activeConversationId)
+            .catch((err) => console.warn("[Token] Context sync failed:", err));
+        },
+      });
+      this._modelPicker.toggle();
+    });
 
     if (this.chatInput) {
       this.chatInput.removeAttribute("readonly");

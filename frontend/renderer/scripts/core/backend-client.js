@@ -113,6 +113,23 @@ export class SarahBackend {
     return res.json();
   }
 
+  async listModels(refresh = false) {
+    const res = await fetch(`${this.base}/api/models${refresh ? "?refresh=true" : ""}`);
+    if (!res.ok) throw new Error("Failed to list models");
+    return res.json();
+  }
+
+  async setLLMModel(model) {
+    const res = await fetch(`${this.base}/api/llm_model`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Failed to set model");
+    return data;
+  }
+
   async getContextInfo(conversationId = null) {
     const url = conversationId
       ? `${this.endpoints.contextInfo}/${conversationId}`
