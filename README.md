@@ -13,6 +13,10 @@ start.bat
 
 `start.py` starts the backend, waits for `/api/health`, launches Electron, and
 generates a per-run API token that both sides share (see *Security* below).
+It runs in a console minimized to the taskbar as **Sarah V10 - running**: the
+window shows the live backend/UI log, its title shows status (backend health,
+uptime), and closing it shuts Sarah down cleanly. Closing the Sarah window
+does the same.
 
 ## Setup on a fresh machine
 

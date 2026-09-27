@@ -121,6 +121,12 @@ def stream_backend_output(process, log_path: Path):
         log.close()
 
 
+# Children get their own hidden console: closing the launcher window would
+# otherwise hard-kill them along with it (no backend cleanup). Their output
+# is piped here instead, and the close handler below shuts them down.
+CHILD_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 def start_backend_process(log_path: Path):
     backend_env = os.environ.copy()
     backend_env["PYTHONUNBUFFERED"] = "1"
@@ -136,6 +142,7 @@ def start_backend_process(log_path: Path):
         errors="replace",
         bufsize=1,
         env=backend_env,
+        creationflags=CHILD_FLAGS,
     )
     threading.Thread(
         target=stream_backend_output,
@@ -166,23 +173,107 @@ def request_backend_shutdown(process, timeout: float = 15.0) -> bool:
         return False
 
 
-def stop_process(process, label: str, graceful_backend: bool = False) -> None:
+def stop_process(process, label: str, graceful_backend: bool = False, timeout: float = 15.0) -> None:
     if not process or process.poll() is not None:
         return
 
     print(f"[Sarah Launcher] Stopping {label}...")
-    if graceful_backend and request_backend_shutdown(process):
+    if graceful_backend and request_backend_shutdown(process, timeout=timeout):
         print(f"[Sarah Launcher] {label} shut down cleanly")
         return
-    process.terminate()
+    if os.name == "nt":
+        # npm start runs cmd -> node -> electron: take the whole tree down.
+        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                       capture_output=True, creationflags=CHILD_FLAGS)
+    else:
+        process.terminate()
     try:
         process.wait(timeout=5)
-        print(f"[Sarah Launcher] {label} stopped gracefully")
+        print(f"[Sarah Launcher] {label} stopped")
     except subprocess.TimeoutExpired:
-        print(f"[Sarah Launcher] {label} did not stop gracefully, force killing...")
+        print(f"[Sarah Launcher] {label} did not stop, force killing...")
         process.kill()
         process.wait()
         print(f"[Sarah Launcher] {label} killed")
+
+
+def stream_ui_output(process):
+    for line in process.stdout:
+        line = line.rstrip()
+        if line:
+            print("[UI]", line)
+
+
+# ---------------------------------------------------------------------
+# Console window: live status in the title, graceful shutdown on close
+# ---------------------------------------------------------------------
+CONSOLE_TITLE = "Sarah V10 - running"
+_procs: dict = {"backend": None, "ui": None}
+_shutdown_lock = threading.Lock()
+_shutdown_done = False
+
+
+def set_status(text: str) -> None:
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleTitleW(f"{CONSOLE_TITLE} | {text}")
+    except Exception:
+        pass
+
+
+def show_console() -> None:
+    """Bring the (minimized) launcher window up so an error is visible."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    except Exception:
+        pass
+
+
+def shutdown_all(reason: str, backend_timeout: float = 15.0) -> None:
+    global _shutdown_done
+    with _shutdown_lock:
+        if _shutdown_done:
+            return
+        _shutdown_done = True
+        print(f"[Sarah Launcher] {reason} Shutting down...")
+        set_status("shutting down")
+        stop_process(_procs["ui"], "Electron")
+        stop_process(_procs["backend"], "backend", graceful_backend=True, timeout=backend_timeout)
+        _withdraw_token()
+
+
+def install_close_handler() -> None:
+    """Closing the console window (or Ctrl+C, logoff) shuts Sarah down.
+
+    Windows gives a console process ~5 s after CTRL_CLOSE_EVENT before it is
+    killed, so the backend gets a short graceful window here.
+    """
+    if os.name != "nt":
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    HandlerRoutine = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+
+    def handler(event):
+        names = {0: "Ctrl+C.", 1: "Ctrl+Break.", 2: "Console closed.", 5: "Logoff.", 6: "System shutdown."}
+        shutdown_all(names.get(event, "Console event."), backend_timeout=3.5)
+        return True
+
+    install_close_handler._ref = HandlerRoutine(handler)  # keep alive
+    ctypes.windll.kernel32.SetConsoleCtrlHandler(install_close_handler._ref, True)
+
+
+def format_uptime(seconds: float) -> str:
+    minutes = int(seconds // 60)
+    return f"up {minutes // 60}h{minutes % 60:02d}m" if minutes >= 60 else f"up {minutes}m"
 
 
 def wait_for_backend(timeout: int = 60) -> bool:
@@ -204,7 +295,9 @@ def wait_for_backend(timeout: int = 60) -> bool:
 # ---------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------
-def main() -> None:
+def main() -> int:
+    install_close_handler()
+    set_status("starting")
     print("[Launcher] Using Python:", VENV_PY)
     print("[Launcher] Health URL:", HEALTH_URL)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -213,14 +306,16 @@ def main() -> None:
     print("[Launcher] Backend log:", backend_log_path)
     print("[Sarah Launcher] Starting backend Python server...")
 
-    backend_process = start_backend_process(backend_log_path)
+    _procs["backend"] = start_backend_process(backend_log_path)
 
     if not wait_for_backend():
-        print("[Sarah Launcher] Shutting down backend...")
-        stop_process(backend_process, "backend", graceful_backend=True)
-        sys.exit(1)
+        show_console()
+        set_status("backend failed to start")
+        shutdown_all("Backend did not come online.")
+        return 1
 
     print("[Sarah Launcher] Launching Sarah's desktop UI...")
+    set_status("opening UI")
     # Inject backend port into the Electron process so main.js / preload.js
     # can forward it to the renderer (window.PY_PORT) instead of hardcoding 8907.
     electron_env = os.environ.copy()
@@ -228,19 +323,31 @@ def main() -> None:
     electron_env["SARAH_API_TOKEN"] = API_TOKEN
     npm_start_cmd = _resolve_npm_start_command()
     print("[Launcher] Electron start command:", " ".join(npm_start_cmd))
-    electron_process = subprocess.Popen(
+    _procs["ui"] = subprocess.Popen(
         npm_start_cmd,
         cwd=str(ELECTRON_DIR),
         env=electron_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        creationflags=CHILD_FLAGS,
     )
+    threading.Thread(target=stream_ui_output, args=(_procs["ui"],), daemon=True).start()
 
     print("[Sarah Launcher] Sarah AI is now running!")
-    print("[Sarah Launcher] Close Electron to shut everything down.")
+    print("[Sarah Launcher] Close the Sarah window or this console to shut everything down.")
 
     backend_restarts = 0
     max_backend_restarts = 3
+    started = time.time()
+    next_health = 0.0
+    health = "ok"
 
-    while electron_process.poll() is None:
+    while _procs["ui"].poll() is None and not _shutdown_done:
+        backend_process = _procs["backend"]
         if backend_process.poll() is not None:
             backend_restarts += 1
             print(
@@ -249,24 +356,40 @@ def main() -> None:
             )
             if backend_restarts > max_backend_restarts:
                 print("[Sarah Launcher] Backend restart limit reached; closing Electron.")
-                stop_process(electron_process, "Electron")
-                break
+                show_console()
+                shutdown_all("Backend keeps crashing.")
+                return 1
 
-            backend_process = start_backend_process(backend_log_path)
+            set_status(f"restarting backend ({backend_restarts}/{max_backend_restarts})")
+            _procs["backend"] = start_backend_process(backend_log_path)
             if not wait_for_backend(timeout=60):
                 print("[Sarah Launcher] Backend restart did not become healthy.")
+
+        if time.time() >= next_health:
+            next_health = time.time() + 15
+            try:
+                health = "ok" if requests.get(HEALTH_URL, timeout=2).status_code == 200 else "degraded"
+            except Exception:
+                health = "not responding"
+            set_status(f"backend {health} | {format_uptime(time.time() - started)} | close to quit")
         time.sleep(2)
 
-    print("[Sarah Launcher] UI closed. Shutting down backend...")
-    stop_process(backend_process, "backend", graceful_backend=True)
+    shutdown_all("UI closed.")
+    return 0
 
 
 if __name__ == "__main__":
     _publish_token()
+    code = 0
     try:
-        main()
+        code = main()
     except KeyboardInterrupt:
-        print("\n[Sarah Launcher] Keyboard interrupt received, shutting down...")
-        sys.exit(0)
+        shutdown_all("Keyboard interrupt.")
+    except Exception as exc:
+        show_console()
+        print(f"[Sarah Launcher] ERROR: {exc!r}")
+        shutdown_all("Launcher error.")
+        code = 1
     finally:
         _withdraw_token()
+    sys.exit(code)
