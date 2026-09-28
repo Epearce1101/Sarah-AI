@@ -50,8 +50,15 @@ does the same.
 - `Backend/backend/sandbox.py`, `utils/proc_jail.py` — confined code execution
 - `frontend/renderer/dashboard.js` — main UI; `renderer/scripts/core/` — extracted modules
 - `frontend/renderer/scripts/avatar3d/` — the 3D body: `sarah-vrm.js` (rendering,
-  animation, face, gaze, pointing), `director.js` (behaviour and stage
-  directions), `cues.js` (the `<face>/<look>/<point>/<gesture>` tag parser)
+  animation, face, gaze, pointing), `director.js` (behaviour, body language),
+  `affect.js` (sentence tone → face), `cues.js` (the `<feel>/<face>/<look>/
+  <point>/<gesture>` tag parser), `presence.js` (body ↔ mind link)
+- `Backend/backend/embodiment/` — Sarah as one self: her feeling (from the
+  `<feel>` that opens each reply), her body state and senses as reported by
+  the renderer, told back to her every turn ("Right now" block), and
+  `impulse.py`: things that happen to her body (touch, the user returning,
+  the app opening) that she may answer in her own voice
+  (`SARAH_PRESENCE_VOICE=0` keeps her quiet)
 - `personalities/sarah/` — Sarah's persona (IDENTITY.md / SOUL.md)
 - `Issues found.md` — issue log with fixes and verification notes
 

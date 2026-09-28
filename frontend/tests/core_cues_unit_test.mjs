@@ -53,6 +53,17 @@ const view = (r) => r.cues.map((c) => [c.type, c.value, c.at, c.amount]);
   assert.equal(parseCues("x <face>sad</face>", { streaming: true }).cues.length, 1);
 }
 
+// Her feeling: value, strength and reason; also streamed partially.
+{
+  const r = parseCues("<feel>happy:0.7 | Zero is back</feel>Hey! <gesture>shake head</gesture>no");
+  assert.equal(r.text, "Hey! no");
+  assert.deepEqual(r.cues[0], { type: "feel", value: "happy", amount: 0.7, at: 0, reason: "Zero is back" });
+  assert.equal(r.cues[1].value, "shake_head");
+  assert.equal(parseCues("<feel>worried 0.4</feel>Oh.").cues[0].amount, 0.4);
+  assert.equal(parseCues("<feel>happy:0.7 | Zero is b", { streaming: true }).text, "");
+  assert.equal(parseCues("<feel>calm:0.3</feel><silent/>").text, "");
+}
+
 // Empty values are dropped; stripCues returns text only.
 {
   assert.deepEqual(parseCues("<face></face>hi").cues, []);

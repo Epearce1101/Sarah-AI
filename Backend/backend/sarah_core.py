@@ -444,6 +444,15 @@ class SarahCore:
         """
         if conversation_id is None:
             return ("neutral", 0.0)
+        # Her own feeling, as she wrote it (<feel>), wins over the mood
+        # engine's coarse 7-set: "shy" or "worried" reach her face and voice.
+        try:
+            from backend.embodiment import get_self
+            felt = get_self().feeling_for(conversation_id)
+            if felt:
+                return (felt.label, float(felt.intensity))
+        except Exception:
+            pass
         try:
             from backend.mood import get_or_create_mood_state
             mood = get_or_create_mood_state(conversation_id)
@@ -567,6 +576,14 @@ class SarahCore:
         """Turn an LLMResponse into the SarahReply the API returns (shared by
         the blocking and streaming chat paths)."""
         reply_text = sanitize_visible_reply(response.content) or f"I'm here, {get_user_name()}."
+
+        # What she felt while answering becomes her state (mood, face, voice).
+        if response.finish_reason != "error":
+            try:
+                from backend.embodiment import get_self
+                get_self().observe_reply(conversation_id, reply_text)
+            except Exception as exc:
+                logger.debug(f"[SARAH] feeling not recorded: {exc}")
 
         # Affinity nudge on positive content (cheap heuristic, kept from V8).
         if any(w in reply_text.lower() for w in ("great job", "nice", "awesome", "proud")):

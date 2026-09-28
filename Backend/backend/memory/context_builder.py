@@ -46,7 +46,7 @@ try:
         MoodState,
         MoodEngine,
     )
-    from backend.mood.mood_signals import process_message_mood
+    from backend.mood.mood_signals import perceive_user_message
     MOOD_SYSTEM_AVAILABLE = True
 except ImportError:
     MOOD_SYSTEM_AVAILABLE = False
@@ -494,11 +494,17 @@ Rules:
                     # Get or create mood state for this conversation
                     mood = get_or_create_mood_state(conversation_id)
 
-                    # Process user message for mood signals only during live LLM turns.
+                    # The user's message is something she perceives, not her
+                    # emotion: her own feeling comes from her replies
+                    # (<feel>, see backend/embodiment). Only live turns do this.
+                    perceived = None
                     if process_mood:
-                        mood, mood_changes = process_message_mood(mood, user_message)
-                    else:
-                        mood_changes = []
+                        mood, perceived = perceive_user_message(mood, user_message)
+                        try:
+                            from backend.embodiment import get_self
+                            get_self().perceive_user(conversation_id, perceived)
+                        except Exception:
+                            pass
 
                     # Get mood engine and compute behavior dials
                     engine = get_mood_engine()
@@ -507,42 +513,8 @@ Rules:
                     if style_instruction:
                         internal_parts.append(style_instruction)
 
-                    # ============================================================
-                    # MOOD SELF-AWARENESS (CAN share when user asks)
-                    # ============================================================
-                    emotion_reasons = {
-                        "happy": "things are going well in our conversation",
-                        "excited": "we're working on something interesting together",
-                        "confused": "I'm trying to understand something better",
-                        "angry": "something frustrating happened that I want to help fix",
-                        "sad": "something difficult came up in our conversation",
-                        "frustrated": "we've hit some obstacles I'm determined to solve",
-                        "neutral": "I'm feeling balanced and ready to help",
-                    }
-
-                    # Determine reason - use mood_changes if available, otherwise default
-                    emotion_name = mood.emotion.value
-                    if mood_changes and len(mood_changes) > 0:
-                        # Use the trigger that caused the mood change
-                        last_change = mood_changes[-1] if isinstance(mood_changes, list) else str(mood_changes)
-                        reason = f"our recent conversation ({last_change})"
-                    else:
-                        reason = emotion_reasons.get(emotion_name, "the flow of our conversation")
-
-                    # Intensity description
-                    if mood.intensity >= 0.7:
-                        intensity_desc = "strongly"
-                    elif mood.intensity >= 0.4:
-                        intensity_desc = "moderately"
-                    else:
-                        intensity_desc = "mildly"
-
-                    mood_awareness = f"""[YOUR CURRENT EMOTIONAL STATE - SHARE IF USER ASKS HOW YOU FEEL]
-You are currently feeling {intensity_desc} {emotion_name}.
-Reason: {reason}
-When asked about your feelings, share this naturally and briefly. Don't over-explain."""
-
-                    internal_parts.append(mood_awareness)
+                    # Her feeling, body and senses are told to her in the
+                    # "Right now" block below (which she may talk about).
 
                     # Add mood debug info
                     debug_info["mood"] = {
@@ -550,7 +522,7 @@ When asked about your feelings, share this naturally and briefly. Don't over-exp
                         "intensity": mood.intensity,
                         "affinity": mood.affinity,
                         "manual_override": mood.manual_override,
-                        "changes": mood_changes,
+                        "perceived_user": perceived,
                     }
 
                     if self.config.debug_memory:
@@ -653,6 +625,18 @@ When asked about your feelings, share this naturally and briefly. Don't over-exp
                 debug_info["project_context_truncated"] = True
             full_system = f"{full_system}\n\n[PROJECT CONTEXT]\n{project_context}"
             debug_info["project_context_chars"] = len(project_context)
+
+        # Her present moment (feeling, body, senses): last in the system
+        # prompt because it changes every turn, and outside the "never
+        # mention" internal block because it is hers to talk about.
+        try:
+            from backend.embodiment import get_self
+            now_block = get_self().render_now(conversation_id, get_user_name())
+            if now_block:
+                full_system = f"{full_system}\n\n{now_block}"
+                debug_info["embodiment"] = True
+        except Exception as e:
+            debug_info["embodiment_error"] = str(e)
 
         messages.append({
             "role": "system",

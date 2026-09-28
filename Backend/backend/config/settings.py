@@ -245,6 +245,12 @@ class Settings:
     persona_inject_char_cap: int = field(default_factory=lambda: _int("SARAH_PERSONA_INJECT_CHAR_CAP", 8000))
     persona_use_active_state: bool = field(default_factory=lambda: _bool("SARAH_PERSONA_USE_ACTIVE_STATE", True))
 
+    # Embodiment: Sarah may speak on her own when something happens to her
+    # body or presence (a head pat, the user coming back). Off = she still
+    # reacts physically and remembers it, but stays quiet.
+    presence_voice_enabled: bool = field(default_factory=lambda: _bool("SARAH_PRESENCE_VOICE", True))
+    presence_voice_cooldown_seconds: int = field(default_factory=lambda: _int("SARAH_PRESENCE_VOICE_COOLDOWN", 40))
+
     # Safety
     autopilot_tier: int = field(default_factory=lambda: _int("SARAH_AUTOPILOT_TIER", 0))
     respect_permissions: bool = field(default_factory=lambda: _bool("SARAH_RESPECT_PERMISSIONS", True))

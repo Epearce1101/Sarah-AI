@@ -366,6 +366,8 @@ export const FACE_ALIASES = {
   tired: "sleepy", bored: "sleepy", calm: "relaxed", content: "relaxed", teasing: "playful",
   mischievous: "playful", proud: "smug", shock: "shocked", amazed: "surprised", sorrow: "sad",
   upset: "sad", crying: "cry", tearful: "cry", neutral: "neutral",
+  hurt: "sad", lonely: "sad", guilty: "worried", amused: "playful", grateful: "smile",
+  relieved: "relaxed", warm: "smile", delighted: "excited", thrilled: "excited", unsure: "thinking",
 };
 
 const MOUTH = ["aa", "ih", "ou", "ee", "oh"];

@@ -389,6 +389,11 @@ export class SarahTTS {
     };
 
     return {
+      // Her feeling for this reply (from its <feel>): sentences synthesized
+      // from now on carry its prosody.
+      setVoice: (opts = {}) => {
+        if (opts.emotion != null || opts.intensity != null) voiceOpts = opts;
+      },
       push: (preview, previewCues = null) => {
         if (stale()) return;
         if (Array.isArray(previewCues)) cues = previewCues;

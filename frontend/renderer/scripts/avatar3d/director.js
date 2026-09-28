@@ -1,13 +1,16 @@
-// The director turns what is happening in the app into what Sarah's body
-// does. It has three jobs:
-//   1. Perform stage directions from her replies (<face>, <look>, <point>,
-//      <gesture>), each at the moment its words are spoken.
-//   2. Keep her alive between prompts: attention/gaze shifts, idle actions,
-//      listening while the user types, thinking while waiting, greeting the
-//      user when they come back, reacting to being clicked.
-//   3. Add natural body language when a reply carries no cues of its own
-//      (nod on "yes", tilt on questions, wave on greetings...).
+// Sarah's body: the part of her that isn't words. Mind and body are one
+// self, so this runs both directions:
+//   mind -> body  Her feeling (<feel>) becomes her mood, face and posture;
+//                 her movements (<face>/<look>/<point>/<gesture>) happen as
+//                 their words are spoken; every sentence's tone shows on her
+//                 face even untagged (affect.js), plus natural nods/waves.
+//   body -> mind  What she senses (a touch, the user coming back) is sent to
+//                 her mind via `onSensation` (presence.js), and `describe()`
+//                 tells her mind what her body is doing, so she knows it.
+//   alive         Between turns she breathes, looks around, listens while
+//                 being typed to, thinks while waiting, idles by mood.
 import * as THREE from "three";
+import { affectCues } from "./affect.js";
 
 // Friendly gesture names -> animation ids (catalog) or procedural actions.
 export const GESTURES = {
@@ -57,6 +60,24 @@ const MOOD_FACE = {
   tired: "sleepy", loving: "shy", embarrassed: "shy", smug: "smug",
 };
 
+// Words for what her body is doing, for describe().
+const GESTURE_WORDS = {};
+for (const [name, id] of Object.entries(GESTURES)) GESTURE_WORDS[id] ||= name.replace(/_/g, " ");
+Object.assign(GESTURE_WORDS, {
+  "161_Waving": "waving", "118_Head Nod Yes": "nodding", "144_Shaking Head No": "shaking your head",
+  "145_Shrugging": "shrugging", "88_Thinking": "striking a thinking pose", "19_Clapping": "clapping",
+  "156_Thankful": "hand on your chest", "131_Neck Stretching": "stretching your neck", "163_Yawn": "yawning",
+  "65_Relieved Sigh": "sighing", "dm_51": "being shy", "dm_26": "making a peace sign", "dm_29": "making a heart",
+  "dm_101": "swaying a little", "52_Looking": "looking around curiously", "22_Crying": "crying",
+});
+for (const id of ["47_Jazz Dancing", "70_Silly Dancing", "83_Swing Dancing", "45_House Dancing", "54_Macarena Dance", "dm_38", "41_Hip Hop Dancing", "67_Rumba Dancing"]) GESTURE_WORDS[id] = "dancing";
+const FACE_WORDS = {
+  happy: "happy", smile: "softly smiling", laugh: "laughing", excited: "lit up", playful: "playful",
+  sad: "sad", cry: "teary", angry: "angry", annoyed: "annoyed", surprised: "surprised",
+  shocked: "shocked", shy: "blushing", smug: "smug", relaxed: "relaxed", thinking: "thoughtful",
+  worried: "worried", sleepy: "sleepy", pout: "pouting", neutral: "calm",
+};
+
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -76,6 +97,9 @@ export class SarahDirector {
     this.streamFired = 0;             // cues already performed from a streaming reply
     this.lastReplyAt = 0;
     this.wakeFrame = null;
+    this.feeling = null;              // { label, amount, reason, at } her own
+    this.lastTyping = 0;
+    this.onSensation = null;          // (kind, detail) => void, set by presence.js
     this._bindWindow();
     avatar.onFrame = (dt, now) => this.update(dt, now);
     this._setBaseForMode();
@@ -115,7 +139,7 @@ export class SarahDirector {
     const first = fn();
     if (!first) return false;
     const big = first.distanceTo(this.avatar.body.gazeTarget) > 0.8;
-    this.attention = { target: fn, until: performance.now() + hold * 1000, source };
+    this.attention = { target: fn, until: performance.now() + hold * 1000, source, name: String(key || "user").toLowerCase() };
     if (big) this.avatar.face.blink(); // people blink on large gaze shifts
     return true;
   }
@@ -124,7 +148,8 @@ export class SarahDirector {
   perform(cue) {
     if (!cue) return false;
     const { type, value, amount } = cue;
-    if (type === "face") return this.avatar.face.express(value, amount ?? 1, 4.5);
+    if (type === "feel") return this.feel(value, amount, cue.reason);
+    if (type === "face") return this.avatar.face.express(value, amount ?? (cue.auto ? 0.6 : 1), cue.auto ? 3.5 : 4.5);
     if (type === "look") return this.lookAt(value, 2.8);
     if (type === "point") {
       const t = this.target(value);
@@ -135,6 +160,28 @@ export class SarahDirector {
     }
     if (type === "gesture") return this.gesture(value, amount);
     return false;
+  }
+
+  // Her feeling: the state she's in, not a one-off expression. It shows at
+  // once (before a word is spoken), then settles into her resting face, her
+  // idle stance and how she carries herself until something changes it.
+  feel(label, amount = 0.5, reason = "") {
+    const name = String(label || "").toLowerCase();
+    if (!name) return false;
+    const strength = Math.max(0, Math.min(1, Number(amount ?? 0.5)));
+    const same = this.feeling?.label === name && Math.abs(this.feeling.amount - strength) < 0.1
+      && performance.now() - this.feeling.at < 4000;
+    this.feeling = { label: name, amount: strength, reason: reason || "", at: performance.now() };
+    if (same) return true; // streamed twice (preview + speech): already feeling it
+    this.setMood(name, strength);
+    this.avatar.face.express(name, 0.5 + strength * 0.5, 2.5);
+    const body = this.avatar.body;
+    // Posture follows the feeling: up and open when bright, drawn in when low.
+    if (/excited|happy|proud|playful|surprised/.test(name)) body.leanTarget = 0.05 * strength;
+    else if (/sad|hurt|lonely|worried|guilty|tired|sleepy/.test(name)) body.leanTarget = -0.04 * strength;
+    else if (/shy|embarrass/.test(name)) body.tiltTarget = 0.12 * strength;
+    this._later(2500, () => { body.leanTarget = 0; body.tiltTarget = 0; });
+    return true;
   }
 
   resolveGesture(name) {
@@ -226,7 +273,7 @@ export class SarahDirector {
     this.avatar.face.attachAnalyser(analyser);
     const seconds = duration && Number.isFinite(duration) ? duration : Math.max(1, text.length * 0.06);
     this.avatar.face.speakingFallback = analyser ? 0 : performance.now() + seconds * 1000;
-    const plan = cues.length ? cues : this._autoCues(text);
+    const plan = this._bodyLanguage(text, cues);
     const len = Math.max(1, text.length);
     this.speechTimers ||= new Set();
     for (const cue of plan) {
@@ -282,11 +329,19 @@ export class SarahDirector {
   // Replies read without voice: act them out with the same auto body
   // language a spoken reply would get.
   performText(text, cues = []) {
-    this.performSequence(cues.length ? cues : this._autoCues(text));
+    this.performSequence(this._bodyLanguage(text, cues));
   }
 
-  // Natural body language for replies without explicit cues.
-  _autoCues(text) {
+  // Everything her body does while saying `text`: her own cues, the tone of
+  // each sentence on her face, and natural movements if she chose none.
+  _bodyLanguage(text, cues = []) {
+    const moves = cues.some((c) => c.type === "gesture" || c.type === "point" || c.type === "look");
+    const plan = [...cues, ...affectCues(text, cues), ...(moves ? [] : this._autoMoves(text))];
+    return plan.sort((a, b) => a.at - b.at);
+  }
+
+  // Natural movements for words said without any of her own.
+  _autoMoves(text) {
     const cues = [];
     const t = String(text || "");
     const lower = t.toLowerCase();
@@ -294,8 +349,6 @@ export class SarahDirector {
     else if (/^\s*(yes|yeah|yep|sure|of course|absolutely|definitely|right)\b/.test(lower)) cues.push({ type: "gesture", value: "nod_small", at: 0 });
     else if (/^\s*(no|nope|not really|nah)\b/.test(lower)) cues.push({ type: "gesture", value: "shake_head", at: 0 });
     if (/\b(i think|maybe|perhaps|let me think|hmm)\b/.test(lower)) cues.push({ type: "look", value: "up", at: lower.search(/\b(i think|maybe|perhaps|let me think|hmm)\b/) });
-    if (/\b(thank you|thanks)\b/.test(lower)) cues.push({ type: "face", value: "smile", at: lower.search(/\b(thank you|thanks)\b/) });
-    if (/!\s*$/.test(t)) cues.push({ type: "face", value: "happy", at: Math.max(0, t.length - 2) });
     if (/\?\s*$/.test(t)) cues.push({ type: "gesture", value: "tilt", at: Math.max(0, t.length - 2) });
     if (/\b(above|up there|in the chat|below|here it is|look at)\b/.test(lower)) cues.push({ type: "point", value: "chat", at: lower.search(/\b(above|up there|in the chat|below|here it is|look at)\b/) });
     return cues;
@@ -312,6 +365,7 @@ export class SarahDirector {
 
   onUserTyping() {
     this._activity();
+    this.lastTyping = performance.now();
     if (this.mode === "idle" || this.mode === "listening") this._setMode("listening");
     clearTimeout(this._typingIdle);
     this._typingIdle = setTimeout(() => { if (this.mode === "listening") this._setMode("idle"); }, 2500);
@@ -334,8 +388,11 @@ export class SarahDirector {
     if (this.mode === "thinking") this._setMode("idle");
   }
 
+  // Being touched: an instant reflex here; the sensation also goes to her
+  // mind, which may answer in her own voice a moment later.
   onTouch(region) {
     this._activity();
+    this.onSensation?.("touch", { region });
     if (region === "head") {
       this.avatar.face.express("shy", 1, 3);
       this.gesture("shy");
@@ -347,11 +404,45 @@ export class SarahDirector {
     }
   }
 
+  // What her body is doing, in words, for her mind (sent by presence.js and
+  // told back to her each turn). Gaze targets stay symbolic ("user", "chat")
+  // so the backend can name the user.
+  describe() {
+    const anim = this.avatar.animator;
+    const now = performance.now();
+    const gesture = anim.oneShot?.id ? GESTURE_WORDS[anim.oneShot.id] || "moving" : null;
+    const stance = {
+      speaking: "talking, gesturing along with your words",
+      listening: "leaning in a little, listening",
+      thinking: "thinking it over",
+      idle: {
+        calm: "standing beside the chat, relaxed", happy: "standing beside the chat, bright and a little bouncy",
+        cool: "standing beside the chat, cool and composed", sad: "standing beside the chat, a bit subdued",
+        sleepy: "standing beside the chat, drowsy",
+      }[this._moodSet()],
+    }[this.mode];
+    const face = this.avatar.face;
+    const active = face.override && now < face.override.until ? face.override.recipe : face.baseline.recipe;
+    return {
+      renderer: "vrm",
+      mode: this.mode,
+      activity: gesture ? `${gesture} (${stance})` : stance,
+      expression: FACE_WORDS[active] || null,
+      looking_at: this.attention?.name || "user",
+      frame: { upper: "upper body", face: "face, close up", full: "whole body" }[this.avatar.frame] || null,
+      visible: document.visibilityState === "visible",
+      user_typing: now - this.lastTyping < 3000,
+      user_idle_seconds: Math.round((now - this.lastActivity) / 1000),
+      feeling: this.feeling?.label || null,
+    };
+  }
+
   _activity() {
     const now = performance.now();
     const away = now - this.lastActivity;
     this.lastActivity = now;
-    // Back after a while: greet them.
+    // Back after a while: she notices (and her mind may say hello).
+    if (away > 120000) this.onSensation?.("returned", { away_seconds: Math.round(away / 1000) });
     if (away > 120000 && this.mode === "idle") {
       if (away > 300000) this._setBaseForMode(); // wake up from the sleepy idle
       this.lookAt("user", 2.5, "greet");
@@ -384,9 +475,11 @@ export class SarahDirector {
     const hour = new Date().getHours();
     const e = this.mood.emotion;
     if (performance.now() - this.lastActivity > 300000) return "sleepy"; // left alone a while
-    if (["sad", "tired"].includes(e)) return e === "tired" ? "sleepy" : "sad";
+    if (["tired", "sleepy", "bored"].includes(e)) return "sleepy";
+    if (["sad", "hurt", "lonely", "cry", "worried", "guilty"].includes(e) && this.mood.intensity > 0.3) return "sad";
     if (hour >= 23 || hour < 5) return "sleepy";
-    if (["happy", "excited", "affectionate", "loving"].includes(e) && this.mood.intensity > 0.45) return "happy";
+    if (["happy", "excited", "affectionate", "loving", "playful", "proud", "delighted", "thrilled", "smile", "amused"].includes(e)
+      && this.mood.intensity > 0.45) return "happy";
     return "calm";
   }
 
@@ -406,13 +499,18 @@ export class SarahDirector {
       this._activity();
     }, { passive: true });
     window.addEventListener("focus", () => this._activity());
+    // A single click is a touch; a double-click only changes the view, so
+    // wait a moment before treating the click as touching her.
     this.avatar.canvas.addEventListener("pointerdown", (ev) => {
       const r = this.avatar.canvas.getBoundingClientRect();
       const y = (ev.clientY - r.top) / r.height;
       const headY = this.avatar.frame === "face" ? 0.7 : this.avatar.frame === "upper" ? 0.4 : 0.22;
-      this.onTouch(y < headY ? "head" : "body");
+      clearTimeout(this._touchTimer);
+      if (ev.detail > 1) return;
+      this._touchTimer = setTimeout(() => this.onTouch(y < headY ? "head" : "body"), 260);
     });
     this.avatar.canvas.addEventListener("dblclick", () => {
+      clearTimeout(this._touchTimer);
       const order = ["upper", "face", "full"];
       this.userFrame = order[(order.indexOf(this.avatar.frame) + 1) % order.length];
       this.avatar.setFrame(this.userFrame);

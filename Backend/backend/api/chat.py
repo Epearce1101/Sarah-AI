@@ -16,6 +16,7 @@ from backend.api.schemas import ChatRequest, ChatResponse
 from backend import llm_models, state
 from backend.config import settings
 from backend.diagnostics.telemetry import record_chat_error, record_chat_result
+from backend.embodiment import get_self
 from backend.identity import get_user_name
 from backend.models.projects import get_conversation_projects, get_project_context
 from backend.models.core import add_log
@@ -204,6 +205,8 @@ async def api_chat(payload: ChatRequest):
         return _warmup_response(original_message, started_at)
 
     project_context = _project_context_for(payload.conversation_id)
+    me = get_self()
+    me.chat_started()
     try:
         result = await sarah.handle_message(
             message=payload.message,
@@ -215,6 +218,8 @@ async def api_chat(payload: ChatRequest):
     except Exception as e:
         _record_failure(e, original_message, started_at)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        me.chat_finished()
 
     return _chat_response(result, payload, original_message, started_at)
 
@@ -243,6 +248,8 @@ async def api_chat_stream(payload: ChatRequest):
             return
 
         project_context = _project_context_for(payload.conversation_id)
+        me = get_self()
+        me.chat_started()
         try:
             async for event in sarah.handle_message_stream(
                 message=payload.message,
@@ -258,6 +265,8 @@ async def api_chat_stream(payload: ChatRequest):
         except Exception as e:
             _record_failure(e, original_message, started_at)
             yield _sse("error", {"detail": str(e)})
+        finally:
+            me.chat_finished()
 
     return StreamingResponse(
         events(),

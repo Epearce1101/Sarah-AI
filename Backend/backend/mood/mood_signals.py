@@ -30,7 +30,7 @@ class MoodSignalDetector:
         r"\b(still not|still broken|still failing|tried everything)\b",
         r"\b(what the|wtf|ugh|argh|damn|dammit)\b",
         r"\b(this is ridiculous|so annoying|frustrated)\b",
-        r"[!?]{2,}",  # Multiple ! or ?
+        r"\?{2,}|\?!|!\?",  # "??", "?!" read as exasperation ("!!" alone is usually excitement)
         r"^[A-Z\s]{10,}$",  # All caps messages (shouting)
     ]
 
@@ -38,7 +38,7 @@ class MoodSignalDetector:
     SUCCESS_PATTERNS = [
         r"\b(thank|thanks|thx|ty)\b",
         r"\b(perfect|excellent|great|awesome|amazing)\b",
-        r"\b(works|working|it works|that works|fixed)\b",
+        r"(?<!not )(?<!n't )(?<!never )\b(works|working|it works|that works|fixed)\b",
         r"\b(nice|love it|beautiful|brilliant)\b",
         r"\b(exactly what i needed|just what i wanted)\b",
     ]
@@ -237,6 +237,42 @@ def get_decay_manager() -> MoodDecayManager:
     if _decay_manager is None:
         _decay_manager = MoodDecayManager()
     return _decay_manager
+
+
+_PERCEIVED = {
+    "frustration": "frustrated",
+    "success": "pleased",
+    "confusion": "confused",
+    "positive_bond": "affectionate toward you",
+    "negative_bond": "upset with you",
+}
+
+
+def perceive_user_message(mood: MoodState, user_message: str) -> Tuple[MoodState, Optional[str]]:
+    """How the user seems, from their message, without deciding how Sarah
+    feels. Her own feeling comes from her reply (<feel>); what she reads in
+    the user only colours it (and nudges the bond/affinity).
+
+    Returns the (decayed, affinity-nudged, saved) mood and a short
+    description of the user's state, or None if nothing stood out.
+    """
+    decay_mgr = get_decay_manager()
+    if decay_mgr.should_decay(mood):
+        mood = decay_mgr.apply_decay(mood, save=False)
+
+    signals = get_signal_detector().detect_signals(user_message or "")
+    changed = False
+    if signals["positive_bond"] > 0.2:
+        mood.nudge_affinity(signals["positive_bond"] * 0.1)
+        changed = True
+    if signals["negative_bond"] > 0.2:
+        mood.nudge_affinity(-signals["negative_bond"] * 0.15)
+        changed = True
+    if changed:
+        save_mood_state(mood)
+
+    name, strength = max(signals.items(), key=lambda kv: kv[1])
+    return mood, (_PERCEIVED[name] if strength > 0.2 else None)
 
 
 def process_message_mood(

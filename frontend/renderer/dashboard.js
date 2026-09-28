@@ -787,10 +787,19 @@ class SarahUI {
     const speech = this.tts.isEnabled() ? this.tts.createStream(this._lastReplyVoice || {}) : null;
     const director = window.SARAH_AVATAR_DIRECTOR;
     director?.resetStream?.();
+    let felt = false;
 
     const onDelta = (text) => {
       raw += text;
       const { text: preview, cues } = this._parseReply(raw, { streaming: true });
+      // Her feeling opens the reply: it reaches her face, posture and voice
+      // the moment she has it, before her first word is shown or spoken.
+      const feel = !felt && cues.find((c) => c.type === "feel");
+      if (feel) {
+        felt = true;
+        director?.feel?.(feel.value, feel.amount, feel.reason);
+        speech?.setVoice?.({ emotion: feel.value, intensity: feel.amount ?? 0.5 });
+      }
       if (!bubble) {
         if (!preview.trim()) return;
         this._hideLoadingIndicator(loadingEl);
@@ -839,6 +848,8 @@ class SarahUI {
     this._lastReplyVoice = voice;
     const { cues } = this._parseReply(resp?.reply || "");
     const director = window.SARAH_AVATAR_DIRECTOR;
+    const feel = cues.find((c) => c.type === "feel");
+    if (feel) director?.feel?.(feel.value, feel.amount, feel.reason); // no-op if already felt
     if (speech) {
       speech.finish(reply, voice, cues);
     } else if (this.tts.isEnabled()) {
@@ -851,6 +862,29 @@ class SarahUI {
       }
       this._setAvatarMode("idle", { source });
     }
+  }
+
+  // Something Sarah said on her own (she sensed a touch, the user coming
+  // back...). Already saved by the backend; shown and spoken like a reply.
+  // It never talks over her: if she's mid-sentence, the line appears and her
+  // body acts it, without cutting her voice off.
+  presentSpontaneousReply(out, conversationId = this.activeConversationId) {
+    if (!out?.reply || conversationId !== this.activeConversationId) return;
+    const reply = this._sanitizeAssistantDisplayText(out.reply);
+    this.appendMessage("assistant", reply, null, { messageId: out.assistant_message_id });
+    this._scrollToBottom();
+    window.SARAH_AVATAR_SYSTEM?.onAIResponse?.(reply, {
+      emotion: out.emotion,
+      intensity: out.emotion_intensity,
+      source: "spontaneous",
+    });
+    const resp = { reply: out.reply, emotion: out.emotion, emotion_intensity: out.emotion_intensity };
+    if (this.tts.isEnabled() && this.tts.isMuting()) {
+      const { cues } = this._parseReply(out.reply);
+      window.SARAH_AVATAR_DIRECTOR?.performText?.(reply, cues);
+      return;
+    }
+    this._speakFinalReply(reply, resp, null, "spontaneous");
   }
 
   // Display text for an assistant message: stage directions, <think> blocks

@@ -310,7 +310,9 @@ class OpenRouterClient:
             assistant_message_id = add_message(conversation_id, "assistant", content)
 
         self._ensure_summarizer()
-        spawn_background(self.summarizer.update_all(conversation_id, content))
+        # Summaries and remembered facts get her words, not her body tags.
+        from backend.embodiment import strip_body_tags
+        spawn_background(self.summarizer.update_all(conversation_id, strip_body_tags(content)))
 
         requested = self._current_model_name()
         if not use_local and model_name and model_name != requested:

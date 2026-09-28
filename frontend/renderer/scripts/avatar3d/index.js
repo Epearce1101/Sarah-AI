@@ -5,6 +5,7 @@
 import { SarahVRM } from "./sarah-vrm.js";
 import { SarahDirector, GESTURES, PROCEDURAL } from "./director.js";
 import { parseCues, stripCues, CUE_KINDS } from "./cues.js";
+import { SarahPresence } from "./presence.js";
 
 const MODEL_URL = "assets/vrm/sarah.vrm";
 const ANIMATIONS_URL = "assets/vrm/animations/";
@@ -25,9 +26,9 @@ function routeFacade(director) {
   // Mode hints from the dashboard / sync controller. "speaking" comes from
   // the TTS player itself (speechStart) with real audio timing.
   live2d.setAvatarMode = (mode) => { director.onModeHint(mode); };
-  live2d.applyMoodState = (state) => {
-    if (state?.emotion) director.setMood(state.emotion, state.intensity ?? 0.4);
-  };
+  // The old engine's guessed mood must not overwrite what she actually
+  // feels; her mood arrives via onAIResponse / syncBackendMood below.
+  live2d.applyMoodState = () => {};
 
   const system = window.SARAH_AVATAR_SYSTEM;
   if (!system) return;
@@ -47,14 +48,17 @@ function routeFacade(director) {
     director.onUserMessage(text);
     return state;
   };
+  // Her mood is what she herself felt (the backend's `emotion`, from her
+  // <feel>), not the old renderer engine's guess from the words.
   system.onAIResponse = (text, meta = {}) => {
     const state = original.onAIResponse(text, meta);
-    director.onReply({ emotion: state?.emotion, intensity: state?.intensity });
+    director.onReply({ emotion: meta.emotion || state?.emotion, intensity: meta.intensity ?? state?.intensity });
     return state;
   };
   system.syncBackendMood = (mood, params) => {
     const state = original.syncBackendMood(mood, params);
-    if (state?.emotion) director.setMood(state.emotion, state.intensity ?? 0.4);
+    const emotion = mood?.emotion || state?.emotion;
+    if (emotion && !director.feeling) director.setMood(emotion, mood?.intensity ?? state?.intensity ?? 0.4);
     return state;
   };
   system.getDiagnostics = () => ({
@@ -88,7 +92,14 @@ async function boot() {
     routeFacade(director);
     const input = document.getElementById("chat-input");
     input?.addEventListener("input", () => director.onUserTyping());
+    // Body <-> mind: report what her body does and senses; spoken reactions
+    // from her mind come back through the dashboard like any reply.
+    const presence = new SarahPresence(director, {
+      getConversationId: () => window.SARAH_UI?.activeConversationId ?? null,
+      onSpontaneousReply: (reply, conversationId) => window.SARAH_UI?.presentSpontaneousReply?.(reply, conversationId),
+    }).start();
     window.SARAH_AVATAR_DIRECTOR = director;
+    window.SARAH_PRESENCE = presence;
     window.SARAH_VRM = avatar;
     console.info("[Sarah/VRM] ready:", avatar.vrm.meta?.name || "model", `${avatar.animator.catalog.size} animations`);
     return true;

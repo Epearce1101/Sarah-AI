@@ -1,27 +1,40 @@
-// Stage directions Sarah writes inline in her replies. Each cue fires at the
-// moment its surrounding words are spoken (or displayed, when voice is off):
+// Body language Sarah writes inline in her replies. They are her own
+// feelings and movements (the body is her, not a puppet), stripped from the
+// visible text and acted at the moment their words are spoken (or shown):
 //
+//   <feel>happy:0.7 | why</feel>                      how she feels (opens a reply)
 //   <face>happy</face>  <face>surprised:0.6</face>   facial expression (+ intensity)
-//   <look>chat</look>                                 where to look
-//   <point>chat</point>                               point at something
+//   <look>chat</look>                                 where she looks
+//   <point>chat</point>                               pointing at something
 //   <gesture>wave</gesture>                           body gesture / animation
 //   <motion>wave</motion>                             legacy alias of <gesture>
+//   <silent/>                                         chose to say nothing
 //
 // Attribute forms (<face name="happy"/>) and bare legacy gesture tags
 // (<wave/>, <nod>) are accepted too.
 
-export const CUE_KINDS = ["face", "look", "point", "gesture"];
+export const CUE_KINDS = ["feel", "face", "look", "point", "gesture"];
 
-const PAIRED = /<(face|look|point|gesture|motion)\b[^>]*>([^<]*)<\/\1\s*>/gi;
+const PAIRED = /<(feel|face|look|point|gesture|motion)\b[^>]*>([^<]*)<\/\1\s*>/gi;
 const SELF_CLOSING = /<(face|look|point|gesture|motion)\s+(?:name|value|to|at)\s*=\s*["']?([\w:.\- ]+?)["']?\s*\/?>/gi;
+const SILENT = /<silent\s*\/?>/gi;
 // A cue still being streamed in: "<fa", "<face>hap", "<face>happy</fa",
 // "<gesture name=\"wa".
-const PARTIAL_TAIL = /<(?:(?:face|look|point|gesture|motion)\b[^>]*>[^<]*(?:<\/?[a-z]*)?|\/?[a-z]*(?:\s[^>]*)?)$/i;
+const PARTIAL_TAIL = /<(?:(?:feel|face|look|point|gesture|motion)\b[^>]*>[^<]*(?:<\/?[a-z]*)?|\/?[a-z]*(?:\s[^>]*)?)$/i;
 
-function splitValue(raw) {
-  const [value, amount] = String(raw).trim().toLowerCase().split(":");
+function splitValue(raw, kind) {
+  let text = String(raw).trim();
+  let reason;
+  if (kind === "feel") {
+    const bar = text.indexOf("|");
+    if (bar >= 0) { reason = text.slice(bar + 1).trim() || undefined; text = text.slice(0, bar); }
+  }
+  // "happy:0.7"; feelings may also be written "happy 0.7".
+  const [value, amount] = text.trim().toLowerCase().split(kind === "feel" ? /\s*[:\s]\s*/ : /\s*:\s*/);
   const n = Number(amount);
-  return { value: value.trim().replace(/\s+/g, "_"), amount: Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : undefined };
+  const out = { value: (value || "").trim().replace(/\s+/g, "_"), amount: Number.isFinite(n) && amount !== "" && amount !== undefined ? Math.max(0, Math.min(1, n)) : undefined };
+  if (reason) out.reason = reason;
+  return out;
 }
 
 /**
@@ -39,6 +52,9 @@ export function parseCues(raw, { bareGestures = null, streaming = false } = {}) 
     for (const m of source.matchAll(re)) {
       matches.push({ index: m.index, length: m[0].length, kind: m[1].toLowerCase(), value: m[2] });
     }
+  }
+  for (const m of source.matchAll(SILENT)) {
+    matches.push({ index: m.index, length: m[0].length, kind: null, value: "" });
   }
   if (bareGestures && bareGestures.size) {
     const bare = /<\/?([a-z_][\w-]*)\s*\/?>/gi;
@@ -66,9 +82,11 @@ export function parseCues(raw, { bareGestures = null, streaming = false } = {}) 
     append(source.slice(last, m.index));
     last = m.index + m.length;
     if (!m.kind) continue;
-    const { value, amount } = splitValue(m.value);
+    const { value, amount, reason } = splitValue(m.value, m.kind);
     if (!value) continue;
-    cues.push({ type: m.kind === "motion" ? "gesture" : m.kind, value, amount, at: text.length });
+    const cue = { type: m.kind === "motion" ? "gesture" : m.kind, value, amount, at: text.length };
+    if (reason) cue.reason = reason;
+    cues.push(cue);
   }
   append(source.slice(last));
   return { text, cues };
