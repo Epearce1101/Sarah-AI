@@ -24,6 +24,19 @@ router = APIRouter()
 @router.post("/api/tts")
 def api_tts(req: TTSRequest):
     started_at = time.perf_counter()
+    # Her voice: Kokoro (natural), Piper only as a fallback.
+    from backend import tts_kokoro
+
+    text = (req.text or "").strip()
+    if text and tts_kokoro.available():
+        try:
+            wav_bytes = tts_kokoro.synthesize(text, req.length_scale)
+            record_voice_latency("tts", (time.perf_counter() - started_at) * 1000, ok=True)
+            return Response(content=wav_bytes, media_type="audio/wav",
+                            headers={"Content-Disposition": 'inline; filename="sarah_tts.wav"'})
+        except Exception:
+            logger.exception("[/api/tts] Kokoro failed; falling back to Piper")
+
     if piper_tts is None:
         record_voice_latency("tts", 0, ok=False)
         raise HTTPException(status_code=500, detail="Piper TTS is not available.")

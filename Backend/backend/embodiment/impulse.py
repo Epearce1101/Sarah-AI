@@ -96,6 +96,14 @@ def describe(kind: str, detail: Dict[str, Any]) -> Tuple[Optional[str], bool]:
         )
     if kind == "dismissed":
         return f"{user} hid your window", False
+    if kind == "gesture":
+        what = {
+            "wave": "waved at you", "thumbs_up": "gave you a thumbs up", "thumbs_down": "gave you a thumbs down",
+            "peace": "flashed you a peace sign", "love": "made an 'I love you' sign at you",
+            "point_up": "pointed up",
+        }.get(str(detail.get("name")), "made a gesture at you")
+        # A wave is a greeting: worth a word back. The rest get her body's reaction.
+        return f"{user} {what} through your camera", detail.get("name") == "wave"
     if kind == "reminder":
         return f"it's time for a reminder you set: {str(detail.get('text', ''))[:300]}", True
     return None, False

@@ -11,6 +11,7 @@
     "electron": "^31.0.0"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
     "@pixiv/three-vrm": "^3.5.5",
     "@pixiv/three-vrm-animation": "^3.5.5",
     "pixi-live2d-display": "^0.4.0",

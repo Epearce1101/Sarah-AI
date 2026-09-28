@@ -184,6 +184,11 @@ async def _startup() -> None:
             logger.info(f"[INIT] Speech recognition ready ({stt.model_size} on {stt.device}).")
         except Exception as exc:
             logger.warning(f"[INIT] Speech recognition unavailable: {exc}")
+        try:  # her voice (Kokoro): load + warm so the first sentence is quick
+            from backend import tts_kokoro
+            tts_kokoro.available()
+        except Exception as exc:
+            logger.warning(f"[INIT] Kokoro voice unavailable: {exc}")
 
     import threading
     threading.Thread(target=_prewarm_stt, name="stt-prewarm", daemon=True).start()

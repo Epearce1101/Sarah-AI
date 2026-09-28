@@ -29,6 +29,7 @@ import { parseCues } from "./scripts/avatar3d/cues.js";
 import { LiveVoice, isEcho } from "./scripts/core/live-voice.js";
 import { SarahEyes } from "./scripts/core/eyes.js";
 import { SarahSenses } from "./scripts/core/senses.js";
+import { SarahGestures } from "./scripts/core/gestures.js";
 
 // -----------------------------------------------------------------------------
 // UI Controller
@@ -277,7 +278,13 @@ class SarahUI {
         if (cam) previewVideo.play().catch(() => {});
       }
       preview?.classList.toggle("sarah-hidden", !cam);
+      // Hand gestures only while the camera is on.
+      if (cam) this.gestures?.start(); else this.gestures?.stop();
     };
+    this.gestures = new SarahGestures({
+      getVideo: () => this.eyes?.sources?.camera?.video || null,
+      onGesture: (name) => this._onHandGesture(name),
+    });
     this.eyes = new SarahEyes({ onStatus: (_mode, open) => { render(open); syncPreview(open); } });
     const toggle = (kind) => {
       this._eyePrefs[kind] = !this._eyePrefs[kind];
@@ -291,6 +298,26 @@ class SarahUI {
     // Her mind's line to her body (fresh looks, things she decides to say).
     this.senses = new SarahSenses({ eyes: this.eyes, ui: this }).start();
     this._initInitiativeToggle();
+  }
+
+  // You made a hand gesture at the camera: she reacts at once, and a wave
+  // also reaches her mind (she may say hi).
+  _onHandGesture(name) {
+    const d = window.SARAH_AVATAR_DIRECTOR;
+    if (d) {
+      d.lookAt("user", 3, "gesture");
+      const react = {
+        wave: () => { d.avatar.face.express("happy", 1, 3); d.gesture("wave"); },
+        thumbs_up: () => { d.avatar.face.express("happy", 0.9, 2.5); d.gesture("nod_small"); },
+        thumbs_down: () => { d.avatar.face.express("pout", 0.8, 2.5); d.gesture("tilt"); },
+        peace: () => { d.avatar.face.express("playful", 1, 3); d.gesture("peace"); },
+        love: () => { d.avatar.face.express("shy", 1, 3); d.gesture("heart"); },
+        point_up: () => { d.lookAt("up", 2.5, "gesture"); d.avatar.face.express("surprised", 0.7, 2); },
+      }[name];
+      react?.();
+    }
+    window.SARAH_PRESENCE?.sense?.("gesture", { name });
+    console.info("[Gestures]", name);
   }
 
   // Initiative: ON (she speaks up / acts on her own) or QUIET (she still

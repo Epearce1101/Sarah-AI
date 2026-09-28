@@ -108,7 +108,9 @@ export class SarahEyes {
     let stream;
     try {
       stream = kind === "camera"
-        ? await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, frameRate: 5 }, audio: false })
+        // 30 fps: a smooth preview and real-time gesture spotting (frames
+        // only go to the cloud when the view changes, so fps costs nothing).
+        ? await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, frameRate: { ideal: 30 } }, audio: false })
         : await this._openScreen();
     } catch (err) {
       console.warn(`[Eyes] ${kind} unavailable:`, err?.message || err);

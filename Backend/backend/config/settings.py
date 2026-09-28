@@ -262,6 +262,9 @@ class Settings:
     whisper_model: str = field(default_factory=lambda: _str("SARAH_WHISPER_MODEL", "large-v3-turbo"))
     whisper_cpu_model: str = field(default_factory=lambda: _str("SARAH_WHISPER_CPU_MODEL", "base.en"))
     whisper_device: str = field(default_factory=lambda: _str("SARAH_WHISPER_DEVICE", "auto"))
+    # Her voice: "kokoro" (natural, GPU) or "piper" (old). Voice picked by Zero.
+    tts_engine: str = field(default_factory=lambda: _str("SARAH_TTS_ENGINE", "kokoro"))
+    tts_voice: str = field(default_factory=lambda: _str("SARAH_TTS_VOICE", "af_bella"))
     # Live voice (continuous mic over /ws/voice): silence that ends a turn.
     voice_end_silence_ms: int = field(default_factory=lambda: _int("SARAH_VOICE_END_SILENCE_MS", 550))
 
