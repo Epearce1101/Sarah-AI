@@ -31,6 +31,18 @@ does the same.
   herself (`Backend/data/sarah_workspace/tools`). System hardware/software is
   off limits (`backend/agency/guard.py`); deletes go to the Recycle Bin; every
   action is logged; **■ Stop** pauses her tools.
+- **Web** — her own browser (Playwright Chromium in `Backend/models`, run
+  `Backend\.venv\Scripts\python -m playwright install chromium` with
+  `PLAYWRIGHT_BROWSERS_PATH=Backend\models\ms-playwright` on a fresh machine),
+  one-step `research` with cited sources, and `http_request` for web APIs.
+- **Skills** — her own repertoire in `Backend/data/sarah_workspace/skills`
+  (nothing outside it is read). She adds OpenClaw / Agent-Skills skills from a
+  GitHub folder, SKILL.md link, zip or local folder with `add_skill`, and opens
+  them with `use_skill`.
+- **Memory of her days** — an experience log and a daily journal entry, with
+  lasting facts saved to long-term memory (`/api/journal`).
+- **Free usage meter** — status bar "Free today": requests used of the daily
+  free allowance, by what they were for (`/api/usage`).
 - **Initiative** — between conversations she notices things (a game moment, an
   error on screen, an agenda item coming due) and may speak up or act.
   Top bar **Initiative**: ON / QUIET.

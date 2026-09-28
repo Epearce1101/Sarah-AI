@@ -484,7 +484,8 @@ class OpenRouterClient:
         text_parts: List[str] = []
 
         def _produce_openrouter(msgs, emit, stop, step_meta):
-            extra = {"tools": tool_specs, "tool_choice": "auto"} if tool_specs else {}
+            offer = tool_specs and not step_meta.get("final")
+            extra = {"tools": tool_specs, "tool_choice": "auto"} if offer else {}
             stream = self._client.chat.completions.create(
                 messages=msgs,
                 max_tokens=self.config.llm_max_completion_tokens,
@@ -559,10 +560,18 @@ class OpenRouterClient:
                         step_meta["model"] = data.get("model")
             step_meta["tool_calls"] = []
 
-        for step in range(self.MAX_TOOL_STEPS if tool_specs else 1):
+        # One extra round beyond the tool budget, without tools, so a turn
+        # that used every step still ends with an actual answer.
+        rounds = self.MAX_TOOL_STEPS + 1 if tool_specs else 1
+        for step in range(rounds):
+            final_round = bool(tool_specs) and step == rounds - 1
+            if final_round:
+                messages.append({"role": "system", "content": "You have used all your tool steps for this turn. "
+                                 "Answer now with what you found; say what is left to do if anything."})
             queue: asyncio.Queue = asyncio.Queue()
             stop = threading.Event()
-            step_meta: Dict[str, Any] = {"finish_reason": "stop", "usage": None, "model": None, "tool_calls": []}
+            step_meta: Dict[str, Any] = {"finish_reason": "stop", "usage": None, "model": None, "tool_calls": [],
+                                         "final": final_round}
             step_parts: List[str] = []
 
             def emit(item):

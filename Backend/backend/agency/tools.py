@@ -302,6 +302,13 @@ def _run_custom(name: str, kwargs: Dict[str, Any]) -> Any:
     return {"error": "the tool crashed", **out}
 
 
+def _resolve(path: str) -> Path:
+    """A path she gives: absolute as-is; relative ones are inside her workspace
+    (the same place run_python / run_shell work in)."""
+    p = Path(os.path.expandvars(os.path.expanduser(str(path))))
+    return p if p.is_absolute() else (WORKSPACE / p)
+
+
 # ---------------------------------------------------------------------------
 # Built-in tools
 # ---------------------------------------------------------------------------
@@ -474,7 +481,7 @@ def run_shell(command: str, timeout: int = 60, cwd: Optional[str] = None):
 @tool("read_file", "Read a text file.", {"path": {"type": "string"},
       "max_chars": {"type": "integer", "description": "default 20000"}}, ["path"], timeout=20)
 def read_file(path: str, max_chars: int = 20000):
-    p = Path(os.path.expandvars(os.path.expanduser(path)))
+    p = _resolve(path)
     data = p.read_text(encoding="utf-8", errors="replace")
     limit = max(200, min(100000, int(max_chars or 20000)))
     return data[:limit] + (f"\n...[{len(data)} chars total]" if len(data) > limit else "")
@@ -483,7 +490,7 @@ def read_file(path: str, max_chars: int = 20000):
 @tool("list_directory", "List a folder (names, sizes, modified times).",
       {"path": {"type": "string"}}, ["path"], timeout=20)
 def list_directory(path: str):
-    p = Path(os.path.expandvars(os.path.expanduser(path)))
+    p = _resolve(path)
     items = []
     for child in sorted(p.iterdir(), key=lambda c: (not c.is_dir(), c.name.lower()))[:300]:
         try:
@@ -499,7 +506,7 @@ def list_directory(path: str):
       {"path": {"type": "string"}, "content": {"type": "string"}, "append": {"type": "boolean"}},
       ["path", "content"], timeout=20)
 def write_file(path: str, content: str, append: bool = False):
-    p = Path(os.path.expandvars(os.path.expanduser(path)))
+    p = _resolve(path)
     guard.check_write(p)
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a" if append else "w", encoding="utf-8") as fh:
@@ -512,9 +519,10 @@ def write_file(path: str, content: str, append: bool = False):
 def move_path(source: str, destination: str):
     import shutil
 
-    guard.check_write(source)
-    guard.check_write(destination)
-    return f"Moved to {shutil.move(os.path.expanduser(source), os.path.expanduser(destination))}"
+    src, dst = _resolve(source), _resolve(destination)
+    guard.check_write(src)
+    guard.check_write(dst)
+    return f"Moved to {shutil.move(str(src), str(dst))}"
 
 
 @tool("delete_path", "Delete a file or folder (it goes to the Recycle Bin, so it can be restored).",
@@ -522,7 +530,7 @@ def move_path(source: str, destination: str):
 def delete_path(path: str):
     from send2trash import send2trash
 
-    p = os.path.expandvars(os.path.expanduser(path))
+    p = str(_resolve(path))
     guard.check_write(p)
     if not os.path.exists(p):
         return f"{p} doesn't exist"
@@ -683,7 +691,8 @@ def add_skill(source: str, overwrite: bool = False):
         return str(exc)
     reload()
     return {"learned": installed["slug"], "name": installed["name"], "description": installed["description"],
-            "files": installed["files"][:40]}
+            "files": installed["files"][:40],
+            "next": f"It's in your repertoire now. Open it with use_skill(name='{installed['slug']}')."}
 
 
 @tool("use_skill", "Open one of your skills: returns its full instructions and the files in its "

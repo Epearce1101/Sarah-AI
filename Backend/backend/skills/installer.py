@@ -98,7 +98,8 @@ def _github_parts(url: str):
 
 
 def _github_folder(owner: str, repo: str, ref: Optional[str], path: str, dest: Path) -> None:
-    """Download a folder (recursively) via the GitHub contents API."""
+    """Download a folder (recursively) via the GitHub contents API. A wrong
+    path fails fast with a hint (the model may have guessed the folder)."""
     files = 0
     total = 0
 
@@ -121,7 +122,13 @@ def _github_folder(owner: str, repo: str, ref: Optional[str], path: str, dest: P
                     raise ValueError("that folder is too big to be a skill")
                 (into / item["name"]).write_bytes(_get(item["download_url"]))
 
-    walk(path, dest)
+    try:
+        walk(path, dest)
+    except ValueError as exc:
+        if "404" in str(exc):
+            raise ValueError(f"there's no folder '{path}' in {owner}/{repo}. add_skill "
+                             f"https://github.com/{owner}/{repo} to get the exact skill URLs.") from exc
+        raise
 
 
 def _github_skill_folders(owner: str, repo: str, ref: Optional[str]) -> List[str]:
@@ -176,11 +183,19 @@ def _fetch(source: str, tmp: Path) -> Path:
     gh = _github_parts(src)
     if gh:
         owner, repo, ref, path = gh
+        if not path:
+            # A whole repository: never download all of it. If its top level
+            # isn't itself a skill, list the skills it contains to choose from.
+            api = f"https://api.github.com/repos/{owner}/{repo}/contents/" + (f"?ref={urllib.parse.quote(ref)}" if ref else "")
+            top = json.loads(_get(api, accept="application/vnd.github+json"))
+            if not any(item.get("name") == "SKILL.md" for item in top if isinstance(item, dict)):
+                folders = _github_skill_folders(owner, repo, ref)
+                if not folders:
+                    raise ValueError("that repository has no SKILL.md anywhere")
+                raise LookupError("This repository holds several skills; add_skill one of these exact URLs: "
+                                  + ", ".join(folders[:60]))
         _github_folder(owner, repo, ref, path, tmp / "skill")
         if not (tmp / "skill" / "SKILL.md").exists():
-            if not path:  # a whole repo: say which skills it offers
-                folders = _github_skill_folders(owner, repo, ref)
-                raise LookupError("This repository holds several skills; install one of: " + ", ".join(folders[:40]))
             raise ValueError("no SKILL.md in that folder")
         return tmp / "skill"
     data = _get(src)

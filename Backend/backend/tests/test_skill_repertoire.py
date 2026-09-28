@@ -121,10 +121,23 @@ def test_repo_url_lists_the_skills_in_it(repertoire, monkeypatch):
             return json.dumps({"tree": [{"path": "skills/a/SKILL.md"}, {"path": "skills/b/SKILL.md"}, {"path": "README.md"}]}).encode()
         raise AssertionError(url)
 
-    monkeypatch.setattr(installer, "_get", fake_get)
+    calls = []
+    monkeypatch.setattr(installer, "_get", lambda url, timeout=30, accept=None: calls.append(url) or fake_get(url))
     with pytest.raises(LookupError) as err:
         installer.install_skill("https://github.com/someone/skills")
     assert "tree/main/skills/a" in str(err.value) and "tree/main/skills/b" in str(err.value)
+    # Only the top level is listed: a repository is never downloaded whole.
+    assert sum("/contents/" in c for c in calls) == 1
+
+
+def test_a_wrong_folder_says_how_to_find_the_right_one(repertoire, monkeypatch):
+    def fake_get(url, timeout=30, accept=None):
+        raise ValueError(f"failed to fetch {url}: HTTP Error 404: Not Found")
+
+    monkeypatch.setattr(installer, "_get", fake_get)
+    with pytest.raises(ValueError) as err:
+        installer.install_skill("https://github.com/someone/skills/tree/main/skill-creator")
+    assert "add_skill https://github.com/someone/skills" in str(err.value)
 
 
 def test_she_learns_opens_and_forgets_a_skill(tmp_path, repertoire):

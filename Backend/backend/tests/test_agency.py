@@ -145,6 +145,43 @@ class FakeStream(list):
         pass
 
 
+def test_a_turn_that_uses_every_step_still_answers(monkeypatch):
+    from backend.memory import openrouter_client as oc
+
+    offered = []
+
+    class Completions:
+        def create(self, **kw):
+            offered.append(bool(kw.get("tools")))
+            if kw.get("tools"):  # keeps wanting another tool
+                return FakeStream([_chunk(tool_calls=[_tc(0, f"c{len(offered)}", "list_my_tools", "{}")], finish="tool_calls")])
+            return FakeStream([_chunk("Here's what I found so far.", finish="stop")])
+
+    client = oc.OpenRouterClient.__new__(oc.OpenRouterClient)
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    client.config = SimpleNamespace(llm_max_completion_tokens=100, llm_temperature=0.5, chars_per_token=4)
+    client._is_local_mode = lambda: False
+    packet = SimpleNamespace(messages=[{"role": "user", "content": "dig into this"}], estimated_tokens=10, debug_info={})
+    client._prepare_turn = lambda *a, **k: (packet, 1)
+    client._finish_turn = lambda **kw: SimpleNamespace(content=kw["raw_content"])
+    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda: {"model": "fake:free", "extra_body": None})
+    monkeypatch.setattr(tools, "_custom_tools", lambda: {})
+
+    async def collect():
+        return [e async for e in client.chat_stream(1, "dig into this")]
+
+    events = run(collect())
+    assert offered == [True] * client.MAX_TOOL_STEPS + [False]
+    assert events[-1]["response"].content == "Here's what I found so far."
+
+
+def test_relative_paths_live_in_her_workspace():
+    out = run(tools.call("write_file", {"path": "notes/relative_test.txt", "content": "hi"}))
+    assert out["ok"] and "sarah_workspace" in out["result"]
+    assert run(tools.call("read_file", {"path": "notes/relative_test.txt"}))["result"] == "hi"
+    assert run(tools.call("delete_path", {"path": "notes/relative_test.txt"}))["ok"]
+
+
 def test_streamed_turn_calls_a_tool_then_answers(monkeypatch):
     from backend.memory import openrouter_client as oc
 
