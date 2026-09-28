@@ -166,6 +166,11 @@
       </nav>
 
       <div class="sidebar-bottom">
+        <!-- What Sarah's camera sees (only while the camera is on) -->
+        <div id="camera-preview" class="camera-preview sarah-hidden">
+          <video id="camera-preview-video" muted playsinline autoplay></video>
+          <span class="camera-preview-label">● Sarah's camera</span>
+        </div>
         <button class="sidebar-btn llm-toggle" id="llm-mode-btn">LLM: ONLINE</button>
       </div>
     </aside>

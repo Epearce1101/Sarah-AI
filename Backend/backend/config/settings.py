@@ -286,6 +286,10 @@ class Settings:
     autonomy_enabled: bool = field(default_factory=lambda: _bool("SARAH_AUTONOMY", True))
     autonomy_daily_cap: int = field(default_factory=lambda: _int("SARAH_AUTONOMY_DAILY_CAP", 150))
     autonomy_min_gap_seconds: int = field(default_factory=lambda: _int("SARAH_AUTONOMY_MIN_GAP", 120))
+    # She starts a conversation when it's been this quiet while Zero is
+    # around, at most once per spacing.
+    autonomy_chat_after_minutes: int = field(default_factory=lambda: _int("SARAH_CHAT_AFTER_MINUTES", 12))
+    autonomy_chat_spacing_minutes: int = field(default_factory=lambda: _int("SARAH_CHAT_SPACING_MINUTES", 25))
 
     # Embodiment: Sarah may speak on her own when something happens to her
     # body or presence (a head pat, the user coming back). Off = she still

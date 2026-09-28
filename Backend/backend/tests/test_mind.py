@@ -134,6 +134,60 @@ def test_a_moment_that_speaks_is_saved_and_pushed(monkeypatch):
     assert me.feeling_for(3).label == "excited"
 
 
+def test_filler_counts_as_silence():
+    from backend.embodiment import is_silent
+
+    for filler in ("I'm here, Creator.", "<feel>calm:0.3</feel>I'm here.", "Let me know if you need anything!", ""):
+        assert is_silent(filler), filler
+    assert not is_silent("<feel>curious:0.6</feel>How did the interview go this morning?")
+
+
+def test_when_its_been_quiet_she_starts_a_conversation(monkeypatch):
+    import backend.state as state_mod
+    import backend.models.core as core
+    from backend.agency import senses as senses_mod
+
+    me = get_self()
+    me.last_conversation_id = 3
+    prompts = []
+
+    class Client:
+        async def chat_stream(self, **kw):
+            prompts.append(kw["user_message"])
+            yield {"type": "done", "response": SimpleNamespace(
+                finish_reason="stop", content="<feel>curious:0.6</feel>Still on that checkout bug? What was the fix in the end?")}
+
+    monkeypatch.setattr(state_mod, "get_sarah", lambda: SimpleNamespace(_openrouter=Client(), _derive_emotion=lambda c: ("curious", 0.6)))
+    monkeypatch.setattr(core, "add_message", lambda *a, **k: 5)
+
+    async def push(msg):
+        return True
+
+    monkeypatch.setattr(senses_mod.senses, "push", push)
+    m = fresh_mind()
+    me.see({"screen": {"app": "VS Code", "activity": "coding"}})  # someone's at the PC
+    me.last_chat_started = time.time() - 20 * 60
+    found = m.triggers(time.time())
+    assert any("haven't talked for 20 minutes" in t for t in found)
+    record = asyncio.run(m.think(found))
+    assert record["outcome"] == "spoke"
+    assert "Start a real conversation" in prompts[0] and "No filler" in prompts[0]
+    assert m.triggers(time.time()) == []  # not again right away
+
+
+def test_an_empty_moment_is_not_sent(monkeypatch):
+    import backend.state as state_mod
+
+    get_self().last_conversation_id = 3
+
+    class Client:
+        async def chat_stream(self, **kw):  # the chat layer's fallback for an empty reply
+            yield {"type": "done", "response": SimpleNamespace(finish_reason="stop", content="I'm here, Creator.")}
+
+    monkeypatch.setattr(state_mod, "get_sarah", lambda: SimpleNamespace(_openrouter=Client()))
+    assert asyncio.run(fresh_mind().think(["your eyes just caught: x"]))["outcome"] == "stayed quiet"
+
+
 def test_a_quiet_moment_says_nothing(monkeypatch):
     import backend.state as state_mod
 

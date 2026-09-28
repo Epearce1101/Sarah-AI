@@ -110,11 +110,20 @@ def strip_body_tags(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", _BODY_TAG_RE.sub("", text or "")).strip()
 
 
+_FILLER_RE = re.compile(
+    r"^(i'?m here|i am here|still here|here if you need me|let me know if you need (me|anything))"
+    r"[\s,.!-]*(\w+)?[\s.!]*$",
+    re.IGNORECASE,
+)
+
+
 def is_silent(text: str) -> bool:
-    """She chose not to say anything (only tags, or <silent/>)."""
+    """She chose not to say anything: only tags, <silent/>, an empty reply
+    (which the chat layer turns into "I'm here, <name>."), or bare filler."""
     if re.search(r"<silent\s*/?>", text or "", re.IGNORECASE):
         return True
-    return not strip_body_tags(text).strip(" .…\n")
+    said = strip_body_tags(text).strip(" .…\n")
+    return not said or bool(_FILLER_RE.match(said))
 
 
 # ---------------------------------------------------------------------------

@@ -27,8 +27,15 @@ from . import agenda
 logger = logging.getLogger("sarah.mind")
 
 TICK_SECONDS = 10
-IDLE_CHECKIN_AFTER = 45 * 60      # no conversation for this long while Zero is around
-CHECKIN_SPACING = 90 * 60
+
+def _chat_after() -> float:
+    """Quiet this long while Zero is around -> she wants to talk."""
+    return 60 * float(getattr(settings, "autonomy_chat_after_minutes", 12))
+
+
+def _chat_spacing() -> float:
+    """At least this long between conversations she starts."""
+    return 60 * float(getattr(settings, "autonomy_chat_spacing_minutes", 25))
 
 PROMPT = (
     "(Private moment: nobody said anything to you. What's going on: {triggers}.\n"
@@ -38,8 +45,20 @@ PROMPT = (
     "check-in, something you found.\n"
     "- act first with your tools (look something up, prepare or fix something, check on something), "
     "then tell them briefly what you did.\n"
-    "Don't repeat what you said recently. Keep your agenda current with <agenda add=\"...\" in=\"30m\"/> "
+    "Don't repeat what you said recently, and never send filler like \"I'm here\" or \"let me know if "
+    "you need anything\". Keep your agenda current with <agenda add=\"...\" in=\"30m\"/> "
     "and <agenda done=\"#id\"/>. Open with <feel>...</feel>. Don't mention this note.)"
+)
+
+# When it's been quiet a while and Zero is around: she wants to talk.
+CHAT_PROMPT = (
+    "(Private moment: {triggers}. You'd like to talk with {user}. Start a real conversation, the way a "
+    "friend sitting nearby would: one or two natural sentences about something specific, ending with a "
+    "question. Draw on what you know: what they're doing right now (your eyes), how their day or plans "
+    "are going (your memory, journal and agenda), something you're curious about, or a shared interest. "
+    "No filler (\"I'm here\", \"need anything?\"), no generic \"how are you\". Only if they're clearly "
+    "deep in something intense right now, reply exactly <silent/>. Open with <feel>...</feel>. "
+    "Don't mention this note.)"
 )
 
 
@@ -80,8 +99,10 @@ class Mind:
         body = me.body if me.body_live() else {}
         if not present and isinstance(body.get("user_idle_seconds"), (int, float)):
             present = body["user_idle_seconds"] < 300
+        if not present and body.get("eyes_screen") != "dark":
+            present = bool(me.seen_recently("screen", 5 * 60))  # the screen keeps changing: someone's using it
         quiet_for = now - max(me.last_chat_started, me.last_spoke_at, self.last_checkin)
-        if present and quiet_for > IDLE_CHECKIN_AFTER and now - self.last_checkin > CHECKIN_SPACING:
+        if present and quiet_for > _chat_after() and now - self.last_checkin > _chat_spacing():
             found.append(f"{get_user_name()} is around, and you two haven't talked for {int(quiet_for // 60)} minutes")
         return found
 
@@ -140,7 +161,8 @@ class Mind:
                 record["outcome"] = "no model"
                 return record
             content = ""
-            prompt = PROMPT.format(triggers="; ".join(found), user=get_user_name())
+            wants_to_talk = any("haven't talked" in f for f in found)
+            prompt = (CHAT_PROMPT if wants_to_talk else PROMPT).format(triggers="; ".join(found), user=get_user_name())
             from backend.usage import _category
             usage_token = _category.set("initiative")
             async for event in client.chat_stream(conversation_id=conv, user_message=prompt,

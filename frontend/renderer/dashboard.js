@@ -267,7 +267,18 @@ class SarahUI {
         screenBtn.classList.toggle("listening", open.includes("screen"));
       }
     };
-    this.eyes = new SarahEyes({ onStatus: (_mode, open) => render(open) });
+    // Live preview of what her camera sees (sidebar), only while it's on.
+    const preview = document.getElementById("camera-preview");
+    const previewVideo = document.getElementById("camera-preview-video");
+    const syncPreview = (open) => {
+      const cam = open.includes("camera") ? this.eyes?.sources?.camera?.stream : null;
+      if (previewVideo && previewVideo.srcObject !== cam) {
+        previewVideo.srcObject = cam || null;
+        if (cam) previewVideo.play().catch(() => {});
+      }
+      preview?.classList.toggle("sarah-hidden", !cam);
+    };
+    this.eyes = new SarahEyes({ onStatus: (_mode, open) => { render(open); syncPreview(open); } });
     const toggle = (kind) => {
       this._eyePrefs[kind] = !this._eyePrefs[kind];
       try { localStorage.setItem(`sarah.${kind}`, this._eyePrefs[kind] ? "on" : "off"); } catch {}
