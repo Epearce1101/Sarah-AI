@@ -584,6 +584,11 @@ class SarahCore:
                 get_self().observe_reply(conversation_id, reply_text)
             except Exception as exc:
                 logger.debug(f"[SARAH] feeling not recorded: {exc}")
+            try:  # things she decided to follow up on (<agenda add=.../>)
+                from backend.agency import agenda
+                agenda.apply_tags(reply_text)
+            except Exception as exc:
+                logger.debug(f"[SARAH] agenda not updated: {exc}")
 
         # Affinity nudge on positive content (cheap heuristic, kept from V8).
         if any(w in reply_text.lower() for w in ("great job", "nice", "awesome", "proud")):

@@ -58,7 +58,7 @@ export class SarahPresence {
   }
 
   async report(force = false) {
-    const state = this.director.describe();
+    const state = { ...this.director.describe(), conversation_id: this.getConversationId() };
     const key = JSON.stringify({ ...state, user_idle_seconds: idleBucket(state.user_idle_seconds) });
     const now = Date.now();
     if (!force && key === this.lastKey && now - this.lastSent < 30000) return;

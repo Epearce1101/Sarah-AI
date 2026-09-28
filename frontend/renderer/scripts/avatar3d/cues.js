@@ -17,7 +17,9 @@ export const CUE_KINDS = ["feel", "face", "look", "point", "gesture"];
 
 const PAIRED = /<(feel|face|look|point|gesture|motion)\b[^>]*>([^<]*)<\/\1\s*>/gi;
 const SELF_CLOSING = /<(face|look|point|gesture|motion)\s+(?:name|value|to|at)\s*=\s*["']?([\w:.\- ]+?)["']?\s*\/?>/gi;
-const SILENT = /<silent\s*\/?>/gi;
+// Not shown, not acted: <silent/> (she chose to say nothing) and her own
+// agenda notes (<agenda add="..."/>, handled by the backend).
+const SILENT = /<silent\s*\/?>|<agenda\b[^>]*\/?>/gi;
 // A cue still being streamed in: "<fa", "<face>hap", "<face>happy</fa",
 // "<gesture name=\"wa".
 const PARTIAL_TAIL = /<(?:(?:feel|face|look|point|gesture|motion)\b[^>]*>[^<]*(?:<\/?[a-z]*)?|\/?[a-z]*(?:\s[^>]*)?)$/i;

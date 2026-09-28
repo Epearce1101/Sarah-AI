@@ -18,6 +18,28 @@ window shows the live backend/UI log, its title shows status (backend health,
 uptime), and closing it shuts Sarah down cleanly. Closing the Sarah window
 does the same.
 
+## What Sarah can do
+
+- **Live voice** — always listening (echo-cancelled, no wake word), GPU Whisper
+  `large-v3-turbo`, talk over her to interrupt. Top bar **Mic**: live → muted → off.
+- **Eyes** — watches your screen and webcam, sending a frame to a free cloud
+  vision model only when the view changes (frames are never saved). Top bar
+  **Eyes**: camera + screen → screen only → off (red dot = camera on).
+- **Agency** — uses tools on her own (web search/reading, Python, PowerShell,
+  files, apps, mouse/keyboard, fresh looks, reminders) and builds new tools for
+  herself (`Backend/data/sarah_workspace/tools`). System hardware/software is
+  off limits (`backend/agency/guard.py`); deletes go to the Recycle Bin; every
+  action is logged; **■ Stop** pauses her tools.
+- **Initiative** — between conversations she notices things (a game moment, an
+  error on screen, an agenda item coming due) and may speak up or act.
+  Top bar **Initiative**: ON / QUIET.
+
+Knobs (env): `SARAH_VISION_DAILY_CAP` (400), `SARAH_VISION_MIN_INTERVAL` (10 s),
+`SARAH_AUTONOMY` / `SARAH_AUTONOMY_DAILY_CAP` (150) / `SARAH_AUTONOMY_MIN_GAP`
+(120 s), `SARAH_AGENCY`, `SARAH_PRESENCE_VOICE`, `SARAH_WHISPER_MODEL`.
+Everything downloaded (Whisper models, her Python environment) stays under the
+project folder, not C:.
+
 ## Setup on a fresh machine
 
 1. **Python 3.11** venv at `Backend/.venv`:

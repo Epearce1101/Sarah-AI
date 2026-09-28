@@ -4,6 +4,12 @@ Tracking file for current/previous issues. Tick a box when fixed; leave a short 
 
 ---
 
+## 2026-09-27 — Real-time companion, phase 4: initiative (#114–#116)
+
+- [x] **#114 She only acted when prompted** — `backend/agency/mind.py`: a mind loop (every 10 s) that looks for reasons to act: something notable her eyes caught, an agenda item coming due, or a long quiet stretch while Zero is around. At a good moment (not during/just after a conversation, not too soon after she last spoke, within a daily budget of 150), she gets a private moment with her full awareness and tools and decides herself: stay quiet (`<silent/>`), speak up, or act and report. Lines are saved and pushed to the app (`/ws/senses` "say"); tools she uses on her own show under her feet. Live: shown a boss fight (synthetic Elden Ring HUD, "YOU DIED x7"), she spoke up unprompted 18 s later with tips (Spirit Ashes, Margit's Shackle).
+- [x] **#115 Her own agenda** — `backend/agency/agenda.py`: she adds/finishes follow-ups herself with invisible `<agenda add="…" in="2d"|at="2026-09-28T09:30"/>` / `<agenda done="#3"/>` tags in anything she says; the agenda is in her "Right now", due items wake the mind loop. Live: "I have a job interview tomorrow at 10am" → she added "Check in before the 10am interview".
+- [x] **#116 Control** — top bar **Initiative: ON / QUIET** (`/api/agency/initiative`); she keeps watching and remembering while quiet. The body reports which chat is open so her initiative lands in the right conversation.
+
 ## 2026-09-27 — Real-time companion, phase 3: agency (#109–#113)
 
 - [x] **#109 She could only talk** — tool calling in streamed turns (`openrouter_client.chat_stream`): she can speak, call tools, read results and continue for up to 8 rounds; every round streams and is saved as one reply. Tools (`backend/agency/tools.py`): web_search (DuckDuckGo), read_webpage (trafilatura), run_python / install_package (her own venv in `Backend/data/sarah_workspace`), run_shell, read/list/write/move/delete files, open_item (URLs, files, apps), control_input (mouse/keyboard, pyautogui fail-safe), look (fresh look through her eyes with a question), remember, set_reminder.

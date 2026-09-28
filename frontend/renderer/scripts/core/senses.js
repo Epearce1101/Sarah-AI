@@ -45,6 +45,9 @@ export class SarahSenses {
       this._reply(msg.id, out?.seen || (out?.skipped ? { unavailable: out.skipped } : null));
     } else if (msg.type === "say") {
       this.ui?.presentSpontaneousReply?.(msg.reply, msg.conversation_id ?? this.ui.activeConversationId);
+    } else if (msg.type === "activity") {
+      // She's using a tool on her own initiative: show it under her feet.
+      this.ui?._showOwnActivity?.(msg);
     }
   }
 }

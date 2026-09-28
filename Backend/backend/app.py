@@ -89,12 +89,14 @@ def create_app() -> FastAPI:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     await _startup()
+    from backend.agency.mind import mind_loop
     from backend.agency.reminders import reminder_loop
 
     background = [
         asyncio.create_task(_start_ollama_manager()),
         asyncio.create_task(_backup_loop()),
         asyncio.create_task(reminder_loop()),
+        asyncio.create_task(mind_loop()),
     ]
     try:
         yield

@@ -221,6 +221,42 @@ class SarahUI {
     this.eyes.setMode(mode);
     // Her mind's line to her body (fresh looks, things she decides to say).
     this.senses = new SarahSenses({ eyes: this.eyes, ui: this }).start();
+    this._initInitiativeToggle();
+  }
+
+  // Initiative: ON (she speaks up / acts on her own) or QUIET (she still
+  // watches and remembers, but waits to be spoken to).
+  _initInitiativeToggle() {
+    const btn = document.getElementById("initiative-toggle");
+    if (!btn) return;
+    const render = (quiet) => {
+      btn.textContent = quiet ? "Initiative: QUIET" : "Initiative: ON";
+      btn.classList.toggle("listening", !quiet);
+    };
+    const set = async (quiet) => {
+      try {
+        await fetch(`${API_BASE}/api/agency/initiative?quiet=${quiet}`, { method: "POST" });
+        localStorage.setItem("sarah.initiative", quiet ? "quiet" : "on");
+      } catch {}
+      render(quiet);
+    };
+    let quiet = false;
+    try { quiet = localStorage.getItem("sarah.initiative") === "quiet"; } catch {}
+    btn.addEventListener("click", () => { quiet = !quiet; set(quiet); });
+    setTimeout(() => set(quiet), 3000);
+  }
+
+  // A tool she's using on her own (not in reply to you), shown briefly.
+  _showOwnActivity(evt) {
+    const names = { web_search: "researching", read_webpage: "reading", run_python: "working something out",
+      run_shell: "working on your PC", look: "taking a closer look", create_tool: "building herself a tool",
+      open_item: "opening something", control_input: "using the keyboard/mouse" };
+    if (evt.status === "start") {
+      this._setVoiceCaption(`Sarah is ${names[evt.name] || `using ${evt.name}`}…`, "acting");
+      window.SARAH_AVATAR_DIRECTOR?.onWorking?.(evt.name);
+    } else {
+      setTimeout(() => this._setVoiceCaption(""), 1200);
+    }
   }
 
   async _toggleLiveVoice() {

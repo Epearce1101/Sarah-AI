@@ -34,7 +34,7 @@ _FEEL_RE = re.compile(r"<feel\b[^>]*>([^<]*)</feel\s*>", re.IGNORECASE)
 _FACE_RE = re.compile(r"<face\b[^>]*>([^<]*)</face\s*>", re.IGNORECASE)
 # Every body tag, for text that should read as plain prose (summaries, memory).
 _BODY_TAG_RE = re.compile(
-    r"<(feel|face|look|point|gesture|motion)\b[^>]*>[^<]*</\1\s*>|<silent\s*/?>",
+    r"<(feel|face|look|point|gesture|motion)\b[^>]*>[^<]*</\1\s*>|<silent\s*/?>|<agenda\b[^>]*/?>",
     re.IGNORECASE,
 )
 
@@ -201,6 +201,9 @@ class SelfModel:
         with self._lock:
             self.body = clean
             self.body_at = time.time()
+            conv = clean.get("conversation_id")
+            if isinstance(conv, int) and conv > 0:
+                self.last_conversation_id = conv  # the chat open in her window
 
     def body_live(self) -> bool:
         return bool(self.body) and time.time() - self.body_at < self.BODY_STALE_SECONDS
@@ -354,6 +357,14 @@ class SelfModel:
 
         for s in self.recent_sensations()[-4:]:
             lines.append(f"- You felt: {s.text} ({_ago(now - s.at)}).")
+
+        try:
+            from backend.agency import agenda
+            agenda_text = agenda.render()
+            if agenda_text:
+                lines.append(agenda_text)
+        except Exception:
+            pass
 
         if not lines:
             return ""

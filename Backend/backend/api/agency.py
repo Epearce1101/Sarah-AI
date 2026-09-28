@@ -52,6 +52,21 @@ def agency_actions(limit: int = 50):
             "reminders": pending_reminders()}
 
 
+@router.get("/api/agency/initiative")
+def initiative_status():
+    from backend.agency.mind import mind
+    return mind.status()
+
+
+@router.post("/api/agency/initiative")
+def initiative_set(quiet: bool = False):
+    """Quiet mode: she keeps watching and remembering but won't speak up or
+    act on her own until turned back on."""
+    from backend.agency.mind import mind
+    mind.quiet = bool(quiet)
+    return mind.status()
+
+
 @router.get("/api/agency/tools")
 def agency_tools():
     return {"tools": [{"name": t.name, "description": t.description, "custom": t.custom}
