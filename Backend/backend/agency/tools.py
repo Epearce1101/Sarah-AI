@@ -342,10 +342,11 @@ def read_webpage(url: str, max_chars: int = 6000):
 @tool("browser", "Your own web browser for real browsing: pages that need JavaScript, clicking, "
       "typing, forms, logins you've been given, scrolling. Actions: open (url), read (current page), "
       "click (ref), type (ref + text, submit to press Enter), select (ref + option text), press (key), "
-      "scroll (direction up/down), back, forward, look (screenshot + question, for visual pages), close. "
+      "scroll (direction up/down), back, forward, extract (scrape: CSS selector in text, returns every "
+      "match with its text/link), tables (every table as rows), look (screenshot + question), close. "
       "Each result lists the page text and numbered elements [n] to use as ref. Set visible=true to let "
       "Zero watch the window.",
-      {"action": {"type": "string", "enum": ["open", "read", "click", "type", "select", "press", "scroll", "back", "forward", "look", "close"]},
+      {"action": {"type": "string", "enum": ["open", "read", "click", "type", "select", "press", "scroll", "back", "forward", "extract", "tables", "look", "close"]},
        "url": {"type": "string"}, "ref": {"type": "integer"}, "text": {"type": "string"},
        "submit": {"type": "boolean"}, "key": {"type": "string"}, "direction": {"type": "string"},
        "question": {"type": "string"}, "visible": {"type": "boolean"}, "max_chars": {"type": "integer"}},
@@ -538,16 +539,59 @@ def delete_path(path: str):
     return f"Moved {p} to the Recycle Bin"
 
 
-@tool("open_item", "Open a URL in the browser, a file with its default app, or launch an app by "
-      "name or path (e.g. 'notepad', 'spotify', 'C:/Games/game.exe').",
+@tool("open_item", "Open something for Zero: a website or YouTube (always opens in Google Chrome; "
+      "e.g. https://www.youtube.com/results?search_query=lofi or a video link), a file with its default "
+      "app, or an app by name or path (e.g. 'notepad', 'calc', 'spotify', 'C:/Games/game.exe').",
       {"target": {"type": "string"}}, ["target"], timeout=20)
 def open_item(target: str):
+    from . import desktop
+
     target = (target or "").strip()
-    if re.match(r"^(https?|mailto|spotify|steam|discord)://", target) or os.path.exists(os.path.expanduser(target)):
+    if re.match(r"^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+(/\S*)?$", target, re.I) and not os.path.exists(target):
+        target = "https://" + target  # "youtube.com" -> a web address
+    if re.match(r"^https?://", target, re.I):
+        return desktop.open_in_chrome(target)  # websites: Chrome only
+    if re.match(r"^(mailto|spotify|steam|discord)://", target) or os.path.exists(os.path.expanduser(target)):
         os.startfile(os.path.expanduser(target))
     else:
         subprocess.Popen(["cmd", "/c", "start", "", target], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return f"Opened {target}"
+
+
+@tool("window", "Manage app windows on Zero's desktop. actions: list (open windows), focus (bring to "
+      "front), close (normal close; leaves a save prompt for Zero), close_without_saving (discard "
+      "changes and close), close_and_save, minimize, maximize, restore, wait (until a window with that "
+      "title appears). title = part of the window title or the app name (e.g. 'notepad').",
+      {"action": {"type": "string", "enum": ["list", "focus", "close", "close_without_saving", "close_and_save",
+                                               "minimize", "maximize", "restore", "wait"]},
+       "title": {"type": "string"}, "timeout": {"type": "number", "description": "seconds for wait (default 10)"}},
+      ["action"], timeout=40)
+def window(action: str, title: str = "", timeout: float = 10):
+    from . import desktop
+
+    if action == "list":
+        return [{"title": w["title"], "app": w["app"], "minimized": w["minimized"]} for w in desktop.windows()
+                if not str(w["title"]).startswith("Sarah V10")]
+    if action == "focus":
+        w = desktop.focus(title)
+        return f"{w['title']} is in front"
+    if action == "wait":
+        deadline = time.time() + max(1.0, min(30.0, float(timeout or 10)))
+        while time.time() < deadline:
+            try:
+                return f"Found {desktop.find(title)['title']}"
+            except desktop.DesktopError:
+                time.sleep(0.3)
+        return f"No window matching '{title}' appeared"
+    if action in ("minimize", "maximize", "restore"):
+        return desktop.show(title, action)
+    if action == "close":
+        return desktop.close(title, save=None)
+    if action == "close_without_saving":
+        return desktop.close(title, save=False)
+    if action == "close_and_save":
+        return desktop.close(title, save=True)
+    raise ValueError(f"unknown action {action}")
 
 
 @tool("control_input", "Use Zero's mouse and keyboard. action: type (text), press (key, e.g. 'enter'), "
@@ -555,18 +599,29 @@ def open_item(target: str):
       "screen_size. Look at the screen first so you know where things are.",
       {"action": {"type": "string", "enum": ["type", "press", "hotkey", "click", "double_click", "move", "scroll", "screen_size"]},
        "text": {"type": "string"}, "key": {"type": "string"}, "keys": {"type": "array", "items": {"type": "string"}},
-       "x": {"type": "integer"}, "y": {"type": "integer"}, "button": {"type": "string"}, "amount": {"type": "integer"}},
+       "x": {"type": "integer"}, "y": {"type": "integer"}, "button": {"type": "string"}, "amount": {"type": "integer"},
+       "window": {"type": "string", "description": "bring this window to the front first (title or app name)"}},
       ["action"], timeout=30)
 def control_input(action: str, text: str = "", key: str = "", keys: Optional[List[str]] = None,
-                  x: Optional[int] = None, y: Optional[int] = None, button: str = "left", amount: int = 0):
+                  x: Optional[int] = None, y: Optional[int] = None, button: str = "left", amount: int = 0,
+                  window: str = ""):
     import pyautogui
+    from . import desktop
 
     pyautogui.FAILSAFE = True  # slam the mouse into a corner to abort
     if action == "screen_size":
         w, h = pyautogui.size()
         return {"width": w, "height": h}
+    desktop.require_unlocked()
+    if window:
+        desktop.focus(window)
     if action == "type":
-        pyautogui.write(text, interval=0.01)
+        if text.isascii():
+            pyautogui.write(text, interval=0.01)
+        else:  # emoji / accents: paste instead of key-by-key
+            import pyperclip
+            pyperclip.copy(text)
+            pyautogui.hotkey("ctrl", "v")
     elif action == "press":
         pyautogui.press(key)
     elif action == "hotkey":

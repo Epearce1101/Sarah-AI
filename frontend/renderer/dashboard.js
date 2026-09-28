@@ -1131,6 +1131,11 @@ class SarahUI {
         type: `🌐 Typing “${short(a.text, 30)}”`, scroll: "🌐 Scrolling", look: "🌐 Looking at the page", close: "🌐 Closing the browser",
       }[a.action] || `🌐 ${a.action}`),
       http_request: () => `🔗 ${a.method || "GET"} ${host(a.url || "")}`,
+      window: () => ({
+        list: "🪟 Checking open windows", focus: `🪟 Switching to ${short(a.title, 30)}`, wait: `🪟 Waiting for ${short(a.title, 30)}`,
+        close: `🪟 Closing ${short(a.title, 30)}`, close_without_saving: `🪟 Closing ${short(a.title, 30)} without saving`,
+        close_and_save: `🪟 Saving and closing ${short(a.title, 30)}`,
+      }[a.action] || `🪟 ${a.action} ${short(a.title, 30)}`),
       add_skill: () => `🎓 Learning a skill`,
       use_skill: () => `🎓 Using skill: ${short(a.name, 40)}`,
       remove_skill: () => `🎓 Forgetting skill: ${short(a.name, 40)}`,

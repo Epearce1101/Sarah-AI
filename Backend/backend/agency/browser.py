@@ -141,6 +141,23 @@ class SarahBrowser:
                 await page.go_back(timeout=20000)
             elif action == "forward":
                 await page.go_forward(timeout=20000)
+            elif action == "extract":
+                # Scraping: every element matching a CSS selector, as text
+                # plus link / image address.
+                if not text:
+                    raise ValueError("give a CSS selector in text, e.g. 'h3 a' or '.price'")
+                items = await page.eval_on_selector_all(
+                    text,
+                    "els => els.slice(0, 300).map(e => ({text: (e.innerText || e.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 300),"
+                    " href: e.href || e.getAttribute('href') || undefined, src: e.src || undefined}))",
+                )
+                return {"url": page.url, "selector": text, "count": len(items), "items": items}
+            elif action == "tables":
+                tables = await page.evaluate(
+                    "() => [...document.querySelectorAll('table')].slice(0, 10).map(t => [...t.rows].slice(0, 200)"
+                    ".map(r => [...r.cells].map(c => c.innerText.trim().replace(/\\s+/g, ' ').slice(0, 200))))"
+                )
+                return {"url": page.url, "tables": tables}
             elif action == "look":
                 import base64
                 from backend.perception import sight

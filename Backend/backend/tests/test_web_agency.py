@@ -22,6 +22,8 @@ def site():
             <input id=q placeholder="Search products"><button onclick="document.getElementById('r').innerText='Found: '+document.getElementById('q').value">Search</button>
             <p id=r></p><a href="/about">About us</a></body></html>""",
         "/about": b"<html><head><title>About</title></head><body><p>We sell handmade mugs since 2019.</p></body></html>",
+        "/products": b"""<html><body><div class=item><a href="/p/1">Blue mug</a></div><div class=item><a href="/p/2">Red mug</a></div>
+            <table><tr><th>Item</th><th>Price</th></tr><tr><td>Blue mug</td><td>$12</td></tr><tr><td>Red mug</td><td>$14</td></tr></table></body></html>""",
     }
 
     class H(BaseHTTPRequestHandler):
@@ -88,6 +90,34 @@ def test_browser_reads_clicks_types_and_follows_links(site):
             await browser.close()
 
     asyncio.run(session())
+
+
+def test_browser_scrapes_items_and_tables(site):
+    async def session():
+        from backend.agency.browser import browser
+        try:
+            await browser.act("open", url=f"{site}/products")
+            items = await browser.act("extract", text=".item a")
+            tables = await browser.act("tables")
+            return items, tables
+        finally:
+            await browser.close()
+
+    items, tables = asyncio.run(session())
+    assert items["count"] == 2 and items["items"][0]["text"] == "Blue mug" and items["items"][0]["href"].endswith("/p/1")
+    assert tables["tables"][0] == [["Item", "Price"], ["Blue mug", "$12"], ["Red mug", "$14"]]
+
+
+def test_websites_open_in_chrome(monkeypatch):
+    from backend.agency import desktop
+
+    launched = []
+    monkeypatch.setattr(desktop, "chrome_path", lambda: r"C:\Chrome\chrome.exe")
+    monkeypatch.setattr(desktop.subprocess, "Popen", lambda args, **kw: launched.append(args))
+    assert "Chrome" in run(tools.call("open_item", {"target": "https://www.youtube.com/results?search_query=lofi"}))["result"]
+    run(tools.call("open_item", {"target": "youtube.com"}))
+    assert launched == [[r"C:\Chrome\chrome.exe", "https://www.youtube.com/results?search_query=lofi"],
+                        [r"C:\Chrome\chrome.exe", "https://youtube.com"]]
 
 
 def test_research_picks_distinct_sources_and_relevant_passages(monkeypatch):
