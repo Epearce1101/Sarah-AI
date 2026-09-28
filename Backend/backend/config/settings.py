@@ -29,6 +29,8 @@ _load_dotenv()
 # user-profile caches on C:.
 MODELS_DIR = Path(os.environ.get("SARAH_MODELS_DIR") or (BACKEND_ROOT / "models"))
 os.environ.setdefault("HF_HOME", str(MODELS_DIR / "hf"))
+# Her web browser (Playwright's Chromium) also lives in the project folder.
+os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(MODELS_DIR / "ms-playwright"))
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 

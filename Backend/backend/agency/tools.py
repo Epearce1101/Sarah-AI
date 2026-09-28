@@ -332,6 +332,115 @@ def read_webpage(url: str, max_chars: int = 6000):
     return text[:limit] + ("\n...[more on the page]" if len(text) > limit else "")
 
 
+@tool("browser", "Your own web browser for real browsing: pages that need JavaScript, clicking, "
+      "typing, forms, logins you've been given, scrolling. Actions: open (url), read (current page), "
+      "click (ref), type (ref + text, submit to press Enter), select (ref + option text), press (key), "
+      "scroll (direction up/down), back, forward, look (screenshot + question, for visual pages), close. "
+      "Each result lists the page text and numbered elements [n] to use as ref. Set visible=true to let "
+      "Zero watch the window.",
+      {"action": {"type": "string", "enum": ["open", "read", "click", "type", "select", "press", "scroll", "back", "forward", "look", "close"]},
+       "url": {"type": "string"}, "ref": {"type": "integer"}, "text": {"type": "string"},
+       "submit": {"type": "boolean"}, "key": {"type": "string"}, "direction": {"type": "string"},
+       "question": {"type": "string"}, "visible": {"type": "boolean"}, "max_chars": {"type": "integer"}},
+      ["action"], timeout=90)
+async def browser_tool(action: str, **kwargs):
+    from .browser import browser
+
+    return await browser.act(action, **kwargs)
+
+
+def _page_text(url: str) -> str:
+    import trafilatura
+
+    html = trafilatura.fetch_url(url)
+    return (trafilatura.extract(html, include_tables=True, favor_recall=True) or "") if html else ""
+
+
+def _best_passages(text: str, question: str, limit: int = 1400) -> List[str]:
+    words = {w for w in re.findall(r"[a-z0-9]{3,}", question.lower())}
+    paras = [p.strip() for p in re.split(r"\n\s*\n|\n", text) if len(p.strip()) > 60]
+    scored = sorted(paras, key=lambda p: -sum(1 for w in words if w in p.lower()))
+    out, used = [], 0
+    for p in scored:
+        if used + len(p) > limit:
+            continue
+        out.append(p)
+        used += len(p)
+        if used > limit * 0.8:
+            break
+    return out
+
+
+@tool("research", "Research a question on the web in one step: searches, reads several sources in "
+      "parallel and returns the most relevant passages with their links. Cite sources as [n]. Use it for "
+      "anything factual, current or specialised; follow up with read_webpage or browser for depth.",
+      {"question": {"type": "string"}, "sources": {"type": "integer", "description": "pages to read, 2-8 (default 4)"},
+       "query": {"type": "string", "description": "optional search query if different from the question"}},
+      ["question"], timeout=90)
+async def research(question: str, sources: int = 4, query: Optional[str] = None):
+    from ddgs import DDGS
+    from urllib.parse import urlparse
+
+    n = max(2, min(8, int(sources or 4)))
+    hits = await asyncio.to_thread(lambda: list(DDGS().text(query or question, max_results=n * 3)))
+    picked, domains = [], set()
+    for h in hits:
+        dom = urlparse(h.get("href", "")).netloc
+        if not dom or dom in domains:
+            continue
+        domains.add(dom)
+        picked.append(h)
+        if len(picked) >= n:
+            break
+
+    async def read(hit):
+        try:
+            text = await asyncio.wait_for(asyncio.to_thread(_page_text, hit["href"]), timeout=25)
+        except Exception:
+            text = ""
+        return text
+
+    texts = await asyncio.gather(*(read(h) for h in picked))
+    found = []
+    for i, (hit, text) in enumerate(zip(picked, texts), 1):
+        passages = _best_passages(text, question) if text else []
+        found.append({"n": i, "title": hit.get("title"), "url": hit.get("href"),
+                      "passages": passages or [hit.get("body") or ""]})
+    return {"question": question, "sources": found}
+
+
+@tool("http_request", "Call a web service or API directly (web bridging): GET/POST/PUT/PATCH/DELETE "
+      "with optional headers, query params and a JSON or text body. Returns status and the response "
+      "(JSON parsed when possible). Ask Zero before posting anything on their behalf.",
+      {"url": {"type": "string"}, "method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]},
+       "headers": {"type": "object"}, "params": {"type": "object"}, "json": {"type": "object"},
+       "body": {"type": "string"}, "timeout": {"type": "integer"}},
+      ["url"], timeout=70)
+def http_request(url: str, method: str = "GET", headers: Optional[Dict[str, str]] = None,
+                 params: Optional[Dict[str, Any]] = None, json: Optional[Any] = None,
+                 body: Optional[str] = None, timeout: int = 30):
+    import requests
+    from urllib.parse import urlparse
+    from backend.config import settings
+
+    parsed = urlparse(url or "")
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("url must be http(s)")
+    host = (parsed.hostname or "").lower()
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if host in ("127.0.0.1", "localhost", "::1", "0.0.0.0") and port == int(getattr(settings, "backend_port", 8907)):
+        raise Blocked("Refused: that's your own backend; its controls (like Stop) belong to Zero.")
+    resp = requests.request((method or "GET").upper(), url, headers=headers or None, params=params or None,
+                            json=json, data=body if json is None else None,
+                            timeout=max(3, min(60, int(timeout or 30))))
+    ctype = resp.headers.get("content-type", "")
+    try:
+        payload = resp.json() if "json" in ctype else resp.text
+    except ValueError:
+        payload = resp.text
+    return {"status": resp.status_code, "content_type": ctype, "url": resp.url, "body": payload}
+
+
 @tool("run_python", "Run a Python script in your workspace (your own environment; install packages "
       "with install_package). Use it for calculations, data, files, automation. Print what you need "
       "to see. The working directory is your workspace.",

@@ -305,7 +305,9 @@ class SarahUI {
   _showOwnActivity(evt) {
     const names = { web_search: "researching", read_webpage: "reading", run_python: "working something out",
       run_shell: "working on your PC", look: "taking a closer look", create_tool: "building herself a tool",
-      open_item: "opening something", control_input: "using the keyboard/mouse" };
+      open_item: "opening something", control_input: "using the keyboard/mouse", research: "researching",
+      browser: "browsing the web", http_request: "checking a web service", add_skill: "learning a skill",
+      use_skill: "using one of her skills" };
     if (evt.status === "start") {
       this._setVoiceCaption(`Sarah is ${names[evt.name] || `using ${evt.name}`}…`, "acting");
       window.SARAH_AVATAR_DIRECTOR?.onWorking?.(evt.name);
@@ -1120,6 +1122,15 @@ class SarahUI {
       set_reminder: () => `⏰ Reminder: ${short(a.text)}`,
       install_package: () => `📦 Installing ${short(a.package)}`,
       create_tool: () => `🛠️ Building a tool: ${a.name}`,
+      research: () => `📚 Researching “${short(a.question)}”`,
+      browser: () => ({
+        open: `🌐 Browsing ${host(a.url || "")}`, read: "🌐 Reading the page", click: `🌐 Clicking ${a.ref ?? short(a.text, 30)}`,
+        type: `🌐 Typing “${short(a.text, 30)}”`, scroll: "🌐 Scrolling", look: "🌐 Looking at the page", close: "🌐 Closing the browser",
+      }[a.action] || `🌐 ${a.action}`),
+      http_request: () => `🔗 ${a.method || "GET"} ${host(a.url || "")}`,
+      add_skill: () => `🎓 Learning a skill`,
+      use_skill: () => `🎓 Using skill: ${short(a.name, 40)}`,
+      remove_skill: () => `🎓 Forgetting skill: ${short(a.name, 40)}`,
     };
     if (evt.status === "start") {
       const row = document.createElement("div");

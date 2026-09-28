@@ -101,3 +101,6 @@ six==1.17.0
 tld==0.13.2
 trafilatura==2.2.0
 tzlocal==5.4.4
+greenlet==3.5.6
+playwright==1.63.0
+pyee==13.0.1
