@@ -204,6 +204,9 @@ class Body {
     this.gazeTarget = new THREE.Vector3(0, 1.4, 2);
     this.lean = 0;
     this.leanTarget = 0;
+    this.approach = 0;       // metres she has moved toward you (whole body)
+    this.approachTarget = 0;
+    this._poseApproach = 0;
     this.tilt = 0;
     this.tiltTarget = 0;
     this.beat = 0;          // head nod (radians, positive = down)
@@ -242,6 +245,9 @@ class Body {
     this._applyLeanAndTilt(dt);
     this._applyPose(dt, now);
     this._applyPoint(dt, now);
+    // Coming closer: the whole figure moves toward the camera (she faces +Z).
+    this.approach = damp(this.approach, this.approachTarget, 2.5, dt);
+    this.vrm.scene.position.z = this.approach + this._poseApproach;
   }
 
   _applyPose(dt, now) {
@@ -251,11 +257,13 @@ class Body {
     p.weight = damp(p.weight, active ? 1 : 0, active ? 4.5 : 3.2, dt);
     if (!active && p.weight < 0.01) {
       this.pose = null;
+      this._poseApproach = 0;
       return;
     }
     p.t += dt;
     const s = p.spec;
     const w = p.weight;
+    this._poseApproach = (s.approach || 0) * w;
     const lean = s.lean || 0;
     const roll = s.roll || 0;
     const twist = s.twist || 0;
@@ -307,6 +315,12 @@ class Body {
     if (spine && Math.abs(this.lean) > 1e-3) {
       this._save(spine);
       spine.quaternion.premultiply(tmpQ1.setFromEuler(tmpE.set(this.lean, 0, 0, "YXZ")));
+      // Keep her face toward you: the neck takes back most of the lean.
+      const neck = this.bone("neck");
+      if (neck) {
+        this._save(neck);
+        neck.quaternion.premultiply(tmpQ1.setFromEuler(tmpE.set(-this.lean * 0.8, 0, 0, "YXZ")));
+      }
     }
     const head = this.bone("head");
     if (head && Math.abs(this.tilt) > 1e-3) {
