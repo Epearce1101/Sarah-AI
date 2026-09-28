@@ -43,6 +43,8 @@ class _EndpointFilter(logging.Filter):
 def create_app() -> FastAPI:
     """Build and return the FastAPI application."""
     logging.getLogger("uvicorn.access").addFilter(_EndpointFilter())
+    from backend import usage
+    usage.install()  # count every OpenRouter request against the free allowance
 
     app = FastAPI(
         title="SARAH AI Backend",
@@ -91,12 +93,14 @@ async def _lifespan(app: FastAPI):
     await _startup()
     from backend.agency.mind import mind_loop
     from backend.agency.reminders import reminder_loop
+    from backend.memory.journal import journal_loop
 
     background = [
         asyncio.create_task(_start_ollama_manager()),
         asyncio.create_task(_backup_loop()),
         asyncio.create_task(reminder_loop()),
         asyncio.create_task(mind_loop()),
+        asyncio.create_task(journal_loop()),
     ]
     try:
         yield

@@ -243,6 +243,8 @@ async def api_chat_stream(payload: ChatRequest):
     original_message = payload.message
 
     async def events():
+        from backend.usage import _category
+        _category.set("voice" if payload.modality == "voice" else "chat")  # usage meter label
         if not await asyncio.to_thread(_ollama_ready):
             _ensure_local_model_loading()
             yield _sse("done", _warmup_response(original_message, started_at).model_dump())

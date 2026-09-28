@@ -18,6 +18,7 @@ All memory operations are SILENT - never shown to user.
 
 import os
 import asyncio
+import contextvars
 import json
 import logging
 import threading
@@ -241,7 +242,7 @@ class OpenRouterClient:
             return resp.choices[0].message.content or ""
 
         try:
-            return await loop.run_in_executor(None, _call)
+            return await loop.run_in_executor(None, contextvars.copy_context().run, _call)
         except Exception as e:
             logger.warning("Summarizer completion error: %s", e)
             return ""
@@ -312,7 +313,9 @@ class OpenRouterClient:
         self._ensure_summarizer()
         # Summaries and remembered facts get her words, not her body tags.
         from backend.embodiment import strip_body_tags
-        spawn_background(self.summarizer.update_all(conversation_id, strip_body_tags(content)))
+        from backend.usage import using
+        with using("memory"):  # the background task inherits this label
+            spawn_background(self.summarizer.update_all(conversation_id, strip_body_tags(content)))
 
         requested = self._current_model_name()
         if not use_local and model_name and model_name != requested:
@@ -397,7 +400,7 @@ class OpenRouterClient:
                         temperature=self.config.llm_temperature,
                     )
 
-                local_response = await loop.run_in_executor(None, _call_local)
+                local_response = await loop.run_in_executor(None, contextvars.copy_context().run, _call_local)
                 raw = local_response["content"]
                 finish_reason = local_response["finish_reason"]
                 usage = local_response["usage"]
@@ -414,7 +417,7 @@ class OpenRouterClient:
                         **kwargs,
                     )
 
-                response = await loop.run_in_executor(None, _call_openrouter)
+                response = await loop.run_in_executor(None, contextvars.copy_context().run, _call_openrouter)
                 raw = response.choices[0].message.content or ""
                 finish_reason = response.choices[0].finish_reason or "stop"
                 usage = self._usage_dict(response.usage)
@@ -572,7 +575,7 @@ class OpenRouterClient:
                 except Exception as exc:  # surfaced to the consumer below
                     emit(("error", exc))
 
-            worker = loop.run_in_executor(None, _run)
+            worker = loop.run_in_executor(None, contextvars.copy_context().run, _run)
             try:
                 while True:
                     kind, value = await queue.get()
@@ -662,7 +665,7 @@ class OpenRouterClient:
                 )["content"]
 
             try:
-                return await loop.run_in_executor(None, _call_local)
+                return await loop.run_in_executor(None, contextvars.copy_context().run, _call_local)
             except Exception as e:
                 logger.warning("Local simple completion error: %s", e)
                 return ""
@@ -682,7 +685,7 @@ class OpenRouterClient:
             return resp.choices[0].message.content or ""
 
         try:
-            return await loop.run_in_executor(None, _call)
+            return await loop.run_in_executor(None, contextvars.copy_context().run, _call)
         except Exception as e:
             logger.warning("Simple completion error: %s", e)
             return ""

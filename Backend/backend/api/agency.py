@@ -67,6 +67,30 @@ def initiative_set(quiet: bool = False):
     return mind.status()
 
 
+@router.get("/api/journal")
+def journal_entries(limit: int = 30):
+    """Her journal (one entry per day) and today's experiences so far."""
+    from datetime import date
+    from backend.memory import journal
+    return {"entries": journal.entries(max(1, min(365, limit))),
+            "today": journal.experiences(date.today().isoformat())}
+
+
+@router.post("/api/journal/write")
+async def journal_write(day: str):
+    """Write (or rewrite) the entry for a day now, e.g. 2026-09-27."""
+    from backend.memory import journal
+    result = await journal.write_day(day)
+    return {"ok": bool(result), "entry": result}
+
+
+@router.get("/api/usage")
+def usage_today():
+    """Today's free-model requests (UTC day) by what she spent them on."""
+    from backend import usage
+    return usage.today()
+
+
 @router.get("/api/agency/tools")
 def agency_tools():
     return {"tools": [{"name": t.name, "description": t.description, "custom": t.custom}

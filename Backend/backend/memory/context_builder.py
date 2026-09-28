@@ -626,6 +626,16 @@ Rules:
             full_system = f"{full_system}\n\n[PROJECT CONTEXT]\n{project_context}"
             debug_info["project_context_chars"] = len(project_context)
 
+        # Her memory of recent days and earlier today (backend/memory/journal).
+        try:
+            from backend.memory.journal import render as render_journal
+            days_block = render_journal()
+            if days_block:
+                full_system = f"{full_system}\n\n{days_block}"
+                debug_info["journal"] = True
+        except Exception as e:
+            debug_info["journal_error"] = str(e)
+
         # Her present moment (feeling, body, senses): last in the system
         # prompt because it changes every turn, and outside the "never
         # mention" internal block because it is hers to talk about.

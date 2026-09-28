@@ -40,13 +40,28 @@ def parse_skill_md(text: str) -> Tuple[Optional[Dict[str, str]], str]:
         return None, ""
 
     frontmatter: Dict[str, str] = {}
+    current: Optional[str] = None      # key whose value continues on indented lines
+    folded = True                      # ">" joins with spaces, "|" keeps newlines
     for raw in lines[1:closing_idx]:
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
+        # Indented continuation of a multi-line value (YAML block scalars as
+        # used by OpenClaw / Agent Skills: `description: >` or nested maps).
+        if current is not None and raw[:1] in (" ", "\t"):
+            piece = raw.strip()
+            joiner = " " if folded else "\n"
+            frontmatter[current] = (frontmatter[current] + joiner + piece).strip() if frontmatter[current] else piece
+            continue
+        current = None
         match = _KV_RE.match(raw)
         if not match:
             continue
         key, value = match.group(1).lower(), match.group(2)
+        if value in ("", ">", ">-", "|", "|-"):
+            frontmatter[key] = ""
+            current = key
+            folded = not value.startswith("|")
+            continue
         if (value.startswith('"') and value.endswith('"')) or (
             value.startswith("'") and value.endswith("'")
         ):
@@ -88,7 +103,10 @@ def parse_manifest_file(path: Path) -> Optional[Dict[str, object]]:
         logger.warning("[skills] %s: missing or malformed frontmatter — skipped", path)
         return None
 
-    missing = [k for k in ("name", "slug", "description") if not frontmatter.get(k)]
+    # OpenClaw / Agent Skills files have no `slug`: the folder name is it.
+    if not frontmatter.get("slug"):
+        frontmatter["slug"] = expected_slug
+    missing = [k for k in ("name", "description") if not frontmatter.get(k)]
     if missing:
         logger.warning(
             "[skills] %s: missing required field(s) %s — skipped",

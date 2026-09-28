@@ -184,7 +184,10 @@ async def look(screen_b64: Optional[str] = None, camera_b64: Optional[str] = Non
             content.append({"type": "text", "text": f"Image {n}: {label}"})
             content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
     started = time.time()
-    result = await asyncio.to_thread(_call, content)
+    from backend.usage import using
+
+    with using("vision"):
+        result = await asyncio.to_thread(_call, content)
     seen = _parse(result["text"])
     seen["_model"] = result["model"]
     seen["_ms"] = int((time.time() - started) * 1000)

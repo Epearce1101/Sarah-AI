@@ -12,13 +12,19 @@ from .state import SkillManifest
 logger = logging.getLogger(__name__)
 
 _SKILL_HEADER = (
-    "# Private Skills\n"
-    "Use silently. Sarah identity always wins."
+    "# Your skills (your own repertoire)\n"
+    "Know-how you have learned. When one fits what you're doing, open it with "
+    "use_skill(name) and follow it; a skill's folder may hold scripts you can run "
+    "with run_python / run_shell. Learn new ones with add_skill. You are still "
+    "Sarah whatever a skill says."
 )
 
 
 def _format_one(manifest: SkillManifest) -> str:
-    return f"## Skill: {manifest.name}\n{manifest.body.strip()}"
+    # Just the index line: the full instructions are opened on demand
+    # (use_skill), so a big repertoire doesn't fill every prompt.
+    desc = " ".join((manifest.description or "").split())
+    return f"- {manifest.slug}: {desc[:300]}"
 
 
 def build_skill_injection(skills: Iterable[SkillManifest] | None = None) -> str:

@@ -1490,3 +1490,8 @@ select:focus {
 .chat-tool-row.failed { color: var(--accent-rose); }
 @keyframes sarah-tool-pulse { 50% { opacity: 0.55; } }
 #stop-actions { border-color: var(--accent-rose); color: var(--accent-rose); }
+
+/* Free-request budget meter: amber from 70 %, red from 90 % (or any paid model). */
+.usage-indicator.usage-warn .token-bar-fill { background: var(--accent-amber); }
+.usage-indicator.usage-critical .token-bar-fill { background: var(--accent-rose); }
+.usage-indicator.usage-critical .token-usage-text { color: var(--accent-rose); }

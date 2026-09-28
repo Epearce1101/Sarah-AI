@@ -156,44 +156,30 @@ class TestInjection:
     def test_empty_when_no_skills(self):
         assert build_skill_injection([]) == ""
 
-    def test_renders_single_skill(self):
-        m = SkillManifest(slug="x", name="X", description="d", body="hello world")
+    def test_renders_index_not_body(self):
+        # The prompt lists what she knows; instructions open on demand (use_skill).
+        m = SkillManifest(slug="x", name="X", description="does x things", body="hello world")
         out = build_skill_injection([m])
-        assert "## Skill: X" in out
-        assert "hello world" in out
+        assert "- x: does x things" in out and "use_skill" in out
+        assert "hello world" not in out
 
     def test_alphabetical_order(self):
         b = SkillManifest(slug="b", name="B", description="d", body="bb")
         a = SkillManifest(slug="a", name="A", description="d", body="aa")
         out = build_skill_injection([b, a])
-        assert out.index("## Skill: A") < out.index("## Skill: B")
+        assert out.index("- a:") < out.index("- b:")
 
-    def test_cap_drops_overflow_alphabetically(self):
-        # The real cap is 8000 (default). Use bodies large enough that the
-        # second one overflows.
-        cap = settings.skills_inject_char_cap
-        big_body = "X" * (cap - 100)  # first skill consumes most of the cap
-        small_overflow = "Y" * 500    # second skill overflows
-        a = SkillManifest(slug="a", name="A", description="d", body=big_body)
-        b = SkillManifest(slug="b", name="B", description="d", body=small_overflow)
-        out = build_skill_injection([a, b])
-        assert "## Skill: A" in out
-        assert "## Skill: B" not in out
-        assert len(out) <= cap
-
-    def test_cap_respected_for_total_length(self):
-        cap = settings.skills_inject_char_cap
-        # Three skills, each one nearly half the cap → only ~2 fit.
-        body = "Z" * (cap // 2 - 50)
-        skills = [
-            SkillManifest(slug=f"s{i}", name=f"S{i}", description="d", body=body)
-            for i in range(3)
-        ]
+    def test_cap_drops_overflow_alphabetically(self, monkeypatch):
+        monkeypatch.setattr(settings.__class__, "skills_inject_char_cap", property(lambda self: 600), raising=False)
+        skills = [SkillManifest(slug=f"s{i:02d}", name=f"S{i}", description="d" * 250, body="b") for i in range(5)]
         out = build_skill_injection(skills)
-        assert len(out) <= cap
-        # At least one made it; at least one was dropped.
-        assert "## Skill: S0" in out
-        assert "## Skill: S2" not in out
+        assert "- s00:" in out and "- s04:" not in out
+        assert len(out) <= 600
+
+    def test_long_descriptions_are_trimmed(self):
+        m = SkillManifest(slug="long", name="L", description="w " * 1000, body="b")
+        line = [l for l in build_skill_injection([m]).splitlines() if l.startswith("- long:")][0]
+        assert len(line) < 320
 
 
 if __name__ == "__main__":

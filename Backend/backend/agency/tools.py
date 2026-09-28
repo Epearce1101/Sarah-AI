@@ -185,6 +185,13 @@ async def call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         ok, text = False, f"{type(exc).__name__}: {exc}"
     ms = int((time.time() - started) * 1000)
     _log_action(name, args, ok, text, ms)
+    if ok and name not in ("list_my_tools", "list_my_skills", "look"):
+        try:  # her memory of the day: what she did
+            from backend.memory.journal import experience
+            brief = ", ".join(f"{k}={str(v)[:60]}" for k, v in list(args.items())[:2] if k not in ("code", "content"))
+            experience("did", f"used {name}" + (f" ({brief})" if brief else ""))
+        except Exception:
+            pass
     logger.info("[AGENCY] %s %s -> %s (%d ms)", name, json.dumps(args, default=str)[:160], "ok" if ok else "failed", ms)
     return {"ok": ok, "result": text, "ms": ms}
 
@@ -536,6 +543,73 @@ def create_tool(name: str, description: str, code: str, parameters: Optional[Dic
     if test_args is not None:
         report["test"] = _run_custom(name, test_args)
     return report
+
+
+# ---------------------------------------------------------------------------
+# Skills: know-how in her own repertoire (OpenClaw / Agent Skills format)
+# ---------------------------------------------------------------------------
+
+def _find_skill(name: str):
+    from backend.skills import get_all_skills
+
+    key = (name or "").strip().lower()
+    for s in get_all_skills():
+        if not s.stale and (s.slug == key or s.name.lower() == key):
+            return s
+    return None
+
+
+@tool("add_skill", "Learn a new skill into your own repertoire: an OpenClaw/ClawHub or Agent Skills "
+      "skill from a GitHub folder URL, a SKILL.md link, a .zip link, or a local folder/zip. The whole "
+      "skill (instructions + scripts) is copied into your repertoire. A repo URL lists the skills in it.",
+      {"source": {"type": "string"}, "overwrite": {"type": "boolean", "description": "replace an existing one"}},
+      ["source"], timeout=120)
+def add_skill(source: str, overwrite: bool = False):
+    from backend.skills import reload
+    from backend.skills.installer import install_skill
+
+    try:
+        installed = install_skill(source, overwrite=bool(overwrite))
+    except LookupError as exc:  # a repo with several skills: let her choose
+        return str(exc)
+    reload()
+    return {"learned": installed["slug"], "name": installed["name"], "description": installed["description"],
+            "files": installed["files"][:40]}
+
+
+@tool("use_skill", "Open one of your skills: returns its full instructions and the files in its "
+      "folder (run its scripts with run_python/run_shell, using the folder path given).",
+      {"name": {"type": "string", "description": "skill slug or name"}}, ["name"], timeout=15)
+def use_skill(name: str):
+    s = _find_skill(name)
+    if s is None:
+        from backend.skills import get_enabled_skills
+        return f"You don't have a skill called {name}. Yours: {', '.join(x.slug for x in get_enabled_skills()) or 'none yet'}"
+    folder = Path(s.path).parent if s.path else None
+    files = sorted(str(p.relative_to(folder)).replace("\\", "/") for p in folder.rglob("*") if p.is_file())[:80] if folder else []
+    return {"skill": s.slug, "name": s.name, "folder": str(folder) if folder else None,
+            "enabled": s.enabled, "files": files, "instructions": s.body}
+
+
+@tool("list_my_skills", "List the skills in your repertoire.", {}, timeout=10)
+def list_my_skills():
+    from backend.skills import get_all_skills
+    return [{"skill": s.slug, "description": s.description, "enabled": s.enabled}
+            for s in get_all_skills() if not s.stale]
+
+
+@tool("remove_skill", "Forget a skill (its folder goes to the Recycle Bin).",
+      {"name": {"type": "string"}}, ["name"], timeout=20)
+def remove_skill(name: str):
+    from send2trash import send2trash
+    from backend.skills import reload
+
+    s = _find_skill(name)
+    if s is None or not s.path:
+        return f"No skill called {name}"
+    send2trash(str(Path(s.path).parent))
+    reload()
+    return f"Removed {s.slug}"
 
 
 @tool("list_my_tools", "List the tools you've made for yourself.", {}, timeout=10)

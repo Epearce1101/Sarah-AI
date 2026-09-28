@@ -9,7 +9,8 @@ app.commandLine.appendSwitch("enable-experimental-web-platform-features");
 
 const ROOT = path.resolve(__dirname, "..");
 const SKILL_SLUG = "ui-smoke-skill";
-const SKILL_DIR = path.join(os.homedir(), ".openclaw", "workspace", "skills", SKILL_SLUG);
+// A throwaway copy for the stub backend (never in Sarah's repertoire or the C: profile).
+const SKILL_DIR = path.join(os.tmpdir(), "sarah_f4_smoke", SKILL_SLUG);
 const SKILL_MD = path.join(SKILL_DIR, "SKILL.md");
 const API_PORT = Number(process.env.SARAH_PY_PORT || 8907);
 let smokeSkillEnabled = false;

@@ -154,6 +154,18 @@ def duration_text(seconds: float) -> str:
     return f"{hours / 24:.0f} days"
 
 
+def _remember_experiences(items) -> None:
+    """Add to her memory of the day (backend.memory.journal); never fails."""
+    if not items:
+        return
+    try:
+        from backend.memory.journal import experience
+        for kind, text in items:
+            experience(kind, text)
+    except Exception as exc:
+        logger.debug("experience not kept: %s", exc)
+
+
 def _look_words(target: str, user_name: str) -> str:
     key = target.lower().strip()
     words = {
@@ -212,6 +224,7 @@ class SelfModel:
         s = Sensation(kind=kind, text=text)
         with self._lock:
             self.sensations.append(s)
+        _remember_experiences([("sensed", text)])
         return s
 
     def recent_sensations(self, kind: Optional[str] = None, window: Optional[float] = None) -> List[Sensation]:
@@ -229,6 +242,7 @@ class SelfModel:
     def see(self, observation: Dict[str, Any]) -> None:
         """Store what her eyes just reported (see backend.perception.sight)."""
         now = time.time()
+        memories = []
         with self._lock:
             for kind in ("screen", "camera"):
                 data = observation.get(kind)
@@ -237,6 +251,22 @@ class SelfModel:
             notable = observation.get("notable")
             if isinstance(notable, str) and notable.strip() and notable.strip().lower() not in ("null", "none"):
                 self.sight_log.append({"text": notable.strip()[:200], "at": now})
+                memories.append(("noticed", notable.strip()))
+        # Her day's memory: what the user was doing (app/activity), at the desk or not.
+        try:
+            from backend.identity import get_user_name
+            user = get_user_name()
+        except Exception:
+            user = "the user"
+        screen = observation.get("screen")
+        if isinstance(screen, dict) and (screen.get("app") or screen.get("activity")):
+            what = " - ".join(str(screen[k]) for k in ("app", "activity") if screen.get(k))
+            memories.append(("saw", f"On {user}'s screen: {what}"))
+        camera = observation.get("camera")
+        if isinstance(camera, dict) and "present" in camera:
+            away = camera.get("present") in (False, "false", "False")
+            memories.append(("saw", f"{user} wasn't at the desk" if away else f"{user} at the desk: {camera.get('doing') or 'there'}"))
+        _remember_experiences(memories)
 
     def seen_recently(self, kind: str, max_age: float) -> Optional[Dict[str, Any]]:
         with self._lock:
@@ -267,7 +297,11 @@ class SelfModel:
         if conversation_id is None:
             return
         with self._lock:
+            previous = self.feelings.get(conversation_id)
             self.feelings[conversation_id] = feeling
+        if not previous or previous.label != feeling.label:
+            why = f" ({feeling.reason})" if feeling.reason else ""
+            _remember_experiences([("felt", f"felt {feeling.label.replace('_', ' ')}{why}")])
         try:
             from backend.mood import get_or_create_mood_state, save_mood_state
             from backend.mood.mood_state import Emotion
@@ -370,6 +404,17 @@ class SelfModel:
 
         for s in self.recent_sensations()[-4:]:
             lines.append(f"- You felt: {s.text} ({_ago(now - s.at)}).")
+
+        try:  # her free "thinking budget" for today, when it's running low
+            from backend import usage
+            u = usage.today()
+            if u["limit"] and u["share"] >= 0.85:
+                lines.append(
+                    f"- Your free thinking budget is nearly used up today ({u['used']}/{u['limit']} requests): "
+                    "keep replies focused, use tools sparingly, and stay quiet unless it matters."
+                )
+        except Exception:
+            pass
 
         try:
             from backend.agency import agenda

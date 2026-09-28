@@ -142,12 +142,15 @@ async def _speak(kind: str, sensed: str, conversation_id: int) -> Optional[Dict[
     me = get_self()
     serial = me.chat_serial
     try:
-        response = await client.chat(
-            conversation_id=conversation_id,
-            user_message=PERCEPTION_PROMPT.format(user=get_user_name(), sensed=sensed),
-            save_messages=False,
-            save_user_message=False,
-        )
+        from backend.usage import using
+
+        with using("presence"):
+            response = await client.chat(
+                conversation_id=conversation_id,
+                user_message=PERCEPTION_PROMPT.format(user=get_user_name(), sensed=sensed),
+                save_messages=False,
+                save_user_message=False,
+            )
     except Exception as exc:
         logger.warning("spontaneous reaction failed: %s", exc)
         return None

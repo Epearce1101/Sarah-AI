@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -23,48 +22,6 @@ def _skills_root(workspace: Optional[Path] = None) -> Path:
     if workspace is not None:
         return workspace / "skills"
     return settings.skills_path
-
-
-def _seed_from_openclaw_if_empty(target: Path) -> int:
-    """First-run import: copy skills from `~/.openclaw/workspace/skills/` into
-    the project-local skills dir if the project-local dir is missing or empty.
-
-    Returns the number of skill folders copied. Idempotent — once the project
-    dir has any skills, this is a no-op.
-    """
-    if not settings.skills_seed_from_openclaw:
-        return 0
-
-    target.mkdir(parents=True, exist_ok=True)
-    has_existing = any(p.is_dir() for p in target.iterdir())
-    if has_existing:
-        return 0
-
-    source = settings.openclaw_workspace_path / "skills"
-    if not source.exists() or not source.is_dir():
-        return 0
-
-    copied = 0
-    for entry in sorted(source.iterdir(), key=lambda p: p.name):
-        if not entry.is_dir():
-            continue
-        if not (entry / "SKILL.md").exists():
-            continue
-        dest = target / entry.name
-        if dest.exists():
-            continue
-        try:
-            shutil.copytree(entry, dest)
-            copied += 1
-        except Exception as exc:  # noqa: BLE001 — defensive; never abort boot
-            logger.warning("[skills] seed copy failed for %r: %s", entry.name, exc)
-
-    if copied:
-        logger.info(
-            "[skills] seeded %d skill(s) from %s -> %s",
-            copied, source, target,
-        )
-    return copied
 
 
 def _scan_disk(root: Path) -> List[Dict[str, object]]:
@@ -150,10 +107,13 @@ def _build_snapshot(
 
 
 def discover(workspace: Optional[Path] = None) -> Tuple[SkillManifest, ...]:
-    """Re-scan disk, sync DB, replace the in-memory snapshot. Returns it."""
+    """Re-scan her repertoire, sync DB, replace the in-memory snapshot.
+
+    Only her own skills folder is read; nothing is pulled in from other
+    places (skills get there by being installed, see installer.py).
+    """
     root = _skills_root(workspace)
-    if workspace is None:
-        _seed_from_openclaw_if_empty(root)
+    root.mkdir(parents=True, exist_ok=True)
     parsed = _resolve_collisions(_scan_disk(root))
 
     for item in parsed:

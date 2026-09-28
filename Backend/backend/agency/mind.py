@@ -141,6 +141,8 @@ class Mind:
                 return record
             content = ""
             prompt = PROMPT.format(triggers="; ".join(found), user=get_user_name())
+            from backend.usage import _category
+            usage_token = _category.set("initiative")
             async for event in client.chat_stream(conversation_id=conv, user_message=prompt,
                                                   save_messages=False, save_user_message=False):
                 if event["type"] == "tool":
@@ -152,6 +154,7 @@ class Mind:
                         record["outcome"] = "model error"
                         return record
                     content = response.content or ""
+            _category.reset(usage_token)
             agenda.apply_tags(content)
             me.observe_reply(conv, content)
             if is_silent(agenda.strip_tags(content)):

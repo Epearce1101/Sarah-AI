@@ -231,14 +231,13 @@ class Settings:
     ))
     backup_keep: int = field(default_factory=lambda: _int("SARAH_BACKUP_KEEP", 7))
 
-    # Skills (B4)
+    # Skills: Sarah's own repertoire, stored inside her workspace next to the
+    # tools she builds. Only this folder is ever read: skills from elsewhere
+    # (OpenClaw/ClawHub, GitHub, a zip, a folder) are *installed* into it.
     skills_enabled: bool = field(default_factory=lambda: _bool("SARAH_SKILLS_ENABLED", True))
     skills_inject_char_cap: int = field(default_factory=lambda: _int("SARAH_SKILLS_INJECT_CHAR_CAP", 8000))
     skills_path: Path = field(default_factory=lambda: _path(
-        "SARAH_SKILLS_PATH", REPO_ROOT / "skills",
-    ))
-    skills_seed_from_openclaw: bool = field(default_factory=lambda: _bool(
-        "SARAH_SKILLS_SEED_FROM_OPENCLAW", True,
+        "SARAH_SKILLS_PATH", BACKEND_ROOT / "data" / "sarah_workspace" / "skills",
     ))
 
     # Persona (B5) - re-enabled after Issue #23 cleanup. Sarah persona files now
@@ -273,6 +272,10 @@ class Settings:
     )))
     vision_daily_cap: int = field(default_factory=lambda: _int("SARAH_VISION_DAILY_CAP", 400))
     vision_min_interval_seconds: int = field(default_factory=lambda: _int("SARAH_VISION_MIN_INTERVAL", 10))
+
+    # Free-model requests per day on OpenRouter (1000 once $10 of credit was
+    # ever bought, 50 otherwise). Shown in the app's usage meter.
+    free_daily_request_limit: int = field(default_factory=lambda: _int("SARAH_FREE_DAILY_LIMIT", 1000))
 
     # Agency: tools in chat turns (web, code, files, apps, input, her own
     # tools), guarded by backend/agency/guard.py.
