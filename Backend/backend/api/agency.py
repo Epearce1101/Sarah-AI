@@ -67,6 +67,30 @@ def initiative_set(quiet: bool = False):
     return mind.status()
 
 
+@router.post("/api/agency/background")
+def background_set(hidden: bool = False):
+    """The app window went to the tray (hidden) or came back: while it's in
+    the tray, Zero is away and she has her own time."""
+    from backend.agency.mind import mind
+    mind.set_tray(bool(hidden))
+    return mind.status()
+
+
+@router.get("/api/agency/plans")
+def plans_list():
+    from backend.agency import plans
+    return {"open": [plans.snapshot(p) for p in plans.open_plans()]}
+
+
+@router.get("/api/memory/episodes")
+def episodes(query: str = "", day: str = "", limit: int = 10):
+    """Search her episodic memory (by meaning, or a day), plus counts."""
+    from backend.memory import episodic
+    found = episodic.on_day(day) if day else episodic.search(query, k=max(1, min(50, limit)), min_score=episodic.MIN_SCORE - 0.1) \
+        if query else []
+    return {"stats": episodic.stats(), "results": found}
+
+
 @router.get("/api/journal")
 def journal_entries(limit: int = 30):
     """Her journal (one entry per day) and today's experiences so far."""

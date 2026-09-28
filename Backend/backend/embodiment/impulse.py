@@ -70,6 +70,17 @@ def _last_message_gap_seconds() -> Optional[float]:
         return None
 
 
+def _away_news() -> str:
+    try:
+        from backend.agency.mind import mind
+        fresh = [e for e in mind.away_log if not e.get("told")]
+        for e in fresh:
+            e["told"] = True  # news once; it stays in her "Right now" for a while
+        return "; ".join(e["text"] for e in fresh[-4:])
+    except Exception:
+        return ""
+
+
 def describe(kind: str, detail: Dict[str, Any]) -> Tuple[Optional[str], bool]:
     """(what she sensed, whether it's worth a spoken reaction)."""
     user = get_user_name()
@@ -85,7 +96,11 @@ def describe(kind: str, detail: Dict[str, Any]) -> Tuple[Optional[str], bool]:
         away = float(detail.get("away_seconds") or 0)
         if away < 120:
             return None, False
-        return f"{user} came back to your window after {duration_text(away)} away", away >= RETURN_SPEAK_AFTER
+        what = f"{user} came back to your window after {duration_text(away)} away"
+        did = _away_news()
+        if did:  # she did things on her own time: worth telling
+            return f"{what}. While they were away, on your own time you: {did}", True
+        return what, away >= RETURN_SPEAK_AFTER
     if kind == "arrived":
         gap = _last_message_gap_seconds()
         if gap is None:

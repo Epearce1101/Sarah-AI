@@ -426,10 +426,17 @@ class SelfModel:
             pass
 
         try:
-            from backend.agency import agenda
-            agenda_text = agenda.render()
-            if agenda_text:
-                lines.append(agenda_text)
+            from backend.agency import agenda, plans
+            for block in (agenda.render(), plans.render_open()):
+                if block:
+                    lines.append(block)
+        except Exception:
+            pass
+        try:  # what she did on her own while Zero was away
+            from backend.agency.mind import mind
+            away = mind.away_report()
+            if away:
+                lines.append(away)
         except Exception:
             pass
 

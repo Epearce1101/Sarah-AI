@@ -185,7 +185,7 @@ async def call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         ok, text = False, f"{type(exc).__name__}: {exc}"
     ms = int((time.time() - started) * 1000)
     _log_action(name, args, ok, text, ms)
-    if ok and name not in ("list_my_tools", "list_my_skills", "look"):
+    if ok and name not in ("list_my_tools", "list_my_skills", "look", "recall", "update_plan"):
         try:  # her memory of the day: what she did
             from backend.memory.journal import experience
             brief = ", ".join(f"{k}={str(v)[:60]}" for k, v in list(args.items())[:2] if k not in ("code", "content"))
@@ -664,6 +664,67 @@ def remember(fact: str):
 
     add_memory("assistant", fact.strip(), tags="sarah", importance=1)
     return "Remembered."
+
+
+@tool("recall", "Search your own memory of past moments (conversations, things you saw, did or learned, "
+      "journal entries) by meaning, e.g. 'the bug Zero had with the config loader', or by day ('2026-09-21' "
+      "or 'yesterday'). Use it when something from before would help and it isn't in front of you.",
+      {"query": {"type": "string", "description": "what you're trying to remember"},
+       "day": {"type": "string", "description": "optional: YYYY-MM-DD, 'today' or 'yesterday'"}}, timeout=30)
+def recall(query: str = "", day: str = ""):
+    from backend.memory import episodic
+
+    day = (day or "").strip().lower()
+    if day in ("today", "yesterday"):
+        day = (datetime.now() - timedelta(days=1 if day == "yesterday" else 0)).date().isoformat()
+    if day:
+        found = episodic.on_day(day)
+        if query:
+            words = [w for w in re.findall(r"\w{3,}", query.lower())]
+            ranked = sorted(found, key=lambda e: -sum(w in e["text"].lower() for w in words))
+            found = ranked[:15]
+        if not found:
+            return f"You don't remember anything from {day}."
+        return "\n".join(f"[{e['at'][11:16]}] ({e['kind']}) {e['text'][:400]}" for e in found)
+    found = episodic.search(query, k=8, min_score=episodic.MIN_SCORE - 0.08, touch=True)
+    if not found:
+        return "Nothing comes to mind about that."
+    return "\n".join(f"- {episodic.when(f['at'])} ({f['kind']}): {f['text'][:500]}" for f in found)
+
+
+@tool("make_plan", "Before a task that takes several actions (3+), write your plan: the goal and short, "
+      "checkable steps in order. Then do step 1, check it worked, and mark it with update_plan. Not needed "
+      "for quick one-action requests.",
+      {"goal": {"type": "string", "description": "what 'done' looks like"},
+       "steps": {"type": "array", "items": {"type": "string"}, "description": "ordered steps"}},
+      ["goal", "steps"], timeout=15)
+def make_plan(goal: str, steps: List[str]):
+    from . import plans
+
+    conv = None
+    try:
+        from backend.embodiment import get_self
+        conv = get_self().last_conversation_id
+    except Exception:
+        pass
+    return plans.render(plans.create(goal, steps, conv)) + "\nStart with step 1."
+
+
+@tool("update_plan", "Mark a step of your plan after checking its result: status done, failed or skipped "
+      "(1-based step number). add_steps inserts new steps next (a detour or a fix for a failure). "
+      "plan_status: 'blocked' if you need Zero (say what in note), 'cancelled' if it no longer makes sense, "
+      "'done' when the goal is met early.",
+      {"step": {"type": "integer"}, "status": {"type": "string", "enum": ["done", "failed", "skipped"]},
+       "note": {"type": "string", "description": "what happened / what you found"},
+       "add_steps": {"type": "array", "items": {"type": "string"}},
+       "plan_status": {"type": "string", "enum": ["active", "done", "blocked", "cancelled"]},
+       "plan_id": {"type": "integer", "description": "defaults to the plan you're working on"}}, timeout=15)
+def update_plan(step: Optional[int] = None, status: Optional[str] = None, note: str = "",
+                add_steps: Optional[List[str]] = None, plan_status: Optional[str] = None,
+                plan_id: Optional[int] = None):
+    from . import plans
+
+    return plans.render(plans.update(plan_id, step, status, note, add_steps, plan_status))
 
 
 @tool("set_reminder", "Remind Zero (or yourself) about something later. Give minutes from now or an "

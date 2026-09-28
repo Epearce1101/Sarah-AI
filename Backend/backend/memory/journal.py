@@ -65,13 +65,18 @@ def experience(kind: str, text: str) -> None:
     try:
         conn = _conn()
         try:
-            conn.execute("INSERT INTO experiences (at, day, kind, text) VALUES (?, ?, ?, ?)",
-                         (local.isoformat(timespec="seconds"), local.date().isoformat(), kind, text))
+            cur = conn.execute("INSERT INTO experiences (at, day, kind, text) VALUES (?, ?, ?, ?)",
+                               (local.isoformat(timespec="seconds"), local.date().isoformat(), kind, text))
+            exp_id = cur.lastrowid
             conn.commit()
         finally:
             conn.close()
     except Exception as exc:
         logger.debug("experience not saved: %s", exc)
+        return
+    from . import episodic
+    if kind in episodic.EXPERIENCE_KINDS:
+        episodic.note(kind, text, source=f"exp:{exp_id}", at=local.isoformat(timespec="seconds"))
 
 
 def experiences(day: str, limit: int = 400) -> List[Dict[str, Any]]:
@@ -222,6 +227,9 @@ async def write_day(day: str, complete=None) -> Optional[Dict[str, Any]]:
         conn.commit()
     finally:
         conn.close()
+    from . import episodic
+    episodic.note("journal", f"Your journal for {day}: {result['entry']}", source=f"journal:{day}",
+                  importance=0.5, at=f"{day}T21:00:00")
     logger.info("[JOURNAL] wrote %s (%d chars, %d new memories)", day, len(result["entry"]), added)
     return {"day": day, **result, "new_memories": added}
 

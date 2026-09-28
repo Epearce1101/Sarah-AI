@@ -65,7 +65,37 @@ def _isolate_sarah_workspace_state(tmp_path, monkeypatch):
     """Her agenda and reminders live in her real workspace; tests must never
     read or write them (a live test once left a fictional "interview"
     follow-up in the real agenda)."""
-    from backend.agency import agenda, reminders
+    from backend.agency import agenda, plans, reminders
 
     monkeypatch.setattr(agenda, "_FILE", tmp_path / "agenda.json")
     monkeypatch.setattr(reminders, "_FILE", tmp_path / "reminders.json")
+    monkeypatch.setattr(plans, "_FILE", tmp_path / "plans.json")
+
+
+def fake_embed(texts):
+    """Bag-of-words vectors: related texts share words -> high cosine. Keeps
+    tests off the real embedding model."""
+    import re
+    import zlib
+
+    import numpy as np
+
+    out = np.zeros((len(texts), 384), dtype=np.float32)
+    for i, text in enumerate(texts):
+        text = text.replace("Represent this sentence for searching relevant passages: ", "")
+        for word in re.findall(r"[a-z]{3,}", text.lower()):
+            out[i, zlib.crc32(word.encode()) % 384] += 1.0
+        out[i, 383] += 0.01
+    return out / np.linalg.norm(out, axis=1, keepdims=True)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_episodic(monkeypatch):
+    """Episodic memory writes inline with a fake embedder (no model, no thread)."""
+    from backend.memory import episodic
+
+    monkeypatch.setattr(episodic, "SYNC", True)
+    monkeypatch.setattr(episodic, "MIN_SCORE", 0.2)  # bag-of-words scores run lower
+    episodic.set_embedder(fake_embed)
+    yield
+    episodic.set_embedder(fake_embed)

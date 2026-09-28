@@ -276,6 +276,20 @@ Respond as if you naturally remember the conversation.
                 pass
         return "Long-term memory (what you know about the user from past conversations):\n" + "\n".join(lines), ids
 
+    def _episodic_block(self, user_message: str, recent: List[Dict[str, Any]], kept: int) -> str:
+        try:
+            from backend.memory import episodic
+        except Exception:
+            return ""
+        in_window = recent[len(recent) - kept:] if kept else []
+        exclude = {f"msg:{m['id']}" for m in in_window if m.get("id") is not None}
+        query = (user_message or "").strip()
+        if len(query) < 25:
+            # "yeah do that": what it answers carries the meaning.
+            last_reply = next((m.get("content") or "" for m in reversed(recent) if m.get("role") == "assistant"), "")
+            query = f"{last_reply[-300:]}\n{query}".strip()
+        return episodic.render_for_prompt(query, exclude_sources=exclude)
+
     def _format_rolling_summary(self, summary: RollingSummary) -> str:
         """Format rolling summary for context."""
         if not summary.goal and not summary.progress:
@@ -746,6 +760,14 @@ Rules:
 
         debug_info["recent_messages_count"] = len(recent)
         debug_info["trimmed_messages_count"] = len(trimmed)
+
+        # Episodic recall: past moments close in meaning to what was just said,
+        # except those already in the window above.
+        if include_internal_context and append_user_message:
+            recall_block = self._episodic_block(user_message, recent, len(trimmed))
+            if recall_block:
+                messages[0]["content"] = f"{messages[0]['content']}\n\n{recall_block}"
+                debug_info["episodic_recall"] = recall_block.count("\n- ")
 
         minimum_to_keep = min(len(formatted), self.config.min_recent_messages)
         if len(trimmed) < minimum_to_keep:

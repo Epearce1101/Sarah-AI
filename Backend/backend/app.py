@@ -189,6 +189,12 @@ async def _startup() -> None:
             tts_kokoro.available()
         except Exception as exc:
             logger.warning(f"[INIT] Kokoro voice unavailable: {exc}")
+        try:  # episodic memory: load the embedding model, index anything new
+            from backend.memory import episodic
+            episodic.backfill()
+            logger.info(f"[INIT] Episodic memory ready ({episodic.stats()['episodes']} moments).")
+        except Exception as exc:
+            logger.warning(f"[INIT] Episodic memory unavailable: {exc}")
 
     import threading
     threading.Thread(target=_prewarm_stt, name="stt-prewarm", daemon=True).start()

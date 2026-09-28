@@ -22,6 +22,7 @@ import contextvars
 import json
 import logging
 import threading
+import time
 from typing import Any, AsyncIterator, Dict, List, Optional
 from dataclasses import dataclass
 
@@ -434,6 +435,7 @@ class OpenRouterClient:
             return self._error_response(e, user_message_id)
 
     MAX_TOOL_STEPS = 8
+    MAX_PLAN_STEPS = 30   # with a plan open, the turn may run this many rounds
 
     def _tool_specs(self, use_local: bool) -> Optional[List[Dict[str, Any]]]:
         """Her tools (built-in + self-made) for online turns, if agency is on."""
@@ -445,6 +447,20 @@ class OpenRouterClient:
         except Exception as exc:
             logger.warning("tools unavailable: %s", exc)
             return None
+
+    @staticmethod
+    def _out_of_steps_note(turn_started: float) -> str:
+        try:
+            from backend.agency import plans
+            plan = plans.touched_since(turn_started)
+        except Exception:
+            plan = None
+        if plan and plan["status"] == "active":
+            return (f"You're out of tool steps for this turn. {plans.status_line(plan)} Tell {get_user_name()} "
+                    "briefly where you got to. The plan stays open and you'll carry on with it on your own "
+                    "in a moment, so don't ask for permission to continue.")
+        return ("You have used all your tool steps for this turn. "
+                "Answer now with what you found; say what is left to do if anything.")
 
     async def chat_stream(
         self,
@@ -560,14 +576,16 @@ class OpenRouterClient:
                         step_meta["model"] = data.get("model")
             step_meta["tool_calls"] = []
 
-        # One extra round beyond the tool budget, without tools, so a turn
-        # that used every step still ends with an actual answer.
-        rounds = self.MAX_TOOL_STEPS + 1 if tool_specs else 1
-        for step in range(rounds):
-            final_round = bool(tool_specs) and step == rounds - 1
+        # Executor: MAX_TOOL_STEPS rounds of tools, more while a plan she made
+        # this turn is open (up to MAX_PLAN_STEPS), then one extra round
+        # without tools so the turn always ends with an actual answer.
+        budget = self.MAX_TOOL_STEPS if tool_specs else 0
+        turn_started = time.time()
+        step = 0
+        while True:
+            final_round = bool(tool_specs) and step >= budget
             if final_round:
-                messages.append({"role": "system", "content": "You have used all your tool steps for this turn. "
-                                 "Answer now with what you found; say what is left to do if anything."})
+                messages.append({"role": "system", "content": self._out_of_steps_note(turn_started)})
             queue: asyncio.Queue = asyncio.Queue()
             stop = threading.Event()
             step_meta: Dict[str, Any] = {"finish_reason": "stop", "usage": None, "model": None, "tool_calls": [],
@@ -613,11 +631,11 @@ class OpenRouterClient:
             meta["finish_reason"] = step_meta.get("finish_reason") or "stop"
             meta["model"] = step_meta.get("model") or meta["model"]
             calls = step_meta.get("tool_calls") or []
-            if not calls:
+            if not calls or final_round:
                 break
 
             # The model asked for tools: run them and let it continue.
-            from backend.agency import tools as agency_tools
+            from backend.agency import plans as agency_plans, tools as agency_tools
 
             messages.append({
                 "role": "assistant",
@@ -640,9 +658,23 @@ class OpenRouterClient:
                 else:
                     yield {"type": "tool", "status": "start", "name": c["name"], "args": args}
                     result = await agency_tools.call(c["name"], args)
-                yield {"type": "tool", "status": "done", "name": c["name"], "ok": result["ok"],
-                       "summary": result["result"][:200], "ms": result["ms"]}
+                done_event = {"type": "tool", "status": "done", "name": c["name"], "ok": result["ok"],
+                              "summary": result["result"][:200], "ms": result["ms"]}
+                if c["name"] in ("make_plan", "update_plan") and result["ok"]:
+                    plan = agency_plans.last_touched()
+                    if plan:
+                        done_event["plan"] = agency_plans.snapshot(plan)  # the UI's checklist
+                yield done_event
                 messages.append({"role": "tool", "tool_call_id": call_id, "content": result["result"]})
+
+            step += 1
+            plan = agency_plans.touched_since(turn_started)
+            if plan:
+                budget = max(budget, min(self.MAX_PLAN_STEPS, 4 + 3 * len(plan["steps"])))
+                if not any(c["name"] in ("make_plan", "update_plan") for c in calls):
+                    # Keep her on track: the next step, and check before moving on.
+                    messages[-1]["content"] += (f"\n\n[{agency_plans.status_line(plan)} Check this result "
+                                                "before moving on, then update_plan.]")
 
         usage = usage_total if usage_total["total_tokens"] else {
             "prompt_tokens": packet.estimated_tokens,

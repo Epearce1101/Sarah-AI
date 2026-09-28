@@ -278,9 +278,10 @@ class SarahUI {
         if (cam) previewVideo.play().catch(() => {});
       }
       preview?.classList.toggle("sarah-hidden", !cam);
-      // Hand gestures only while the camera is on.
-      if (cam) this.gestures?.start(); else this.gestures?.stop();
+      // Hand gestures only while the camera is on (and gestures are).
+      if (cam && this._gesturesOn) this.gestures?.start(); else this.gestures?.stop();
     };
+    this._gesturesOn = pref("sarah.gestures", "on") === "on";
     this.gestures = new SarahGestures({
       getVideo: () => this.eyes?.sources?.camera?.video || null,
       onGesture: (name) => this._onHandGesture(name),
@@ -298,6 +299,236 @@ class SarahUI {
     // Her mind's line to her body (fresh looks, things she decides to say).
     this.senses = new SarahSenses({ eyes: this.eyes, ui: this }).start();
     this._initInitiativeToggle();
+    this._initFunctions();
+    this._initBackgroundMode();
+  }
+
+  //---------------------------------------------------------------------------
+  // Functions tab (More): her voice and every on/off switch in one place.
+  // The switches drive the same code as the top-bar buttons and stay in step
+  // with them.
+  //---------------------------------------------------------------------------
+
+  _initFunctions() {
+    const voiceSel = document.getElementById("fn-voice");
+    const volume = document.getElementById("fn-volume");
+    const volumeValue = document.getElementById("fn-volume-value");
+    const speed = document.getElementById("fn-speed");
+    const speedValue = document.getElementById("fn-speed-value");
+    document.getElementById("fn-voice-preview")?.addEventListener("click", () => this.tts?.preview());
+    if (volume) {
+      volume.value = String(Math.round((this.tts?.volume ?? 1) * 100));
+      const show = () => { if (volumeValue) volumeValue.textContent = `${volume.value}%`; };
+      show();
+      volume.addEventListener("input", () => { this.tts?.setVolume(volume.value / 100); show(); });
+    }
+    voiceSel?.addEventListener("change", async () => {
+      if (await this._saveVoice({ voice: voiceSel.value })) {
+        this.tts?.preview();
+        this.tts?.prepareFillers?.().catch(() => {}); // her "Mm," in the new voice too
+      }
+    });
+    let speedTimer = null;
+    speed?.addEventListener("input", () => {
+      if (speedValue) speedValue.textContent = `${(speed.value / 100).toFixed(2)}×`;
+      clearTimeout(speedTimer);
+      speedTimer = setTimeout(async () => {
+        if (await this._saveVoice({ speed: speed.value / 100 })) this.tts?.preview("This is how fast I talk now.");
+      }, 350);
+    });
+    const bar = document.querySelector(".top-bar-right");
+    if (bar) {
+      new MutationObserver(() => {
+        if (this._activeMoreView === "functions") this._renderFunctions();
+      }).observe(bar, { subtree: true, childList: true, characterData: true });
+    }
+  }
+
+  // A row of tabs you can drag (or wheel) sideways; the bar itself is hidden.
+  _initTabScroller(row) {
+    if (!row) return;
+    let startX = 0;
+    let startLeft = 0;
+    let dragging = false;
+    let moved = false;
+    row.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      moved = false;
+      startX = e.clientX;
+      startLeft = row.scrollLeft;
+    });
+    window.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      if (!moved && Math.abs(dx) > 5) {
+        moved = true;
+        row.classList.add("dragging");
+      }
+      if (moved) row.scrollLeft = startLeft - dx;
+    });
+    window.addEventListener("pointerup", () => {
+      dragging = false;
+      row.classList.remove("dragging");
+    });
+    // A drag isn't a click on the tab it ended on.
+    row.addEventListener("click", (e) => {
+      if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; }
+    }, true);
+    row.addEventListener("wheel", (e) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        row.scrollLeft += e.deltaY;
+        e.preventDefault();
+      }
+    }, { passive: false });
+  }
+
+  async _saveVoice(patch) {
+    try {
+      const res = await fetch(`${API_BASE}/api/tts/voice`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+      });
+      return res.ok ? await res.json() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async _loadVoices() {
+    const sel = document.getElementById("fn-voice");
+    const speed = document.getElementById("fn-speed");
+    if (!sel) return;
+    let data = null;
+    try { data = await (await fetch(`${API_BASE}/api/tts/voices`)).json(); } catch {}
+    sel.innerHTML = "";
+    if (!data?.available || !data.voices?.length) {
+      sel.appendChild(new Option("Natural voice unavailable", ""));
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    const groups = {};
+    for (const v of data.voices) {
+      const key = `${v.accent} · ${v.gender}`;
+      if (!groups[key]) {
+        groups[key] = document.createElement("optgroup");
+        groups[key].label = key;
+        sel.appendChild(groups[key]);
+      }
+      groups[key].appendChild(new Option(v.name, v.id));
+    }
+    sel.value = data.voice;
+    if (speed) {
+      speed.value = String(Math.round((data.speed || 1) * 100));
+      const label = document.getElementById("fn-speed-value");
+      if (label) label.textContent = `${(speed.value / 100).toFixed(2)}×`;
+    }
+  }
+
+  _functionSwitches() {
+    const click = (id) => () => document.getElementById(id)?.click();
+    return [
+      { label: "Camera", hint: "She sees you, and your hand gestures.",
+        on: () => this._eyePrefs?.camera, toggle: click("camera-toggle") },
+      { label: "Screen", hint: "She watches your screen: games, code, whatever you're on.",
+        on: () => this._eyePrefs?.screen, toggle: click("screen-toggle") },
+      { label: "Mic", hint: "She listens all the time; just talk.",
+        on: () => this._micOn, toggle: click("mic-toggle") },
+      { label: "Spoken replies", hint: "She answers out loud.",
+        on: () => this.tts?.isEnabled(), toggle: click("voice-toggle") },
+      { label: "Initiative", hint: "She speaks up and does things on her own.",
+        on: () => !this._initiativeQuiet, toggle: click("initiative-toggle") },
+      { label: "Hand gestures", hint: "Wave, thumbs up, peace sign… she reacts (camera on).",
+        on: () => this._gesturesOn, toggle: () => this._setGestures(!this._gesturesOn) },
+      { label: "Keep running when closed", hint: "Closing the window sends her to the tray, where she keeps "
+          + "working on her own time. Camera, screen and mic switch off while she's there.",
+        on: () => this._backgroundOn, toggle: () => this._setBackgroundMode(!this._backgroundOn),
+        disabled: !window.sarahApp },
+    ];
+  }
+
+  _renderFunctions(reloadVoices = false) {
+    const box = document.getElementById("fn-switches");
+    if (!box) return;
+    if (reloadVoices) this._loadVoices();
+    box.innerHTML = "";
+    for (const s of this._functionSwitches()) {
+      const on = Boolean(s.on());
+      const row = document.createElement("div");
+      row.className = "fn-switch";
+      const text = document.createElement("div");
+      text.className = "fn-switch-text";
+      const label = document.createElement("div");
+      label.className = "fn-switch-label";
+      label.textContent = s.label;
+      const hint = document.createElement("div");
+      hint.className = "fn-switch-hint";
+      hint.textContent = s.hint;
+      text.append(label, hint);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "fn-toggle" + (on ? " on" : "");
+      btn.setAttribute("role", "switch");
+      btn.setAttribute("aria-checked", String(on));
+      btn.setAttribute("aria-label", s.label);
+      btn.textContent = on ? "ON" : "OFF";
+      btn.disabled = Boolean(s.disabled);
+      btn.addEventListener("click", async () => {
+        await s.toggle();
+        setTimeout(() => this._renderFunctions(), 150);
+      });
+      row.append(text, btn);
+      box.appendChild(row);
+    }
+  }
+
+  _setGestures(on) {
+    this._gesturesOn = Boolean(on);
+    try { localStorage.setItem("sarah.gestures", on ? "on" : "off"); } catch {}
+    const cameraOpen = Boolean(this.eyes?.sources?.camera);
+    if (on && cameraOpen) this.gestures?.start(); else this.gestures?.stop();
+  }
+
+  //---------------------------------------------------------------------------
+  // Background: closing the window sends her to the tray (main.js). While
+  // there, camera, screen and mic are released (your settings are kept) and
+  // anything she says arrives as a desktop notification. Opening her again
+  // restores them, and she hears you're back (so she can tell you what she
+  // did on her own time).
+  //---------------------------------------------------------------------------
+
+  async _initBackgroundMode() {
+    this._inTray = false;
+    this._backgroundOn = false;
+    if (!window.sarahApp) return;
+    try { this._backgroundOn = Boolean((await window.sarahApp.getPrefs())?.background); } catch {}
+    window.sarahApp.onWindowState((state) => this._onWindowState(Boolean(state?.tray)));
+  }
+
+  async _setBackgroundMode(on) {
+    try { this._backgroundOn = Boolean((await window.sarahApp?.setPrefs({ background: Boolean(on) }))?.background); } catch {}
+  }
+
+  _onWindowState(inTray) {
+    if (inTray === this._inTray) return;
+    this._inTray = inTray;
+    if (inTray) {
+      this._trayAt = Date.now();
+      this._voiceQueue = []; // nothing half-heard gets sent after you've gone
+      this.tts?.stop();
+      this.eyes?.setSources({ screen: false, camera: false });
+      if (this._micOn) {
+        this.liveVoice?.stop();
+        this._releaseCachedMic();
+      }
+      console.info("[Background] in the tray: senses released");
+      return;
+    }
+    this.eyes?.setSources(this._eyePrefs);
+    if (this._micOn) this.liveVoice?.start();
+    const away = Math.round((Date.now() - (this._trayAt || Date.now())) / 1000);
+    window.SARAH_PRESENCE?.sense?.("returned", { away_seconds: away, from_tray: true });
+    console.info("[Background] back from the tray after", away, "s");
   }
 
   // You made a hand gesture at the camera: she reacts at once, and a wave
@@ -326,6 +557,7 @@ class SarahUI {
     const btn = document.getElementById("initiative-toggle");
     if (!btn) return;
     const render = (quiet) => {
+      this._initiativeQuiet = quiet;
       btn.textContent = quiet ? "Initiative: QUIET" : "Initiative: ON";
       btn.classList.toggle("listening", !quiet);
     };
@@ -338,6 +570,7 @@ class SarahUI {
     };
     let quiet = false;
     try { quiet = localStorage.getItem("sarah.initiative") === "quiet"; } catch {}
+    render(quiet);
     btn.addEventListener("click", () => { quiet = !quiet; set(quiet); });
     setTimeout(() => set(quiet), 3000);
   }
@@ -1174,6 +1407,9 @@ class SarahUI {
         close: `🪟 Closing ${short(a.title, 30)}`, close_without_saving: `🪟 Closing ${short(a.title, 30)} without saving`,
         close_and_save: `🪟 Saving and closing ${short(a.title, 30)}`,
       }[a.action] || `🪟 ${a.action} ${short(a.title, 30)}`),
+      make_plan: () => `🗺️ Planning: ${short(a.goal)}`,
+      update_plan: () => a.plan_status ? `🗺️ Plan ${a.plan_status}` : `🗺️ Step ${a.step ?? ""} ${a.status || "updated"}`,
+      recall: () => `💭 Remembering${a.query ? ` “${short(a.query, 40)}”` : a.day ? ` ${a.day}` : ""}`,
       add_skill: () => `🎓 Learning a skill`,
       use_skill: () => `🎓 Using skill: ${short(a.name, 40)}`,
       remove_skill: () => `🎓 Forgetting skill: ${short(a.name, 40)}`,
@@ -1192,7 +1428,33 @@ class SarahUI {
         row.title = evt.summary || "";
         row.textContent += evt.ok ? " ✓" : " ✗";
       }
+      if (evt.plan) this._showPlan(bubble, evt.plan);
     }
+  }
+
+  // Her plan as a live checklist above the tool lines.
+  _showPlan(bubble, plan) {
+    let box = bubble.querySelector(".chat-plan");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "chat-plan";
+      bubble.insertBefore(box, bubble.querySelector(".chat-tool-activity"));
+    }
+    box.innerHTML = "";
+    const done = plan.steps.filter((s) => s.status !== "pending").length;
+    const head = document.createElement("div");
+    head.className = "chat-plan-head";
+    head.textContent = `🗺️ ${plan.goal} · ${done}/${plan.steps.length}`
+      + (plan.status === "blocked" ? " · needs you" : plan.status === "done" ? " · done" : "");
+    box.appendChild(head);
+    const marks = { pending: "○", done: "✓", failed: "✗", skipped: "–" };
+    const nextIdx = plan.steps.findIndex((s) => s.status === "pending");
+    plan.steps.forEach((s, i) => {
+      const row = document.createElement("div");
+      row.className = `chat-plan-step ${s.status}${i === nextIdx && plan.status === "active" ? " next" : ""}`;
+      row.textContent = `${marks[s.status] || "○"} ${s.text}`;
+      box.appendChild(row);
+    });
   }
 
   // The Stop button shows while she's acting; it pauses all her tools.
@@ -1264,6 +1526,11 @@ class SarahUI {
       source: "spontaneous",
     });
     const resp = { reply: out.reply, emotion: out.emotion, emotion_intensity: out.emotion_intensity };
+    if (this._inTray) {
+      // Window closed to the tray: a quiet desktop notification, not her voice.
+      try { new Notification("Sarah", { body: reply.slice(0, 240), silent: false }); } catch {}
+      return;
+    }
     if (this.tts.isEnabled() && this.tts.isMuting()) {
       const { cues } = this._parseReply(out.reply);
       window.SARAH_AVATAR_DIRECTOR?.performText?.(reply, cues);
@@ -3904,6 +4171,8 @@ class SarahUI {
       this.llmModeBtn.addEventListener("click", () => this.toggleLLMMode());
     }
 
+    this._initTabScroller(document.querySelector(".more-panel-tabs"));
+
     // MORE panel
     if (this.moreToggleBtn) {
       this.moreToggleBtn.addEventListener("click", () => {
@@ -4592,6 +4861,8 @@ class SarahUI {
       this.moreTabs.forEach((b) =>
         b.classList.toggle("active", b.getAttribute("data-view") === view)
       );
+      this.moreTabs.find((b) => b.getAttribute("data-view") === view)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
     }
 
     if (this.moreViewConversations) {
@@ -4610,11 +4881,14 @@ class SarahUI {
       this.moreViewSkills.style.display =
         view === "skills" ? "flex" : "none";
     }
+    const functionsView = document.getElementById("more-view-functions");
+    if (functionsView) functionsView.style.display = view === "functions" ? "flex" : "none";
 
     if (view === "conversations") this.refreshConversations();
     else if (view === "memories") this.refreshMemories();
     else if (view === "projects") this.refreshProjects();
     else if (view === "skills") this.refreshSkills();
+    else if (view === "functions") this._renderFunctions(true);
   }
 
   //---------------------------------------------------------------------------
@@ -5071,7 +5345,9 @@ class SarahUI {
 
       const body = document.createElement("div");
       body.className = "memory-card-body";
-      body.textContent = msg.content.length > 200 ? msg.content.substring(0, 200) + "..." : msg.content;
+      // Her messages without the body tags (<feel>, <gesture>...).
+      const shown = msg.role === "assistant" ? this._sanitizeAssistantDisplayText(msg.content || "") : (msg.content || "");
+      body.textContent = shown.length > 200 ? shown.substring(0, 200) + "..." : shown;
 
       const meta = document.createElement("div");
       meta.className = "memory-card-meta";

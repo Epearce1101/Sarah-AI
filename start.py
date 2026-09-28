@@ -295,6 +295,22 @@ def wait_for_backend(timeout: int = 60) -> bool:
 # ---------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------
+def already_running() -> bool:
+    try:
+        return requests.get(HEALTH_URL, timeout=1).status_code == 200
+    except Exception:
+        return False
+
+
+def show_running_instance() -> int:
+    """Sarah is already running (maybe in the tray): a second Electron start
+    just tells the first one to show its window, then exits."""
+    print("[Sarah Launcher] Sarah is already running; bringing her window up.")
+    subprocess.run(_resolve_npm_start_command(), cwd=str(ELECTRON_DIR), capture_output=True,
+                   creationflags=CHILD_FLAGS, timeout=120)
+    return 0
+
+
 def main() -> int:
     install_close_handler()
     set_status("starting")
@@ -379,6 +395,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if already_running():
+        sys.exit(show_running_instance())
     _publish_token()
     code = 0
     try:

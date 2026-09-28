@@ -134,11 +134,11 @@
 
     <div class="top-bar-right">
       <button id="stop-actions" class="pill-btn pill-btn-small sarah-hidden" title="Stop what Sarah is doing">■ Stop</button>
-      <button id="initiative-toggle" class="pill-btn pill-btn-small" title="ON: she speaks up and acts on her own. QUIET: she waits to be spoken to.">Initiative: …</button>
-      <button id="camera-toggle" class="pill-btn pill-btn-small" title="Her camera. Stays off until you turn it back on.">Camera: …</button>
-      <button id="screen-toggle" class="pill-btn pill-btn-small" title="Her view of your screen. Stays off until you turn it back on.">Screen: …</button>
-      <button id="mic-toggle" class="pill-btn pill-btn-small" title="Her microphone. Stays off until you turn it back on.">Mic: …</button>
-      <button id="voice-toggle" class="pill-btn pill-btn-small">Voice: OFF</button>
+      <button id="initiative-toggle" class="pill-btn pill-btn-small sarah-hidden" title="ON: she speaks up and acts on her own. QUIET: she waits to be spoken to.">Initiative: …</button>
+      <button id="camera-toggle" class="pill-btn pill-btn-small sarah-hidden" title="Her camera. Stays off until you turn it back on.">Camera: …</button>
+      <button id="screen-toggle" class="pill-btn pill-btn-small sarah-hidden" title="Her view of your screen. Stays off until you turn it back on.">Screen: …</button>
+      <button id="mic-toggle" class="pill-btn pill-btn-small sarah-hidden" title="Her microphone. Stays off until you turn it back on.">Mic: …</button>
+      <button id="voice-toggle" class="pill-btn pill-btn-small sarah-hidden">Voice: OFF</button>
       <button id="more-toggle" class="pill-btn pill-btn-small">More</button>
     </div>
   </header>
@@ -298,7 +298,7 @@
         <div class="more-panel-header">
           <div>
             <div class="more-panel-title">Sarah Tools</div>
-            <div class="more-panel-subtitle">Conversations / Memories / Projects / Skills</div>
+            <div class="more-panel-subtitle">Conversations / Memories / Projects / Skills / Functions</div>
           </div>
           <button id="more-close" class="more-close-btn">X</button>
         </div>
@@ -308,7 +308,33 @@
           <button class="more-tab" data-view="memories">Memories</button>
           <button class="more-tab" data-view="projects">Projects</button>
           <button class="more-tab" data-view="skills">Skills</button>
+          <button class="more-tab" data-view="functions">Functions</button>
         </div>
+
+        <section id="more-view-functions" class="more-panel-body fn-panel" style="display:none;">
+          <div class="fn-group">
+            <h3 class="more-section-title">Her voice</h3>
+            <div class="fn-row">
+              <label for="fn-voice">Voice</label>
+              <select id="fn-voice" class="fn-select"><option>Loading…</option></select>
+              <button id="fn-voice-preview" class="pill-btn pill-btn-small" type="button">▶ Hear</button>
+            </div>
+            <div class="fn-row">
+              <label for="fn-volume">Volume</label>
+              <input id="fn-volume" class="fn-range" type="range" min="0" max="100" step="1" />
+              <span id="fn-volume-value" class="fn-value">100%</span>
+            </div>
+            <div class="fn-row">
+              <label for="fn-speed">Speed</label>
+              <input id="fn-speed" class="fn-range" type="range" min="70" max="140" step="5" />
+              <span id="fn-speed-value" class="fn-value">1.00×</span>
+            </div>
+          </div>
+          <div class="fn-group">
+            <h3 class="more-section-title">Senses &amp; behaviour</h3>
+            <div id="fn-switches" class="fn-switches"></div>
+          </div>
+        </section>
 
         <section id="more-view-projects" class="more-panel-body" style="display:none;">
           <div class="more-conv-toolbar">

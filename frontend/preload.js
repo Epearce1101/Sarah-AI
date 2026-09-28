@@ -128,6 +128,13 @@ contextBridge.exposeInMainWorld("sarahVision", {
 // ============================================================================
 // ELECTRON UTILITY BRIDGE (Simple message receiver)
 // ============================================================================
+// App window / background mode (tray).
+contextBridge.exposeInMainWorld("sarahApp", {
+  getPrefs: () => ipcRenderer.invoke("app-prefs-get"),
+  setPrefs: (patch) => ipcRenderer.invoke("app-prefs-set", patch),
+  onWindowState: (callback) => ipcRenderer.on("sarah:window-state", (_event, state) => callback(state)),
+});
+
 contextBridge.exposeInMainWorld("electron", {
   receive: (channel, callback) => {
     ipcRenderer.on(channel, (_event, ...args) => callback(...args));

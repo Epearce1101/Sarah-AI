@@ -11,7 +11,8 @@ const {
   ipcMain,
   dialog,
   clipboard,
-  Menu
+  Menu,
+  Tray,
 } = require("electron");
 
 const path = require("path");
@@ -116,6 +117,98 @@ app.on("session-created", (sess) => {
 let mainWindow = null;
 
 // ---------------------------------------------------------------------------
+// BACKGROUND MODE: closing the window hides Sarah to the tray; she keeps
+// running (her own time) until "Quit Sarah" in the tray menu. Camera, screen
+// and mic are released while she's in the tray (the renderer does that on
+// "sarah:window-state"). SARAH_BACKGROUND=0 turns it off for this run.
+// ---------------------------------------------------------------------------
+const PREFS_PATH = path.join(app.getPath("userData"), "sarah-app-prefs.json");
+let appPrefs = { background: true };
+try { appPrefs = { ...appPrefs, ...JSON.parse(fs.readFileSync(PREFS_PATH, "utf8")) }; } catch {}
+let tray = null;
+let quitting = false;
+let trayHintShown = false;
+
+function backgroundEnabled() {
+  return process.env.SARAH_BACKGROUND !== "0" && appPrefs.background !== false;
+}
+
+function saveAppPrefs() {
+  try { fs.writeFileSync(PREFS_PATH, JSON.stringify(appPrefs)); } catch (err) {
+    console.warn("[Tray] could not save prefs:", err.message);
+  }
+}
+
+function tellBackendTray(hidden) {
+  fetchFn(`${BACKEND_BASE}/api/agency/background?hidden=${hidden}`, {
+    method: "POST", headers: backendHeaders(),
+  }).catch(() => {});
+}
+
+function setWindowState(inTray) {
+  mainWindow?.webContents.send("sarah:window-state", { tray: inTray });
+  tellBackendTray(inTray);
+}
+
+function hideToTray() {
+  if (!mainWindow) return;
+  mainWindow.hide();
+  setWindowState(true);
+  if (!trayHintShown && tray) {
+    trayHintShown = true;
+    tray.displayBalloon?.({
+      title: "Sarah is still here",
+      content: "She keeps working in the background. Right-click this icon to quit.",
+      iconType: "info",
+    });
+  }
+}
+
+function showWindow() {
+  if (!mainWindow) { createWindow(); return; }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  const wasHidden = !mainWindow.isVisible();
+  mainWindow.show();
+  mainWindow.focus();
+  if (wasHidden) setWindowState(false);
+}
+
+function quitSarah() {
+  quitting = true;
+  app.quit();
+}
+
+function setupTray() {
+  if (tray) return;
+  tray = new Tray(path.join(__dirname, "renderer", "assets", "sarah.ico"));
+  tray.setToolTip("Sarah");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "Open Sarah", click: showWindow },
+    { type: "separator" },
+    { label: "Quit Sarah", click: quitSarah },
+  ]));
+  tray.on("click", showWindow);
+  tray.on("double-click", showWindow);
+}
+
+ipcMain.handle("app-prefs-get", () => ({ ...appPrefs, background: backgroundEnabled() }));
+ipcMain.handle("app-prefs-set", (_event, patch = {}) => {
+  if (typeof patch.background === "boolean") appPrefs.background = patch.background;
+  saveAppPrefs();
+  return { ...appPrefs, background: backgroundEnabled() };
+});
+
+// One Sarah: launching her again (desktop shortcut) shows the running one.
+const isFirstInstance = app.requestSingleInstanceLock();
+if (!isFirstInstance) {
+  app.quit();
+} else {
+  app.on("second-instance", showWindow);
+}
+
+app.on("before-quit", () => { quitting = true; });
+
+// ---------------------------------------------------------------------------
 // WINDOW CREATION
 // ---------------------------------------------------------------------------
 function createWindow() {
@@ -167,6 +260,12 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "renderer", "index.html"));
 
   mainWindow.on("ready-to-show", () => mainWindow.show());
+  mainWindow.on("close", (event) => {
+    if (!quitting && backgroundEnabled()) {
+      event.preventDefault();
+      hideToTray();
+    }
+  });
   mainWindow.on("closed", () => (mainWindow = null));
 }
 
@@ -209,6 +308,7 @@ function setupMenu() {
 }
 
 app.whenReady().then(() => {
+  if (!isFirstInstance) return;
   setupMenu(); // Must be called BEFORE createWindow
 
   // The default session can predate the session-created listener; both
@@ -234,6 +334,7 @@ app.whenReady().then(() => {
   }, { useSystemPicker: false });
 
   createWindow();
+  setupTray();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

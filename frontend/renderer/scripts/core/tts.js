@@ -23,6 +23,31 @@ export class SarahTTS {
     this._ttsMuteUntil = 0;
     this._ttsTailMs = 1500;
     this._streamGeneration = 0;
+    // Her voice volume (Functions tab), 0..1, applied live through a gain node.
+    this.volume = 1;
+    try {
+      const saved = parseFloat(localStorage.getItem("sarah.voice.volume"));
+      if (Number.isFinite(saved)) this.volume = Math.max(0, Math.min(1, saved));
+    } catch {}
+    this.masterGain = null;
+  }
+
+  setVolume(value) {
+    this.volume = Math.max(0, Math.min(1, Number(value) || 0));
+    try { localStorage.setItem("sarah.voice.volume", String(this.volume)); } catch {}
+    if (this.masterGain) this.masterGain.gain.setTargetAtTime(this.volume, this.audioContext.currentTime, 0.02);
+    if (this.currentAudio && !this.currentAudio._routed) this.currentAudio.volume = this.volume;
+  }
+
+  // Say a sample line in the current voice, even if spoken replies are off.
+  async preview(text = "Hi, it's me. This is how I sound now.") {
+    this.stop();
+    try {
+      const url = await this.backend.tts(text);
+      await this._startClip(url, text);
+    } catch (err) {
+      console.warn("[TTS] preview failed:", err);
+    }
   }
 
   isEnabled() {
@@ -138,8 +163,15 @@ export class SarahTTS {
         analyser = this.audioContext.createAnalyser();
         analyser.fftSize = 1024;
         analyser.smoothingTimeConstant = 0.5;
+        if (!this.masterGain) {
+          this.masterGain = this.audioContext.createGain();
+          this.masterGain.gain.value = this.volume;
+          this.masterGain.connect(this.audioContext.destination);
+        }
+        // Lip sync reads the full signal; volume applies after it.
         source.connect(analyser);
-        analyser.connect(this.audioContext.destination);
+        analyser.connect(this.masterGain);
+        audio._routed = true;
         this.lipSyncSource = source;
         this.lipSyncAnalyser = analyser;
       } catch (err) {
@@ -285,6 +317,7 @@ export class SarahTTS {
       }
     });
     await this._attachAvatarAudio(audio, text, cues);
+    if (!audio._routed) audio.volume = this.volume;
     await new Promise((resolve) => {
       if (audio.readyState >= 3) {
         resolve();

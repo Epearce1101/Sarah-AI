@@ -21,6 +21,26 @@ except Exception as e:
 router = APIRouter()
 
 
+@router.get("/api/tts/voices")
+def tts_voices():
+    """Voices she can speak with, and the current choice (Functions tab)."""
+    from backend import tts_kokoro
+
+    return {"available": tts_kokoro.available(), "voices": tts_kokoro.voices(),
+            "voice": tts_kokoro.voice(), "speed": tts_kokoro.speed()}
+
+
+@router.post("/api/tts/voice")
+def tts_set_voice(payload: dict):
+    """Pick her voice / speaking speed; applies to the next sentence."""
+    from backend import tts_kokoro
+
+    try:
+        return {"ok": True, **tts_kokoro.set_prefs(payload.get("voice"), payload.get("speed"))}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/api/tts")
 def api_tts(req: TTSRequest):
     started_at = time.perf_counter()

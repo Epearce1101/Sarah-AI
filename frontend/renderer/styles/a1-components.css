@@ -1535,3 +1535,75 @@ select:focus {
   border-radius: 6px;
 }
 .camera-preview-label::first-letter { color: var(--accent-rose); }
+
+/* Her plan: a live checklist in her bubble. */
+.chat-plan {
+  margin: 4px 0 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-violet);
+  background: var(--surface-badge);
+  font-size: 12px;
+}
+.chat-plan-head { color: var(--text-main); font-weight: 600; margin-bottom: 3px; }
+.chat-plan-step { color: var(--text-soft); padding: 1px 0; }
+.chat-plan-step.done { color: var(--text-muted); }
+.chat-plan-step.failed { color: var(--accent-rose); }
+.chat-plan-step.skipped { color: var(--text-muted); text-decoration: line-through; }
+.chat-plan-step.next { color: var(--accent-cyan); }
+
+/* Functions tab (More): voice + every switch. */
+.fn-panel { flex-direction: column; gap: 14px; overflow-y: auto; }
+.fn-group { display: flex; flex-direction: column; gap: 8px; }
+.fn-row { display: grid; grid-template-columns: 70px 1fr auto; align-items: center; gap: 10px; }
+.fn-row label { color: var(--text-soft); font-size: 13px; }
+.fn-select {
+  background: var(--surface-input-strong);
+  color: var(--text-main);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+.fn-select optgroup, .fn-select option { background: var(--bg-panel-strong); color: var(--text-main); }
+.fn-range { width: 100%; accent-color: var(--accent-magenta); }
+.fn-value { min-width: 48px; text-align: right; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.fn-switches { display: flex; flex-direction: column; gap: 6px; }
+.fn-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-badge);
+  border: 1px solid var(--border-faint);
+}
+.fn-switch-label { color: var(--text-main); font-size: 13px; }
+.fn-switch-hint { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+.fn-toggle {
+  flex: none;
+  min-width: 52px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-button);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fn-toggle.on { border-color: var(--border-success); background: var(--surface-success); color: var(--accent-green); }
+.fn-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* More panel tabs: one row that scrolls sideways (drag or wheel), no visible bar. */
+.more-panel-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  cursor: grab;
+}
+.more-panel-tabs::-webkit-scrollbar { display: none; }
+.more-panel-tabs.dragging { cursor: grabbing; user-select: none; }
+.more-panel-tabs .more-tab { flex: 0 0 auto; white-space: nowrap; }

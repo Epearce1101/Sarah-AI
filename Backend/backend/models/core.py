@@ -64,8 +64,15 @@ def add_memory(
         """,
         (role, content, tags, importance, embedding),
     )
+    memory_id = cur.lastrowid
     conn.commit()
     conn.close()
+    try:
+        from backend.memory import episodic
+        episodic.note("fact", content, source=f"mem:{memory_id}", importance=1)
+    except Exception:
+        pass
+    return memory_id
 
 
 def get_memories(limit: int = 50) -> List[Dict[str, Any]]:
@@ -367,6 +374,12 @@ def add_message(conversation_id: int, role: str, content: str, meta_json: str = 
 
     conn.commit()
     conn.close()
+    if role == "assistant":
+        try:  # the exchange becomes one of her episodic memories (background)
+            from backend.memory import episodic
+            episodic.note_message(message_id)
+        except Exception:
+            pass
     return message_id
 
 
