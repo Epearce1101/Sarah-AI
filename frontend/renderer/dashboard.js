@@ -5246,7 +5246,7 @@ class SarahUI {
       if (discover) {
         this._renderSkillDetail(
           "Discovering skills",
-          "Scanning the OpenClaw workspace for SKILL.md files..."
+          "Checking Sarah's skills..."
         );
         await this.backend.discoverSkills();
       }
