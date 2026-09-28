@@ -198,8 +198,27 @@ ipcMain.handle("app-prefs-set", (_event, patch = {}) => {
   return { ...appPrefs, background: backgroundEnabled() };
 });
 
+// Browser Bridge setup: open Chrome's extensions page and the extension
+// folder, so loading it is "Developer mode -> Load unpacked -> this folder".
+ipcMain.handle("setup-chrome-bridge", async () => {
+  const { shell } = require("electron");
+  const folder = path.resolve(__dirname, "..", "chrome-extension");
+  const chrome = [
+    process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "Google", "Chrome", "Application", "chrome.exe"),
+    process.env["PROGRAMFILES(X86)"] && path.join(process.env["PROGRAMFILES(X86)"], "Google", "Chrome", "Application", "chrome.exe"),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "Application", "chrome.exe"),
+  ].find((p) => p && fs.existsSync(p));
+  if (chrome) {
+    require("child_process").spawn(chrome, ["chrome://extensions/"], { detached: true, stdio: "ignore" }).unref();
+  }
+  clipboard.writeText(folder);
+  await shell.openPath(folder);
+  return { ok: true, folder, chrome: Boolean(chrome) };
+});
+
 // One Sarah: launching her again (desktop shortcut) shows the running one.
-const isFirstInstance = app.requestSingleInstanceLock();
+// (SARAH_SINGLE_INSTANCE=0: test runs alongside the real one.)
+const isFirstInstance = process.env.SARAH_SINGLE_INSTANCE === "0" || app.requestSingleInstanceLock();
 if (!isFirstInstance) {
   app.quit();
 } else {

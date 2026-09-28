@@ -167,3 +167,12 @@ def test_only_her_own_folder_is_read(tmp_path, repertoire, monkeypatch):
     from backend.skills import get_enabled_skills
     assert not any(s.slug == "weather-check" for s in get_enabled_skills())
     assert repertoire.exists() and not any(repertoire.iterdir())
+
+
+def test_skill_without_a_name_is_named_after_its_folder(tmp_path, repertoire):
+    src = tmp_path / "desktop_control"
+    src.mkdir()
+    (src / "SKILL.md").write_text("---\ndescription: Advanced desktop automation\n---\n# Desktop\nUse pyautogui.\n",
+                                  encoding="utf-8")
+    out = installer.install_skill(str(src))
+    assert out["slug"] == "desktop-control" and out["name"] == "desktop control"

@@ -133,6 +133,7 @@ contextBridge.exposeInMainWorld("sarahApp", {
   getPrefs: () => ipcRenderer.invoke("app-prefs-get"),
   setPrefs: (patch) => ipcRenderer.invoke("app-prefs-set", patch),
   onWindowState: (callback) => ipcRenderer.on("sarah:window-state", (_event, state) => callback(state)),
+  setupChrome: () => ipcRenderer.invoke("setup-chrome-bridge"),
 });
 
 contextBridge.exposeInMainWorld("electron", {

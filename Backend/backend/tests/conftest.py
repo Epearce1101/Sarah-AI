@@ -70,6 +70,8 @@ def _isolate_sarah_workspace_state(tmp_path, monkeypatch):
     monkeypatch.setattr(agenda, "_FILE", tmp_path / "agenda.json")
     monkeypatch.setattr(reminders, "_FILE", tmp_path / "reminders.json")
     monkeypatch.setattr(plans, "_FILE", tmp_path / "plans.json")
+    from backend import tts_kokoro
+    monkeypatch.setattr(tts_kokoro, "_prefs_file", lambda: tmp_path / "voice.json")  # not Zero's voice choice
 
 
 def fake_embed(texts):

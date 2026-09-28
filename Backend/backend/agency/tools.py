@@ -339,21 +339,31 @@ def read_webpage(url: str, max_chars: int = 6000):
     return text[:limit] + ("\n...[more on the page]" if len(text) > limit else "")
 
 
-@tool("browser", "Your own web browser for real browsing: pages that need JavaScript, clicking, "
-      "typing, forms, logins you've been given, scrolling. Actions: open (url), read (current page), "
-      "click (ref), type (ref + text, submit to press Enter), select (ref + option text), press (key), "
-      "scroll (direction up/down), back, forward, extract (scrape: CSS selector in text, returns every "
-      "match with its text/link), tables (every table as rows), look (screenshot + question), close. "
-      "Each result lists the page text and numbered elements [n] to use as ref. Set visible=true to let "
-      "Zero watch the window.",
-      {"action": {"type": "string", "enum": ["open", "read", "click", "type", "select", "press", "scroll", "back", "forward", "extract", "tables", "look", "close"]},
+@tool("browser", "Real web browsing: pages that need JavaScript, clicking, typing, forms, scrolling. "
+      "When Zero's Chrome is connected (the Sarah extension) this works right in their Chrome, in a tab "
+      "of your own, with their logins; leave their other tabs alone unless they ask (then use_tab: the "
+      "tab they're on, or tab_id from tabs). Otherwise it's your own separate browser. Actions: open "
+      "(url), read (current page), click (ref), type (ref + text, submit to press Enter), select (ref + "
+      "option text), press (key), scroll (direction up/down), back, forward, extract (scrape: CSS selector "
+      "in text), tables, look (screenshot + question), close (your tab), tabs (list Chrome tabs), use_tab. "
+      "Each result lists the page text and numbered elements [n] to use as ref. where='own' forces your "
+      "separate browser; visible=true shows that one.",
+      {"action": {"type": "string", "enum": ["open", "read", "click", "type", "select", "press", "scroll", "back",
+                                             "forward", "extract", "tables", "look", "close", "tabs", "use_tab"]},
        "url": {"type": "string"}, "ref": {"type": "integer"}, "text": {"type": "string"},
        "submit": {"type": "boolean"}, "key": {"type": "string"}, "direction": {"type": "string"},
-       "question": {"type": "string"}, "visible": {"type": "boolean"}, "max_chars": {"type": "integer"}},
+       "question": {"type": "string"}, "visible": {"type": "boolean"}, "max_chars": {"type": "integer"},
+       "tab_id": {"type": "integer"}, "where": {"type": "string", "enum": ["chrome", "own"]}},
       ["action"], timeout=90)
-async def browser_tool(action: str, **kwargs):
+async def browser_tool(action: str, where: str = "chrome", **kwargs):
+    from .chrome_bridge import bridge
     from .browser import browser
 
+    if where != "own" and bridge.connected():
+        return await bridge.act(action, **kwargs)
+    if action in ("tabs", "use_tab"):
+        return "Zero's Chrome isn't connected (the Sarah Browser Bridge extension), so you can't see their tabs."
+    kwargs.pop("tab_id", None)
     return await browser.act(action, **kwargs)
 
 
@@ -543,14 +553,18 @@ def delete_path(path: str):
       "e.g. https://www.youtube.com/results?search_query=lofi or a video link), a file with its default "
       "app, or an app by name or path (e.g. 'notepad', 'calc', 'spotify', 'C:/Games/game.exe').",
       {"target": {"type": "string"}}, ["target"], timeout=20)
-def open_item(target: str):
+async def open_item(target: str):
     from . import desktop
+    from .chrome_bridge import bridge
 
     target = (target or "").strip()
     if re.match(r"^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+(/\S*)?$", target, re.I) and not os.path.exists(target):
         target = "https://" + target  # "youtube.com" -> a web address
     if re.match(r"^https?://", target, re.I):
-        return desktop.open_in_chrome(target)  # websites: Chrome only
+        if bridge.connected():  # a new tab in the Chrome Zero already has open
+            page = await bridge.call("open", {"url": target, "max_chars": 1500})
+            return f"Opened {page.get('title') or target} in a new Chrome tab (tab_id {page.get('tab_id')})."
+        return await asyncio.to_thread(desktop.open_in_chrome, target)  # websites: Chrome only
     if re.match(r"^(mailto|spotify|steam|discord)://", target) or os.path.exists(os.path.expanduser(target)):
         os.startfile(os.path.expanduser(target))
     else:

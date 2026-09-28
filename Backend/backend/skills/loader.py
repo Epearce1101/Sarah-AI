@@ -106,6 +106,9 @@ def parse_manifest_file(path: Path) -> Optional[Dict[str, object]]:
     # OpenClaw / Agent Skills files have no `slug`: the folder name is it.
     if not frontmatter.get("slug"):
         frontmatter["slug"] = expected_slug
+    # Some published skills omit `name`: the folder name reads fine as one.
+    if not frontmatter.get("name"):
+        frontmatter["name"] = expected_slug.replace("_", " ").replace("-", " ").strip() or expected_slug
     missing = [k for k in ("name", "description") if not frontmatter.get(k)]
     if missing:
         logger.warning(

@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    :root { --bg: #10061f; --text: #f8f1ff; --muted: rgba(219, 197, 255, 0.6); --ok: #55f2a3; --off: #ff4f7a; }
+    body { margin: 0; padding: 12px 14px; width: 240px; background: var(--bg); color: var(--text); font: 13px system-ui, sans-serif; }
+    .state { font-weight: 600; margin-bottom: 6px; }
+    .on { color: var(--ok); }
+    .off { color: var(--off); }
+    p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div id="state" class="state">…</div>
+  <p id="hint"></p>
+  <script src="popup.js"></script>
+</body>
+</html>

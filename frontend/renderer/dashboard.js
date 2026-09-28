@@ -447,10 +447,36 @@ class SarahUI {
     ];
   }
 
+  // Is the Sarah Browser Bridge extension connected in Zero's Chrome?
+  async _renderChromeBridge() {
+    const state = document.getElementById("fn-chrome-state");
+    const hint = document.getElementById("fn-chrome-hint");
+    const btn = document.getElementById("fn-chrome-setup");
+    if (!state) return;
+    let st = null;
+    try { st = await (await fetch(`${API_BASE}/api/agency/chrome`)).json(); } catch {}
+    const on = Boolean(st?.connected);
+    state.textContent = on ? "Connected: she browses in your Chrome" : "Not connected";
+    state.style.color = on ? "var(--accent-green)" : "";
+    hint.textContent = on
+      ? "She opens her own tab and leaves yours alone unless you ask."
+      : "One-time setup: Set up opens Chrome's extensions page and the extension folder. Turn on "
+        + "Developer mode, click \"Load unpacked\" and pick the chrome-extension folder (its path is "
+        + "copied, so you can paste it).";
+    btn.classList.toggle("sarah-hidden", on);
+    if (!btn._bound) {
+      btn._bound = true;
+      btn.addEventListener("click", () => window.sarahApp?.setupChrome?.(st?.folder));
+    }
+  }
+
   _renderFunctions(reloadVoices = false) {
     const box = document.getElementById("fn-switches");
     if (!box) return;
-    if (reloadVoices) this._loadVoices();
+    if (reloadVoices) {
+      this._loadVoices();
+      this._renderChromeBridge();
+    }
     box.innerHTML = "";
     for (const s of this._functionSwitches()) {
       const on = Boolean(s.on());
@@ -4188,6 +4214,9 @@ class SarahUI {
     // Click outside to close more panel
     document.addEventListener("click", (e) => {
       if (!this.morePanel?.classList.contains("open")) return;
+      // Only real clicks count: the Functions switches press (hidden) top-bar
+      // buttons in code, and a switch re-renders (detaching the clicked row).
+      if (!e.isTrusted || !e.target?.isConnected) return;
 
       // Check if click is outside the panel and not on panel-opening buttons
       const isInsidePanel = this.morePanel.contains(e.target);

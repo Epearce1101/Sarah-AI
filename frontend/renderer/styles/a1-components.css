@@ -1607,3 +1607,10 @@ select:focus {
 .more-panel-tabs::-webkit-scrollbar { display: none; }
 .more-panel-tabs.dragging { cursor: grabbing; user-select: none; }
 .more-panel-tabs .more-tab { flex: 0 0 auto; white-space: nowrap; }
+
+/* Wider More panel: all tabs fit; tabs are easier to hit and drag. */
+@media (min-width: 1000px) {
+  .more-panel { width: 440px; }
+}
+.more-panel-tabs { padding: 4px 2px 6px; }
+.more-panel-tabs .more-tab { padding: 7px 10px; font-size: 12px; }

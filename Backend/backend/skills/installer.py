@@ -169,7 +169,8 @@ def _fetch(source: str, tmp: Path) -> Path:
     local = Path(src).expanduser()
     if local.exists():
         if local.is_dir():
-            shutil.copytree(local, tmp / "skill")
+            # Keep the folder's own name: it names the skill if SKILL.md doesn't.
+            shutil.copytree(local, tmp / (_slugify(local.name) or "skill"))
         elif local.suffix.lower() == ".zip":
             _extract_zip(local.read_bytes(), tmp)
         elif local.name.lower() == "skill.md" or local.suffix.lower() == ".md":
@@ -194,10 +195,11 @@ def _fetch(source: str, tmp: Path) -> Path:
                     raise ValueError("that repository has no SKILL.md anywhere")
                 raise LookupError("This repository holds several skills; add_skill one of these exact URLs: "
                                   + ", ".join(folders[:60]))
-        _github_folder(owner, repo, ref, path, tmp / "skill")
-        if not (tmp / "skill" / "SKILL.md").exists():
+        dest = tmp / (_slugify(path.rstrip("/").split("/")[-1]) or "skill")
+        _github_folder(owner, repo, ref, path, dest)
+        if not (dest / "SKILL.md").exists():
             raise ValueError("no SKILL.md in that folder")
-        return tmp / "skill"
+        return dest
     data = _get(src)
     if data[:2] == b"PK":
         _extract_zip(data, tmp)

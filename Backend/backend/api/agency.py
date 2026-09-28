@@ -33,6 +33,33 @@ async def ws_senses(ws: WebSocket):
         senses.detach(ws)
 
 
+@router.websocket("/ws/chrome")
+async def ws_chrome(ws: WebSocket):
+    """The Sarah Browser Bridge extension in Zero's Chrome. Browsers set the
+    Origin header themselves, so web pages can't pose as the extension."""
+    from backend.agency.chrome_bridge import ALLOWED_ORIGIN, bridge
+
+    if ws.headers.get("origin", "") != ALLOWED_ORIGIN:
+        await ws.close(code=4403)
+        return
+    await ws.accept()
+    bridge.attach(ws)
+    try:
+        while True:
+            bridge.on_message(await ws.receive_json())
+    except (WebSocketDisconnect, RuntimeError, ValueError):
+        pass
+    finally:
+        bridge.detach(ws)
+
+
+@router.get("/api/agency/chrome")
+def chrome_status():
+    from backend.agency.chrome_bridge import bridge
+    from pathlib import Path
+    return {**bridge.status(), "folder": str(Path(__file__).resolve().parents[3] / "chrome-extension")}
+
+
 @router.post("/api/agency/stop")
 def agency_stop(seconds: int = 120):
     """Stop button: every tool call is refused for a while."""
