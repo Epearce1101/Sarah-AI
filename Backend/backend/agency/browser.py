@@ -23,7 +23,7 @@ DOWNLOADS = WORKSPACE / "downloads"
 # Tag visible interactive elements with data-sarah-ref and describe them.
 _INDEX_JS = r"""
 () => {
-  const sel = 'a[href], button, input:not([type=hidden]), textarea, select, [role=button], [role=link], [role=tab], [role=menuitem], [contenteditable=true], summary';
+  const sel = 'a[href], button, input:not([type=hidden]), textarea, select, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [role=switch], [role=option], [role=combobox], [role=textbox], [contenteditable=true], summary';
   const out = [];
   let n = 0;
   document.querySelectorAll('[data-sarah-ref]').forEach(e => e.removeAttribute('data-sarah-ref'));
@@ -31,17 +31,37 @@ _INDEX_JS = r"""
     const r = el.getBoundingClientRect();
     const st = getComputedStyle(el);
     if (r.width < 2 || r.height < 2 || st.visibility === 'hidden' || st.display === 'none') continue;
-    if (r.bottom < 0 || r.top > innerHeight * 3) continue;
     n += 1;
     el.setAttribute('data-sarah-ref', String(n));
     const tag = el.tagName.toLowerCase();
     const kind = el.getAttribute('role') || (tag === 'input' ? 'input:' + (el.type || 'text') : tag);
-    const label = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+    const labelFor = el.id ? (document.querySelector(`label[for="${CSS.escape(el.id)}"]`) || {}).innerText : '';
+    const label = (el.getAttribute('aria-label') || labelFor || (tag === 'input' || tag === 'textarea' ? '' : el.innerText) || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || el.name || '').trim().replace(/\s+/g, ' ').slice(0, 80);
     const href = tag === 'a' ? (el.getAttribute('href') || '').slice(0, 120) : '';
-    out.push(`[${n}] ${kind}${label ? ' "' + label + '"' : ''}${href ? ' -> ' + href : ''}`);
-    if (n >= 120) break;
+    let state = '';
+    if (['input', 'textarea', 'select'].includes(tag) && !['checkbox', 'radio', 'submit', 'button'].includes(el.type)) {
+      const v = tag === 'select' ? (el.selectedOptions[0] || {}).text : el.value;
+      if (v) state += ` = '${String(v).slice(0, 60)}'`;
+    }
+    if (el.type === 'checkbox' || el.type === 'radio') state += el.checked ? ' (checked)' : ' (unchecked)';
+    if (el.disabled) state += ' (disabled)';
+    const where = r.bottom < 0 || r.top > innerHeight ? ' (off screen)' : '';
+    out.push(`[${n}] ${kind}${label ? ' "' + label + '"' : ''}${state}${href ? ' -> ' + href : ''}${where}`);
+    if (n >= 220) break;
   }
   return out;
+}
+"""
+
+_FIND_JS = r"""
+(query) => {
+  const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (s) => { s = (s || '').toLowerCase(); return words.length && words.every(w => s.includes(w)); };
+  const elements = [...document.querySelectorAll('[data-sarah-ref]')]
+    .filter(el => hit(el.innerText) || hit(el.value) || hit(el.getAttribute('aria-label')) || hit(el.getAttribute('placeholder')) || hit(el.getAttribute('href')))
+    .slice(0, 25).map(el => `[${el.getAttribute('data-sarah-ref')}] ${el.tagName.toLowerCase()} "${(el.innerText || el.value || el.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 80)}"`);
+  const text = (document.body ? document.body.innerText : '').split('\n').map(l => l.trim()).filter(l => l && hit(l)).slice(0, 25);
+  return { query, elements, text };
 }
 """
 
@@ -112,14 +132,20 @@ class SarahBrowser:
             "elements": elements,
         }
 
+    @staticmethod
+    def _locator(page, ref, text: str):
+        if ref is None and not text:
+            raise ValueError("give ref (the element number) or text to find")
+        if ref is not None:
+            return page.locator(f'[data-sarah-ref="{int(ref)}"]')
+        return page.get_by_text(text, exact=False).first
+
     async def _do(self, page, action: str, ref: Optional[int], text: str, submit: bool, key: str) -> None:
         if action == "press":
             await page.keyboard.press(key or "Enter")
             await page.wait_for_timeout(700)
             return
-        if ref is None and not text:
-            raise ValueError("give ref (the element number) or text to find")
-        locator = page.locator(f'[data-sarah-ref="{int(ref)}"]') if ref is not None else page.get_by_text(text, exact=False).first
+        locator = self._locator(page, ref, text)
         if action == "click":
             await locator.click(timeout=10000)
             await page.wait_for_timeout(900)
@@ -133,11 +159,55 @@ class SarahBrowser:
 
     async def act(self, action: str, url: str = "", ref: Optional[int] = None, text: str = "",
                   submit: bool = False, key: str = "", direction: str = "down", question: str = "",
-                  visible: Optional[bool] = None, max_chars: int = 5000) -> Any:
+                  visible: Optional[bool] = None, max_chars: int = 5000, selector: str = "",
+                  timeout: Optional[float] = None, fields: Optional[list] = None) -> Any:
         async with self._lock:
             if action == "close":
                 return await self.close()
             page = await self._ensure(visible)
+            if action == "find":
+                await page.evaluate(_INDEX_JS)
+                return await page.evaluate(_FIND_JS, text)
+            if action == "wait_for":
+                limit = min(60.0, float(timeout or 15)) * 1000
+                try:
+                    if selector:
+                        await page.wait_for_selector(selector, timeout=limit)
+                    else:
+                        await page.get_by_text(text, exact=False).first.wait_for(timeout=limit)
+                    found = True
+                except Exception:
+                    found = False
+                result = await self._summary(page, max_chars if found else 1500)
+                return {"found": found, **result}
+            if action in ("hover", "check") or (action == "scroll" and ref is not None):
+                locator = self._locator(page, ref, text if action != "check" else "")
+                if action == "hover":
+                    await locator.hover(timeout=10000)
+                elif action == "check":
+                    want = not re.match(r"^(off|false|no|uncheck)", str(text or "on"), re.I)
+                    await locator.set_checked(want, timeout=10000)
+                else:
+                    await locator.scroll_into_view_if_needed(timeout=10000)
+                await page.wait_for_timeout(600)
+                return await self._summary(page, max_chars)
+            if action == "fill":
+                done = []
+                for f in fields or []:
+                    loc = self._locator(page, f.get("ref"), "")
+                    tag = await loc.evaluate("e => e.tagName + ':' + (e.type || '')")
+                    value = str(f.get("text", ""))
+                    if tag.startswith("SELECT"):
+                        await loc.select_option(label=value, timeout=10000)
+                    elif tag.endswith(("checkbox", "radio")):
+                        await loc.set_checked(not re.match(r"^(off|false|no)", value, re.I), timeout=10000)
+                    else:
+                        await loc.fill(value, timeout=10000)
+                    done.append(f"[{f.get('ref')}] set")
+                if submit:
+                    await page.keyboard.press("Enter")
+                    await page.wait_for_timeout(1500)
+                return {"filled": done, **(await self._summary(self._page or page, max_chars))}
             if action == "open":
                 if not re.match(r"^https?://", url or ""):
                     url = "https://" + (url or "").lstrip("/")

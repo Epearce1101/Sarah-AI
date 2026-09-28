@@ -1426,6 +1426,9 @@ class SarahUI {
       browser: () => ({
         open: `🌐 Browsing ${host(a.url || "")}`, read: "🌐 Reading the page", click: `🌐 Clicking ${a.ref ?? short(a.text, 30)}`,
         type: `🌐 Typing “${short(a.text, 30)}”`, scroll: "🌐 Scrolling", look: "🌐 Looking at the page", close: "🌐 Closing the browser",
+        find: `🌐 Finding “${short(a.text, 30)}”`, fill: "🌐 Filling in the form", check: `🌐 Ticking [${a.ref}]`,
+        hover: `🌐 Hovering [${a.ref}]`, wait_for: `🌐 Waiting for “${short(a.text || a.selector, 30)}”`,
+        tabs: "🌐 Checking Chrome tabs", use_tab: "🌐 Using your tab",
       }[a.action] || `🌐 ${a.action}`),
       http_request: () => `🔗 ${a.method || "GET"} ${host(a.url || "")}`,
       window: () => ({
@@ -1433,6 +1436,15 @@ class SarahUI {
         close: `🪟 Closing ${short(a.title, 30)}`, close_without_saving: `🪟 Closing ${short(a.title, 30)} without saving`,
         close_and_save: `🪟 Saving and closing ${short(a.title, 30)}`,
       }[a.action] || `🪟 ${a.action} ${short(a.title, 30)}`),
+      app: () => ({
+        open: `🪟 Opening ${short(a.text || a.window, 40)}`, windows: "🪟 Checking open windows",
+        inspect: `🔍 Looking over ${short(a.window, 30)}`, click: `🖱️ Clicking ${a.name ? `“${short(a.name, 30)}”` : `[${a.ref}]`} in ${short(a.window, 24)}`,
+        type: `⌨️ Typing in ${short(a.window, 30)}`, read: `📖 Reading ${short(a.window, 30)}`,
+        menu: `📋 ${short(a.text || a.name, 40)} in ${short(a.window, 24)}`, keys: `⌨️ ${short(a.keys || a.text, 20)} in ${short(a.window, 24)}`,
+        save_as: `💾 Saving as ${short(a.path, 50)}`,
+      }[a.action] || `🪟 ${a.action}`),
+      document: () => ({ create: `📝 Making ${short(a.path, 60)}`, append: `📝 Adding to ${short(a.path, 60)}`,
+        read: `📖 Reading ${short(a.path, 60)}` }[a.action] || `📝 ${a.action}`),
       make_plan: () => `🗺️ Planning: ${short(a.goal)}`,
       update_plan: () => a.plan_status ? `🗺️ Plan ${a.plan_status}` : `🗺️ Step ${a.step ?? ""} ${a.status || "updated"}`,
       recall: () => `💭 Remembering${a.query ? ` “${short(a.query, 40)}”` : a.day ? ` ${a.day}` : ""}`,

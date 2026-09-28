@@ -127,7 +127,7 @@ async function run(tabId, func, args = []) {
 // ---------------------------------------------------------------------------
 
 function pageSummary(maxChars) {
-  const sel = 'a[href], button, input:not([type=hidden]), textarea, select, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [contenteditable=true], summary';
+  const sel = 'a[href], button, input:not([type=hidden]), textarea, select, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [role=switch], [role=option], [role=combobox], [role=textbox], [contenteditable=true], summary, label[for]';
   const out = [];
   let n = 0;
   document.querySelectorAll("[data-sarah-ref]").forEach((e) => e.removeAttribute("data-sarah-ref"));
@@ -135,16 +135,27 @@ function pageSummary(maxChars) {
     const r = el.getBoundingClientRect();
     const st = getComputedStyle(el);
     if (r.width < 2 || r.height < 2 || st.visibility === "hidden" || st.display === "none") continue;
-    if (r.bottom < 0 || r.top > innerHeight * 3) continue;
     n += 1;
     el.setAttribute("data-sarah-ref", String(n));
     const tag = el.tagName.toLowerCase();
     const kind = el.getAttribute("role") || (tag === "input" ? "input:" + (el.type || "text") : tag);
-    const label = (el.innerText || el.value || el.getAttribute("aria-label") || el.getAttribute("placeholder")
-      || el.getAttribute("title") || el.getAttribute("alt") || "").trim().replace(/\s+/g, " ").slice(0, 80);
+    const labelFor = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.innerText : "";
+    const label = (el.getAttribute("aria-label") || labelFor || (tag === "input" || tag === "textarea" ? "" : el.innerText)
+      || el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("alt") || el.name || "")
+      .trim().replace(/\s+/g, " ").slice(0, 80);
     const href = tag === "a" ? (el.getAttribute("href") || "").slice(0, 120) : "";
-    out.push(`[${n}] ${kind}${label ? ' "' + label + '"' : ""}${href ? " -> " + href : ""}`);
-    if (n >= 150) break;
+    let state = "";
+    if (["input", "textarea", "select"].includes(tag) && !["checkbox", "radio", "submit", "button"].includes(el.type)) {
+      const v = tag === "select" ? el.selectedOptions[0]?.text : el.value;
+      if (v) state += ` = '${String(v).slice(0, 60)}'`;
+    }
+    if (el.type === "checkbox" || el.type === "radio") state += el.checked ? " (checked)" : " (unchecked)";
+    const aria = el.getAttribute("aria-checked") || el.getAttribute("aria-selected") || el.getAttribute("aria-expanded");
+    if (aria) state += ` (${el.hasAttribute("aria-expanded") ? "expanded" : "selected"}=${aria})`;
+    if (el.disabled) state += " (disabled)";
+    const where = r.bottom < 0 || r.top > innerHeight ? " (off screen)" : "";
+    out.push(`[${n}] ${kind}${label ? ' "' + label + '"' : ""}${state}${href ? " -> " + href : ""}${where}`);
+    if (n >= 220) break;
   }
   let text = (document.body ? document.body.innerText : "").replace(/\n{3,}/g, "\n\n").trim();
   const limit = Math.max(500, Math.min(20000, maxChars || 5000));
@@ -212,10 +223,52 @@ function pageAct(action, ref, text, submit, direction, key) {
     return "pressed " + (key || "Enter");
   }
   if (action === "scroll") {
+    if (ref != null) { find().scrollIntoView({ block: "center" }); return "scrolled to it"; }
     window.scrollBy({ top: direction === "up" ? -innerHeight * 0.9 : innerHeight * 0.9 });
     return "scrolled";
   }
+  if (action === "hover") {
+    const el = find();
+    el.scrollIntoView({ block: "center" });
+    for (const t of ["pointerover", "mouseover", "pointerenter", "mouseenter", "mousemove"]) {
+      el.dispatchEvent(new MouseEvent(t, { bubbles: t !== "mouseenter" && t !== "pointerenter" }));
+    }
+    return "hovering";
+  }
+  if (action === "check") {
+    const el = find();
+    const want = !/^(off|false|no|uncheck)/i.test(String(text || "on"));
+    const now = el.type === "checkbox" || el.type === "radio" ? el.checked : el.getAttribute("aria-checked") === "true";
+    if (now !== want) el.click();
+    const after = el.type === "checkbox" || el.type === "radio" ? el.checked : el.getAttribute("aria-checked") === "true";
+    return after === want ? `now ${want ? "checked" : "unchecked"}` : "tried, but it didn't change";
+  }
   throw new Error("unknown page action " + action);
+}
+
+// Where an element is (for real mouse clicks).
+function pageCenter(ref) {
+  const el = document.querySelector(`[data-sarah-ref="${ref}"]`);
+  if (!el) return null;
+  el.scrollIntoView({ block: "center" });
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+// Search the page: elements (with refs) and text lines matching the words.
+function pageFind(query) {
+  const words = String(query || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (s) => { s = (s || "").toLowerCase(); return words.length && words.every((w) => s.includes(w)); };
+  const elements = [...document.querySelectorAll("[data-sarah-ref]")]
+    .filter((el) => hit(el.innerText) || hit(el.value) || hit(el.getAttribute("aria-label")) || hit(el.getAttribute("placeholder")) || hit(el.getAttribute("href")))
+    .slice(0, 25).map((el) => `[${el.getAttribute("data-sarah-ref")}] ${el.tagName.toLowerCase()} "${(el.innerText || el.value || el.getAttribute("aria-label") || "").trim().replace(/\s+/g, " ").slice(0, 80)}"`);
+  const lines = (document.body?.innerText || "").split("\n").map((l) => l.trim()).filter((l) => l && hit(l)).slice(0, 25);
+  return { query, elements, text: lines };
+}
+
+function pageHas(text, selector) {
+  if (selector) return !!document.querySelector(selector);
+  return (document.body?.innerText || "").toLowerCase().includes(String(text).toLowerCase());
 }
 
 function pageExtract(selector) {
@@ -311,6 +364,47 @@ const ACTIONS = {
     return { url: tab.url, title: tab.title, jpeg_base64: dataUrl.split(",")[1] };
   },
 
+  async hover(args) { return actThenRead("hover", args); },
+  async check(args) { return actThenRead("check", args); },
+
+  // Search the page for words: matching elements (with refs) and text lines.
+  async find(args) {
+    const tab = await targetTab(args);
+    await run(tab.id, pageSummary, [500]); // fresh refs
+    return run(tab.id, pageFind, [args.text || ""]);
+  },
+
+  // Wait until some text (or a CSS selector in `selector`) shows up.
+  async wait_for(args) {
+    const tab = await targetTab(args);
+    const end = Date.now() + Math.min(60, Number(args.timeout) || 15) * 1000;
+    while (Date.now() < end) {
+      if (await run(tab.id, pageHas, [args.text || "", args.selector || ""]).catch(() => false)) {
+        return { found: true, ...(await summary(tab.id, args.max_chars)) };
+      }
+      await sleep(500);
+    }
+    return { found: false, note: `"${args.text || args.selector}" didn't appear`, ...(await summary(tab.id, 1500)) };
+  },
+
+  // Several form fields at once: fields = [{ref, text}] (text "on"/"off" for checkboxes).
+  async fill(args) {
+    const tab = await targetTab(args);
+    const results = [];
+    for (const f of args.fields || []) {
+      const kind = await run(tab.id, (ref) => {
+        const el = document.querySelector(`[data-sarah-ref="${ref}"]`);
+        return el ? (el.tagName === "SELECT" ? "select" : (el.type === "checkbox" || el.type === "radio" || el.getAttribute("role") === "checkbox") ? "check" : "type") : null;
+      }, [Number(f.ref)]);
+      if (!kind) { results.push(`[${f.ref}] not found`); continue; }
+      results.push(`[${f.ref}] ` + await run(tab.id, pageAct, [kind, Number(f.ref), String(f.text ?? ""), false, "down", ""]));
+    }
+    if (args.submit) await run(tab.id, pageAct, ["press", null, "", false, "down", "Enter"]);
+    await sleep(900);
+    await waitLoaded(tab.id, 15000);
+    return { filled: results, ...(await summary(tab.id, args.max_chars)) };
+  },
+
   // Only ever closes her own tab.
   async close() {
     if (!(await tabExists(herTab))) return "No tab of mine to close.";
@@ -319,6 +413,46 @@ const ACTIONS = {
     return "Closed my tab.";
   },
 };
+
+// Real (trusted) input through Chrome's debugger protocol, for sites that
+// ignore events made by page scripts. Chrome shows a "debugging" bar while
+// it's attached; it's detached right after.
+async function withDebugger(tabId, fn) {
+  const target = { tabId };
+  await chrome.debugger.attach(target, "1.3");
+  try {
+    return await fn((method, params) => chrome.debugger.sendCommand(target, method, params));
+  } finally {
+    try { await chrome.debugger.detach(target); } catch {}
+  }
+}
+
+async function trustedClick(tabId, ref) {
+  const pt = await run(tabId, pageCenter, [ref]);
+  if (!pt) throw new Error(`no element [${ref}]`);
+  await sleep(150);
+  await withDebugger(tabId, async (send) => {
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: pt.x, y: pt.y });
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+  });
+}
+
+async function trustedType(tabId, ref, text, submit) {
+  const pt = await run(tabId, pageCenter, [ref]);
+  if (!pt) throw new Error(`no element [${ref}]`);
+  await withDebugger(tabId, async (send) => {
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA", modifiers: 2, windowsVirtualKeyCode: 65 });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", modifiers: 2, windowsVirtualKeyCode: 65 });
+    await send("Input.insertText", { text });
+    if (submit) {
+      await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
+      await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    }
+  });
+}
 
 // What the page looks like, coarsely: did an action change anything?
 function pageSignature() {
@@ -338,8 +472,22 @@ async function actThenRead(action, args) {
   let id = tab.id;
   if (newest && newest.id !== tab.id && newest.openerTabId === tab.id) { herTab = newest.id; id = newest.id; }
   await waitLoaded(id, 15000);
-  const changed = id !== tab.id || (await run(id, pageSignature)) !== before;
-  const result = { did: note, changed, ...(await summary(id, args.max_chars)) };
+  let did = note;
+  let changed = id !== tab.id || (await run(id, pageSignature)) !== before;
+  // Some sites ignore scripted clicks/typing: do it again as real input.
+  if (!changed && id === tab.id && ref != null && (action === "click" || action === "type")) {
+    try {
+      if (action === "click") await trustedClick(tab.id, ref);
+      else await trustedType(tab.id, ref, String(args.text ?? ""), !!args.submit);
+      await sleep(1000);
+      await waitLoaded(tab.id, 15000);
+      changed = (await run(tab.id, pageSignature)) !== before;
+      did += " (then again as real mouse/keyboard input)";
+    } catch (err) {
+      did += ` (real input failed: ${err.message})`;
+    }
+  }
+  const result = { did, changed, ...(await summary(id, args.max_chars)) };
   if (!changed) {
     result.warning = "Nothing on the page changed after that. It probably didn't work: check before going on.";
   }

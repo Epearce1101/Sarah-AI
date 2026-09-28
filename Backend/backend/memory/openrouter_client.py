@@ -434,7 +434,7 @@ class OpenRouterClient:
         except Exception as e:
             return self._error_response(e, user_message_id)
 
-    MAX_TOOL_STEPS = 8
+    MAX_TOOL_STEPS = 12
     MAX_PLAN_STEPS = 30   # with a plan open, the turn may run this many rounds
 
     def _tool_specs(self, use_local: bool) -> Optional[List[Dict[str, Any]]]:
@@ -597,6 +597,7 @@ class OpenRouterClient:
         turn_started = time.time()
         step = 0
         nudges = 0
+        unchecked: Optional[str] = None  # her last unproven action, until she looks
         while True:
             final_round = bool(tool_specs) and step >= budget
             if final_round:
@@ -646,9 +647,16 @@ class OpenRouterClient:
             meta["finish_reason"] = step_meta.get("finish_reason") or "stop"
             meta["model"] = step_meta.get("model") or meta["model"]
             calls = step_meta.get("tool_calls") or []
-            if not calls and not final_round and nudges < 2:
-                # Completion check: she's wrapping up but her plan isn't done.
-                nudge = self._unfinished_plan_note(turn_started)
+            if not calls and not final_round and nudges < 3:
+                # Completion checks: her plan isn't done, or her last action
+                # was never looked at.
+                nudge = self._unfinished_plan_note(turn_started) if nudges < 2 else None
+                if not nudge and unchecked:
+                    nudge = (f"Before you answer: you {unchecked} and haven't checked the result since. "
+                             "Check it now with a tool (app read or inspect, look, read_file, browser read, "
+                             "document read), then tell Zero only what you actually saw, including anything "
+                             "that didn't work.")
+                    unchecked = None
                 if nudge:
                     nudges += 1
                     messages.append({"role": "assistant", "content": "".join(step_parts) or "..."})
@@ -682,6 +690,10 @@ class OpenRouterClient:
                 else:
                     yield {"type": "tool", "status": "start", "name": c["name"], "args": args}
                     result = await agency_tools.call(c["name"], args)
+                    if agency_tools.is_check(c["name"], args):
+                        unchecked = None
+                    else:
+                        unchecked = agency_tools.unverified_action(c["name"], args, result["ok"], result["result"]) or unchecked
                 done_event = {"type": "tool", "status": "done", "name": c["name"], "ok": result["ok"],
                               "summary": result["result"][:200], "ms": result["ms"]}
                 if c["name"] in ("make_plan", "update_plan") and result["ok"]:

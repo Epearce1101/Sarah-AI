@@ -161,6 +161,40 @@ def _as_text(value: Any) -> str:
     return text
 
 
+# ---------------------------------------------------------------------------
+# Did she check her work? (used by the tool loop before she answers)
+# ---------------------------------------------------------------------------
+
+_CHECK_ACTIONS = {
+    "read_file": None, "list_directory": None, "look": None,
+    "browser": {"read", "extract", "tables", "look", "tabs", "use_tab", "open"},
+    "app": {"inspect", "read", "windows", "open", "save_as", "type"},
+    "document": None, "window": {"list", "wait"},
+}
+
+
+def is_check(name: str, args: Dict[str, Any]) -> bool:
+    """A call that looks at the result of earlier actions."""
+    if name not in _CHECK_ACTIONS:
+        return False
+    actions = _CHECK_ACTIONS[name]
+    return actions is None or str(args.get("action", "")) in actions
+
+
+def unverified_action(name: str, args: Dict[str, Any], ok: bool, result: str) -> Optional[str]:
+    """What she just did that changes things but carries no proof it worked."""
+    action = str(args.get("action", ""))
+    if name == "control_input" and action != "screen_size":
+        return f"used the {'keyboard' if action in ('type', 'press', 'hotkey') else 'mouse'} ({action})"
+    if name == "app" and action in ("keys", "menu", "click"):
+        return f"{action} in {args.get('window', 'an app')}"
+    if name == "browser" and action in ("click", "type", "select", "press") and "Nothing on the page changed" in result:
+        return f"a browser {action} that didn't change the page"
+    if name == "open_item" and ok and "Chrome tab" not in result:
+        return f"opened {args.get('target', 'something')}"
+    return None
+
+
 async def call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """Run one tool. Returns {"ok", "result", "ms"}; never raises."""
     started = time.time()
@@ -303,10 +337,22 @@ def _run_custom(name: str, kwargs: Dict[str, Any]) -> Any:
 
 
 def _resolve(path: str) -> Path:
-    """A path she gives: absolute as-is; relative ones are inside her workspace
-    (the same place run_python / run_shell work in)."""
-    p = Path(os.path.expandvars(os.path.expanduser(str(path))))
-    return p if p.is_absolute() else (WORKSPACE / p)
+    """A path she gives: absolute as-is; "Desktop/...", "Documents/...",
+    "Downloads/..." (etc.) are Zero's real folders; other relative ones are
+    inside her workspace (where run_python / run_shell work)."""
+    p = Path(os.path.expandvars(os.path.expanduser(str(path).strip().strip('"'))))
+    if p.is_absolute():
+        return p
+    parts = p.parts
+    if parts:
+        from .desktop import known_folder
+
+        for n in (2, 1):  # "my documents/x" before "documents/x"
+            if len(parts) >= n:
+                base = known_folder(" ".join(parts[:n]))
+                if base is not None:
+                    return base.joinpath(*parts[n:])
+    return WORKSPACE / p
 
 
 # ---------------------------------------------------------------------------
@@ -343,16 +389,24 @@ def read_webpage(url: str, max_chars: int = 6000):
       "When Zero's Chrome is connected (the Sarah extension) this works right in their Chrome, in a tab "
       "of your own, with their logins; leave their other tabs alone unless they ask (then use_tab: the "
       "tab they're on, or tab_id from tabs). Otherwise it's your own separate browser. Actions: open "
-      "(url), read (current page), click (ref), type (ref + text, submit to press Enter), select (ref + "
-      "option text), press (key), scroll (direction up/down), back, forward, extract (scrape: CSS selector "
-      "in text), tables, look (screenshot + question), close (your tab), tabs (list Chrome tabs), use_tab. "
-      "Each result lists the page text and numbered elements [n] to use as ref. where='own' forces your "
-      "separate browser; visible=true shows that one.",
-      {"action": {"type": "string", "enum": ["open", "read", "click", "type", "select", "press", "scroll", "back",
-                                             "forward", "extract", "tables", "look", "close", "tabs", "use_tab"]},
+      "(url), read (current page), find (text: words to look for; returns matching elements and lines, "
+      "the fast way to locate a button/link/field), click (ref), type (ref + text, submit to press Enter), "
+      "fill (fields: [{ref, text}] for whole forms; checkboxes take 'on'/'off'; submit), select (ref + option "
+      "text), check (ref, text 'on'/'off'), hover (ref, opens hover menus), press (key), scroll (direction "
+      "up/down, or ref to bring it into view), wait_for (text or selector to appear, timeout s: for pages "
+      "that load slowly), back, forward, extract (scrape: CSS selector in text), tables, look (screenshot + "
+      "question), close (your tab), tabs (list Chrome tabs), use_tab. Results list the page text and "
+      "numbered elements [n] (with current values/checked state) to use as ref; 'changed' says whether the "
+      "page reacted. where='own' forces your separate browser; visible=true shows that one.",
+      {"action": {"type": "string", "enum": ["open", "read", "find", "click", "type", "fill", "select", "check",
+                                             "hover", "press", "scroll", "wait_for", "back", "forward", "extract",
+                                             "tables", "look", "close", "tabs", "use_tab"]},
        "url": {"type": "string"}, "ref": {"type": "integer"}, "text": {"type": "string"},
        "submit": {"type": "boolean"}, "key": {"type": "string"}, "direction": {"type": "string"},
        "question": {"type": "string"}, "visible": {"type": "boolean"}, "max_chars": {"type": "integer"},
+       "selector": {"type": "string"}, "timeout": {"type": "number"},
+       "fields": {"type": "array", "items": {"type": "object", "properties": {
+           "ref": {"type": "integer"}, "text": {"type": "string"}}}},
        "tab_id": {"type": "integer"}, "where": {"type": "string", "enum": ["chrome", "own"]}},
       ["action"], timeout=90)
 async def browser_tool(action: str, where: str = "chrome", **kwargs):
@@ -522,7 +576,57 @@ def write_file(path: str, content: str, append: bool = False):
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a" if append else "w", encoding="utf-8") as fh:
         fh.write(content)
-    return f"Wrote {len(content)} chars to {p}"
+    size = p.stat().st_size if p.exists() else 0
+    return f"Wrote {len(content)} chars to {p} (checked: the file is there, {size} bytes)"
+
+
+@tool("document", "Make real documents Zero can open: Word .docx, Excel .xlsx, PDF, .csv, .html, .md, .txt. "
+      "action create (overwrites) / append / read. path e.g. 'Desktop/Trip plan.docx' or 'Documents/budget.xlsx' "
+      "(Desktop, Documents, Downloads... are Zero's real folders). content is simple markdown ('# Heading', "
+      "'- bullet', '1. step', '**bold**', blank line = new paragraph, '---' = page break); for .xlsx/.csv give "
+      "rows (list of lists, first row = headers) or a markdown table. The result is read back from disk: "
+      "report what it shows. open=true opens it for Zero afterwards.",
+      {"action": {"type": "string", "enum": ["create", "append", "read"]}, "path": {"type": "string"},
+       "content": {"type": "string"}, "title": {"type": "string"},
+       "rows": {"type": "array", "items": {"type": "array", "items": {}}}, "sheet": {"type": "string"},
+       "open": {"type": "boolean"}},
+      ["action", "path"], timeout=60)
+def document(action: str, path: str, content: str = "", title: str = "", rows: Optional[List[List[Any]]] = None,
+             sheet: str = "", open: bool = False):
+    from . import documents
+
+    p = _resolve(path)
+    if action == "read":
+        return documents.read(p)
+    guard.check_write(p)
+    result = documents.write(p, content=content, title=title, rows=rows, sheet=sheet, append=(action == "append"))
+    if open:  # showing it is a bonus: never lose the save over it
+        result["opened"] = documents.open_for_zero(p)
+    return result
+
+
+@tool("app", "Work inside desktop apps (Notepad, WordPad, Paint, Settings pages, installers, any window) "
+      "through Windows accessibility: reliable, and you can check your work. Actions: open (text = app name "
+      "or file path; waits for its window and lists its controls), windows, inspect (window: lists its "
+      "controls as [n] with their current values), click (ref or name: buttons, menu items, checkboxes, "
+      "tabs, list items), type (text into ref/name, or the main text area if neither; append=true adds, "
+      "submit=true presses Enter; returns what the field now contains), read (the window's text, or one "
+      "control's), menu (text like 'File>Save As' or 'Format>Font'), keys (e.g. '{Ctrl}s', '{Alt}{F4}', "
+      "'{Enter}'), save_as (path, e.g. 'Desktop/letter.txt': fills the Save As dialog and confirms the "
+      "file exists), close / close_without_saving / close_and_save. window = part of the window title or the "
+      "app name. Numbers from inspect are only valid until you inspect again. Prefer this over control_input.",
+      {"action": {"type": "string", "enum": ["open", "windows", "inspect", "click", "type", "read", "menu", "keys",
+                                             "save_as", "close", "close_without_saving", "close_and_save"]},
+       "window": {"type": "string"}, "ref": {"type": "integer"}, "name": {"type": "string"},
+       "text": {"type": "string"}, "path": {"type": "string"}, "keys": {"type": "string"},
+       "append": {"type": "boolean"}, "submit": {"type": "boolean"}},
+      ["action"], timeout=90)
+def app(action: str, window: str = "", ref: Optional[int] = None, name: str = "", text: str = "", path: str = "",
+        keys: str = "", append: bool = False, submit: bool = False):
+    from . import uia
+
+    return uia.act(action, window=window, ref=ref, name=name, text=text, path=path, keys=keys,
+                   append=append, submit=submit, resolve=_resolve)
 
 
 @tool("move_path", "Move or rename a file or folder.",
@@ -616,9 +720,9 @@ def window(action: str, title: str = "", timeout: float = 10):
     raise ValueError(f"unknown action {action}")
 
 
-@tool("control_input", "Use Zero's mouse and keyboard. action: type (text), press (key, e.g. 'enter'), "
-      "hotkey (keys like ['ctrl','s']), click (x, y, optional button), move (x, y), scroll (amount), "
-      "screen_size. Look at the screen first so you know where things are.",
+@tool("control_input", "Raw mouse and keyboard, for things the app tool can't reach (games, canvases). "
+      "action: type (text), press (key, e.g. 'enter'), hotkey (keys like ['ctrl','s']), click (x, y, optional "
+      "button), move (x, y), scroll (amount), screen_size. It can't tell you if it worked: look afterwards.",
       {"action": {"type": "string", "enum": ["type", "press", "hotkey", "click", "double_click", "move", "scroll", "screen_size"]},
        "text": {"type": "string"}, "key": {"type": "string"}, "keys": {"type": "array", "items": {"type": "string"}},
        "x": {"type": "integer"}, "y": {"type": "integer"}, "button": {"type": "string"}, "amount": {"type": "integer"},

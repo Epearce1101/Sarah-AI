@@ -19,7 +19,7 @@ logger = logging.getLogger("sarah.chrome")
 EXTENSION_ID = "ffbkelalaoededopdcocdgbdeddfbcfk"
 ALLOWED_ORIGIN = f"chrome-extension://{EXTENSION_ID}"
 ACTIONS = ("tabs", "open", "use_tab", "read", "click", "type", "select", "press", "scroll", "back",
-           "forward", "extract", "tables", "look", "close")
+           "forward", "extract", "tables", "look", "close", "find", "wait_for", "hover", "check", "fill")
 
 
 class ChromeBridge:
