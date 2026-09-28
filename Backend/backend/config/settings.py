@@ -260,6 +260,16 @@ class Settings:
     # Live voice (continuous mic over /ws/voice): silence that ends a turn.
     voice_end_silence_ms: int = field(default_factory=lambda: _int("SARAH_VOICE_END_SILENCE_MS", 550))
 
+    # Sight (camera + screen) via free cloud vision models only; tried in
+    # order by OpenRouter. Anything without ":free" is refused (no paid use).
+    vision_models: tuple = field(default_factory=lambda: _csv("SARAH_VISION_MODELS", (
+        "dots-studio/dots-3-note-preview:free",
+        "google/gemma-4-31b-it:free",
+        "qwen/qwen3.8-27b:free",
+    )))
+    vision_daily_cap: int = field(default_factory=lambda: _int("SARAH_VISION_DAILY_CAP", 400))
+    vision_min_interval_seconds: int = field(default_factory=lambda: _int("SARAH_VISION_MIN_INTERVAL", 10))
+
     # Embodiment: Sarah may speak on her own when something happens to her
     # body or presence (a head pat, the user coming back). Off = she still
     # reacts physically and remembers it, but stays quiet.

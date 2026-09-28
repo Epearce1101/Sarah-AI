@@ -103,6 +103,9 @@ contextBridge.exposeInMainWorld("sarahVision", {
   // Screenshot → PNG buffer
   captureScreen: () => ipcRenderer.invoke("capture-screen"),
 
+  // desktopCapturer id of the primary screen (continuous watching).
+  screenSourceId: () => ipcRenderer.invoke("screen-source-id"),
+
   // Save image to disk (optional)
   saveScreenshot: (buffer) => ipcRenderer.invoke("save-screenshot", buffer),
 

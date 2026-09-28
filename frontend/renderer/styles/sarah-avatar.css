@@ -67,6 +67,9 @@
 .voice-caption[data-state="heard"] { color: var(--text-main); background: var(--surface-active); }
 
 #mic-toggle.listening { box-shadow: 0 0 0 2px var(--surface-success); border-color: var(--accent-cyan); }
+/* Camera in use: always visible while her eyes are open. */
+#eyes-toggle.camera-on { border-color: var(--accent-rose); box-shadow: 0 0 0 2px var(--surface-warning); }
+#eyes-toggle.camera-on::before { content: "● "; color: var(--accent-rose); }
 
 .sarah-3d-canvas {
   width: 100%;

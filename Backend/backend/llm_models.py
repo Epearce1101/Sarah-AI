@@ -102,7 +102,9 @@ def vision_request_body(messages: List[Dict[str, Any]], max_tokens: int, tempera
         "messages": messages,
         "max_tokens": max(int(max_tokens), VISION_MIN_COMPLETION_TOKENS),
         "temperature": temperature,
-        "reasoning": {"effort": "low", "exclude": True},
+        # Reasoning off: ~6x faster and no truncated answers on free vision
+        # models (measured 2.9 s vs 18.7 s on dots-3-note).
+        "reasoning": {"enabled": False},
     }
 
 

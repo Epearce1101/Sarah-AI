@@ -37,6 +37,7 @@ def register_routers(app: FastAPI) -> None:
     from backend.api.diagnostics import router as diagnostics_router
     from backend.api.embodiment import router as embodiment_router
     from backend.api.voice_live import router as voice_live_router
+    from backend.api.perception import router as perception_router
 
     for r in (
         health_router,
@@ -62,5 +63,6 @@ def register_routers(app: FastAPI) -> None:
         diagnostics_router,
         embodiment_router,
         voice_live_router,
+        perception_router,
     ):
         app.include_router(r)

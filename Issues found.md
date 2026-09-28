@@ -4,6 +4,13 @@ Tracking file for current/previous issues. Tick a box when fixed; leave a short 
 
 ---
 
+## 2026-09-27 — Real-time companion, phase 2: eyes (#105–#108)
+
+- [x] **#105 Sarah couldn't see** — `scripts/core/eyes.js` watches the webcam and the primary screen locally (48×27 grey thumbnails every 1.5 s) and sends real frames only when the view meaningfully changes (or after 10 min), both views in one request. `backend/perception/sight.py` + `/api/perception/look`: free cloud vision models only (anything without `:free` is refused), JSON description → her self-model → "Right now" ("On Zero's screen…", "Through your camera…", "You noticed…"). Frames are never stored. Top-bar **Eyes** button: camera + screen → screen only → off; red dot whenever the camera is on. Keeps watching behind a fullscreen game (backgroundThrottling off).
+- [x] **#106 Screen watching couldn't start** — `getDisplayMedia()` requires a user click; the screen now opens via a main-process `desktopCapturer` id through `getUserMedia` (`screen-source-id` IPC), no gesture needed.
+- [x] **#107 Vision took 18.7 s and truncated** — reasoning ate the whole token budget; `reasoning: {enabled: false}` → 2.9 s, complete answers (also applied to the older screenshot/snippet analysis path). Images are labelled inline (the model swapped screen/webcam), blank frames are skipped, schema placeholders no longer echoed.
+- [x] **#108 Budget** — shared free quota protected: daily cap (400), 10 s spacing that widens to 20/40 s as the day's budget runs down, exponential backoff on 429, and the renderer rests locally instead of re-sending frames. Live: she read a synthetic editor ("inventory.py… TODO 'why -1?'… assert 3 == 4") and pointed at the `-1` as the bug; a static view triggered no further looks.
+
 ## 2026-09-27 — Real-time companion, phase 1: live voice (#100–#104)
 
 - [x] **#100 Speech recognition was CPU Whisper tiny.en on recorded clips** — now faster-whisper `large-v3-turbo` on the RTX 3060 (NVIDIA cuBLAS/cuDNN wheels in the venv, DLL dirs added at load; CPU `base.en`/`WHISPER_MODEL` fallback). 0.25–0.33 s per 3–5 s of speech, warmed at backend startup. All downloads land on E: (`HF_HOME` → `Backend/models/hf`, pip `--no-cache-dir`, TEMP already on E:).

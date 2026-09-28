@@ -297,6 +297,14 @@ ipcMain.handle("capture-screen", async () => {
   return sources[0].thumbnail.toPNG();
 });
 
+// Sarah's eyes watch the screen continuously. getDisplayMedia() needs a user
+// click, so the renderer opens the primary screen through getUserMedia with
+// this desktopCapturer source id instead (no gesture needed).
+ipcMain.handle("screen-source-id", async () => {
+  const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
+  return sources[0]?.id || null;
+});
+
 // ===========================================================================
 // 2️⃣ SAVE SCREENSHOT
 // ===========================================================================

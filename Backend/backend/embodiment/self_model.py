@@ -182,6 +182,8 @@ class SelfModel:
         self.sensations: Deque[Sensation] = deque(maxlen=24)
         self.perceived: Dict[int, str] = {}     # conversation -> how the user seemed
         self.modality: Dict[int, tuple] = {}    # conversation -> ("voice"|"text", at)
+        self.sight: Dict[str, Dict[str, Any]] = {}   # "screen"/"camera" -> observation + "at"
+        self.sight_log: Deque[Dict[str, Any]] = deque(maxlen=30)  # notable things seen
         self.chats_in_flight = 0
         self.chat_serial = 0          # bumps on every chat turn (race detection)
         self.last_chat_started = 0.0
@@ -219,6 +221,23 @@ class SelfModel:
                 self.perceived[conversation_id] = description
             else:
                 self.perceived.pop(conversation_id, None)
+
+    def see(self, observation: Dict[str, Any]) -> None:
+        """Store what her eyes just reported (see backend.perception.sight)."""
+        now = time.time()
+        with self._lock:
+            for kind in ("screen", "camera"):
+                data = observation.get(kind)
+                if isinstance(data, dict) and data:
+                    self.sight[kind] = {**{k: v for k, v in data.items() if isinstance(v, (str, bool, int, float))}, "at": now}
+            notable = observation.get("notable")
+            if isinstance(notable, str) and notable.strip() and notable.strip().lower() not in ("null", "none"):
+                self.sight_log.append({"text": notable.strip()[:200], "at": now})
+
+    def seen_recently(self, kind: str, max_age: float) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            s = self.sight.get(kind)
+        return s if s and time.time() - s["at"] < max_age else None
 
     def note_modality(self, conversation_id: Optional[int], modality: str) -> None:
         """How the user's latest turn reached her: said out loud or typed."""
@@ -300,6 +319,24 @@ class SelfModel:
             if isinstance(idle, (int, float)) and idle >= 120 and not b.get("user_typing"):
                 lines.append(f"- {user_name} hasn't moved or typed in your window for {duration_text(idle)}.")
 
+        screen = self.seen_recently("screen", 15 * 60)
+        if screen:
+            what = " - ".join(str(screen[k]) for k in ("app", "activity") if screen.get(k))
+            details = f" {screen['details']}" if screen.get("details") else ""
+            lines.append(f"- On {user_name}'s screen ({_ago(now - screen['at'])}): {what}.{details}")
+        camera = self.seen_recently("camera", 10 * 60)
+        if camera:
+            if camera.get("present") in (False, "false", "False"):
+                lines.append(f"- Through your camera ({_ago(now - camera['at'])}): {user_name} isn't at the desk.")
+            else:
+                mood = f", looking {camera['mood']}" if camera.get("mood") else ""
+                doing = camera.get("doing") or "there"
+                lines.append(f"- Through your camera ({_ago(now - camera['at'])}): {user_name} is {doing}{mood}.")
+        with self._lock:
+            noticed = [s for s in self.sight_log if now - s["at"] < 10 * 60][-2:]
+        for s in noticed:
+            lines.append(f"- You noticed: {s['text']} ({_ago(now - s['at'])}).")
+
         if conversation_id is not None:
             with self._lock:
                 perceived = self.perceived.get(conversation_id)
@@ -332,6 +369,8 @@ class SelfModel:
                 "body_age_seconds": round(time.time() - self.body_at, 1) if self.body_at else None,
                 "sensations": [{"kind": s.kind, "text": s.text, "at": s.at} for s in self.sensations],
                 "perceived": dict(self.perceived),
+                "sight": {k: dict(v) for k, v in self.sight.items()},
+                "sight_log": list(self.sight_log)[-10:],
                 "chats_in_flight": self.chats_in_flight,
                 "last_spoke_at": self.last_spoke_at,
             }

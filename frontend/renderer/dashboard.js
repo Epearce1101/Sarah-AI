@@ -27,6 +27,7 @@ import { ProjectModal } from "./scripts/core/project-modal.js";
 import "./scripts/core/screen-capture.js";
 import { parseCues } from "./scripts/avatar3d/cues.js";
 import { LiveVoice, isEcho } from "./scripts/core/live-voice.js";
+import { SarahEyes } from "./scripts/core/eyes.js";
 
 // -----------------------------------------------------------------------------
 // UI Controller
@@ -193,6 +194,30 @@ class SarahUI {
     else this._onLiveVoiceStatus("off");
     // Pre-synthesize her acknowledgement sounds once the backend is up.
     setTimeout(() => this.tts?.prepareFillers?.().catch(() => {}), 4000);
+    this._initEyes();
+  }
+
+  // Her eyes: camera + screen, watched locally and looked at (free cloud
+  // vision) only when the view changes. Top-bar button cycles
+  // camera+screen -> screen only -> off; the camera shows a red dot.
+  _initEyes() {
+    this.eyesToggleBtn = document.getElementById("eyes-toggle");
+    this.eyes = new SarahEyes({
+      onStatus: (mode, open) => {
+        if (!this.eyesToggleBtn) return;
+        const label = mode === "off" ? "Eyes: OFF" : open.length ? `Eyes: ${open.join(" + ")}` : "Eyes: …";
+        this.eyesToggleBtn.textContent = label;
+        this.eyesToggleBtn.classList.toggle("camera-on", open.includes("camera"));
+      },
+    });
+    this.eyesToggleBtn?.addEventListener("click", () => {
+      const next = { on: "screen", screen: "off", off: "on" }[this.eyes.mode] || "on";
+      try { localStorage.setItem("sarah.eyes", next); } catch {}
+      this.eyes.setMode(next);
+    });
+    let mode = "on";
+    try { mode = localStorage.getItem("sarah.eyes") || "on"; } catch {}
+    this.eyes.setMode(mode);
   }
 
   async _toggleLiveVoice() {
