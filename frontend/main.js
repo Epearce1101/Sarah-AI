@@ -130,6 +130,7 @@ function createWindow() {
     minHeight: 700,
     backgroundColor: "#050509",
     autoHideMenuBar: true,
+    icon: path.join(__dirname, "renderer", "assets", "sarah.ico"),
     useContentSize: true,
 
     webPreferences: {

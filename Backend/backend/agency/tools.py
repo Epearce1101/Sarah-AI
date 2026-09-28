@@ -558,6 +558,14 @@ def open_item(target: str):
     return f"Opened {target}"
 
 
+@tool("pause", "Wait a few seconds (e.g. to let Zero see something, or for an app to load).",
+      {"seconds": {"type": "number", "description": "1-60"}}, ["seconds"], timeout=65)
+async def pause(seconds: float):
+    s = max(0.5, min(60.0, float(seconds or 1)))
+    await asyncio.sleep(s)
+    return f"Waited {s:g} s"
+
+
 @tool("window", "Manage app windows on Zero's desktop. actions: list (open windows), focus (bring to "
       "front), close (normal close; leaves a save prompt for Zero), close_without_saving (discard "
       "changes and close), close_and_save, minimize, maximize, restore, wait (until a window with that "
