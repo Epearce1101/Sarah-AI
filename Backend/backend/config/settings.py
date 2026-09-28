@@ -25,6 +25,12 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
+# Downloaded models (Whisper etc.) live inside the project, never in the
+# user-profile caches on C:.
+MODELS_DIR = Path(os.environ.get("SARAH_MODELS_DIR") or (BACKEND_ROOT / "models"))
+os.environ.setdefault("HF_HOME", str(MODELS_DIR / "hf"))
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+
 
 def _str(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
@@ -244,6 +250,15 @@ class Settings:
     ))
     persona_inject_char_cap: int = field(default_factory=lambda: _int("SARAH_PERSONA_INJECT_CHAR_CAP", 8000))
     persona_use_active_state: bool = field(default_factory=lambda: _bool("SARAH_PERSONA_USE_ACTIVE_STATE", True))
+
+    # Speech recognition. "auto" uses the GPU when CUDA is available (NVIDIA
+    # wheels in the venv), else CPU with a smaller model.
+    models_dir: Path = field(default_factory=lambda: MODELS_DIR)
+    whisper_model: str = field(default_factory=lambda: _str("SARAH_WHISPER_MODEL", "large-v3-turbo"))
+    whisper_cpu_model: str = field(default_factory=lambda: _str("SARAH_WHISPER_CPU_MODEL", "base.en"))
+    whisper_device: str = field(default_factory=lambda: _str("SARAH_WHISPER_DEVICE", "auto"))
+    # Live voice (continuous mic over /ws/voice): silence that ends a turn.
+    voice_end_silence_ms: int = field(default_factory=lambda: _int("SARAH_VOICE_END_SILENCE_MS", 550))
 
     # Embodiment: Sarah may speak on her own when something happens to her
     # body or presence (a head pat, the user coming back). Off = she still

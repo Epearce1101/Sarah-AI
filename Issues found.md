@@ -4,6 +4,14 @@ Tracking file for current/previous issues. Tick a box when fixed; leave a short 
 
 ---
 
+## 2026-09-27 — Real-time companion, phase 1: live voice (#100–#104)
+
+- [x] **#100 Speech recognition was CPU Whisper tiny.en on recorded clips** — now faster-whisper `large-v3-turbo` on the RTX 3060 (NVIDIA cuBLAS/cuDNN wheels in the venv, DLL dirs added at load; CPU `base.en`/`WHISPER_MODEL` fallback). 0.25–0.33 s per 3–5 s of speech, warmed at backend startup. All downloads land on E: (`HF_HOME` → `Backend/models/hf`, pip `--no-cache-dir`, TEMP already on E:).
+- [x] **#101 Wake word + push-to-talk** → always-open echo-cancelled mic (`scripts/core/live-voice.js`: AudioWorklet → 16 kHz PCM → `ws://…/ws/voice`, token injected by main.js). Backend (`backend/voice/endpointer.py`, `api/voice_live.py`): streaming Silero VAD (faster-whisper's bundled ONNX, state carried across 32 ms chunks), turn endpointing, live partial captions, noise/hallucination filter. Top-bar **Mic** button: live → muted → off; wake polling pauses while live.
+- [x] **#102 Couldn't interrupt her** — speaking over her stops her (barge-in); while she talks the listener needs a louder/longer voice, and transcripts matching what she just said are dropped as echo.
+- [x] **#103 Latency** — semantic endpointing: after 256 ms of silence the turn is transcribed and, if it reads as a finished sentence, ends right there reusing that transcript (end of speech → transcript 0.88 → 0.57 s). Instant local acknowledgements ("Mm,", "Oh!", "Let me see,") when her words aren't ready in 0.6 s: first sound ≈1.2 s after you stop; the answer follows at the model's pace (free Nemotron Ultra TTFT 2.2–4.6 s measured; Super leaks reasoning, Lightning prints a thinking process, Gemma/Qwen free were 429).
+- [x] **#104 Spoken replies read like essays** — turns carry `modality: "voice"`; her "Right now" block tells her she's being talked to face to face → short, natural, no markdown. Live: "Hey Sarah, what should I cook for dinner?" → "That depends — what are you in the mood for?…"
+
 ## 2026-09-27 — One self: mind and body unified (#93–#99)
 
 - [x] **#93 Her "emotion" was the user's** — `mood_signals` regex-matched the *user's* message and made that Sarah's emotion (face, voice, mood). "I got the job offer!!" read as frustration (`[!?]{2,}`), so her body looked annoyed while she wrote something joyful. Now every reply opens with her own `<feel>emotion:intensity | why</feel>`; `backend/embodiment` makes that her state (mood persistence, `emotion` in the API, voice prosody, face, posture, idle stance). The user's message is only *perceived* ("they seem frustrated", `perceive_user_message`), and still nudges affinity.

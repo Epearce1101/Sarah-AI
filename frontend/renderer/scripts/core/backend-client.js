@@ -48,10 +48,11 @@ export class SarahBackend {
   // mean the endpoint doesn't exist (older backend) and nothing was sent, so
   // falling back to chat() is safe; any other failure may already have saved
   // the user's turn and must not be retried blindly.
-  async chatStream(message, conversationId = null, { regenerate = false, onDelta } = {}) {
+  async chatStream(message, conversationId = null, { regenerate = false, onDelta, modality = "text" } = {}) {
     const payload = { message, from_creator: true };
     if (conversationId != null) payload.conversation_id = conversationId;
     if (regenerate) payload.regenerate = true;
+    if (modality && modality !== "text") payload.modality = modality;
 
     const res = await fetch(`${this.base}/api/chat/stream`, {
       method: "POST",

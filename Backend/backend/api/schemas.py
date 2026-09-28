@@ -21,6 +21,9 @@ class ChatRequest(BaseModel):
     from_creator: bool = True
     conversation_id: Optional[int] = None
     regenerate: bool = False
+    # "voice" when the user said it out loud (live mic): she answers like
+    # spoken conversation. Default "text".
+    modality: str = "text"
 
 
 class ChatResponse(BaseModel):

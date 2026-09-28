@@ -26,6 +26,7 @@ import { openAttachment } from "./scripts/core/attachments.js";
 import { ProjectModal } from "./scripts/core/project-modal.js";
 import "./scripts/core/screen-capture.js";
 import { parseCues } from "./scripts/avatar3d/cues.js";
+import { LiveVoice, isEcho } from "./scripts/core/live-voice.js";
 
 // -----------------------------------------------------------------------------
 // UI Controller
@@ -167,6 +168,113 @@ class SarahUI {
     this._initState();
     this._startWakeWatcher();
     this._startContextStatusSync();
+    this._initLiveVoice();
+  }
+
+  //---------------------------------------------------------------------------
+  // Live voice: always listening, no wake word. The backend endpoints each
+  // turn and transcribes it on the GPU; talking over Sarah interrupts her.
+  //---------------------------------------------------------------------------
+
+  _initLiveVoice() {
+    this.micToggleBtn = document.getElementById("mic-toggle");
+    this.voiceCaption = document.getElementById("voice-caption");
+    this._voiceQueue = [];
+    let enabled = true;
+    try { enabled = localStorage.getItem("sarah.liveVoice") !== "off"; } catch {}
+    this.liveVoice = new LiveVoice({
+      onEvent: (msg) => this._onLiveVoiceEvent(msg),
+      onStatus: (status, detail) => this._onLiveVoiceStatus(status, detail),
+    });
+    this.micToggleBtn?.addEventListener("click", () => this._toggleLiveVoice());
+    // Keep the listener told whether she's talking (echo guard, barge-in).
+    this._speakingSync = setInterval(() => this.liveVoice?.setSpeaking(Boolean(this.tts?._ttsPlaying)), 100);
+    if (enabled) this.liveVoice.start();
+    else this._onLiveVoiceStatus("off");
+    // Pre-synthesize her acknowledgement sounds once the backend is up.
+    setTimeout(() => this.tts?.prepareFillers?.().catch(() => {}), 4000);
+  }
+
+  async _toggleLiveVoice() {
+    const lv = this.liveVoice;
+    if (!lv) return;
+    if (!lv.active) {
+      await lv.start();
+    } else if (!lv.muted) {
+      lv.setMuted(true);
+    } else {
+      lv.stop();
+    }
+    try { localStorage.setItem("sarah.liveVoice", lv.active ? "on" : "off"); } catch {}
+  }
+
+  _onLiveVoiceStatus(status, detail = "") {
+    this._liveVoiceStatus = status;
+    const labels = {
+      listening: "Mic: LIVE", muted: "Mic: MUTED", connecting: "Mic: …", off: "Mic: OFF",
+      "no-mic": "Mic: NO DEVICE", error: "Mic: ERROR",
+    };
+    if (this.micToggleBtn) {
+      this.micToggleBtn.textContent = labels[status] || `Mic: ${status}`;
+      this.micToggleBtn.title = detail || "Click: live → muted → off";
+      this.micToggleBtn.classList.toggle("listening", status === "listening");
+    }
+    if (status === "error" || status === "no-mic") console.warn("[LiveVoice]", status, detail);
+  }
+
+  _setVoiceCaption(text, state = "") {
+    const el = this.voiceCaption;
+    if (!el) return;
+    el.textContent = text || "";
+    el.dataset.state = state;
+    el.classList.toggle("visible", Boolean(text));
+  }
+
+  _onLiveVoiceEvent(msg) {
+    const director = window.SARAH_AVATAR_DIRECTOR;
+    if (msg.type === "speech_start") {
+      this._voiceTurnStarted = performance.now();
+      // Talking over her: she stops and listens, like a person would.
+      if (msg.barge_in || this.tts?._ttsPlaying) this.tts.stop();
+      director?.onUserSpeaking?.();
+      this._setVoiceCaption("…", "hearing");
+    } else if (msg.type === "partial") {
+      this._setVoiceCaption(msg.text, "hearing");
+    } else if (msg.type === "speech_cancel") {
+      this._setVoiceCaption("");
+      director?.onUserStoppedSpeaking?.();
+    } else if (msg.type === "final") {
+      const text = String(msg.text || "").trim();
+      if (!text || isEcho(text, this.tts?.spokenRecently?.(6000)) && this.tts?.isMuting?.()) {
+        this._setVoiceCaption("");
+        director?.onUserStoppedSpeaking?.();
+        return;
+      }
+      this._setVoiceCaption(text, "heard");
+      setTimeout(() => this._setVoiceCaption(""), 1500);
+      if (window.B6_TIMING || window.SARAH_LATENCY) {
+        console.log(`[LATENCY] speech->final ${Math.round(performance.now() - (this._voiceTurnStarted || 0))} ms (stt ${msg.stt_ms} ms)`);
+      }
+      this._submitVoiceTurn(text);
+    }
+  }
+
+  // A spoken turn goes in like a typed one. If she's still answering the
+  // previous one, it waits and is sent right after (joined if several).
+  _submitVoiceTurn(text) {
+    if (this._chatBusy) {
+      this._voiceQueue.push(text);
+      return;
+    }
+    this._voiceTurnSentAt = performance.now();
+    this._nextModality = "voice";
+    this._sendChat(text);
+  }
+
+  _flushVoiceQueue() {
+    if (!this._voiceQueue?.length || this._chatBusy) return;
+    const text = this._voiceQueue.splice(0).join(" ");
+    this._submitVoiceTurn(text);
   }
 
   //---------------------------------------------------------------------------
@@ -813,11 +921,27 @@ class SarahUI {
       else director?.streamCues?.(cues);
     };
 
+    const modality = this._nextModality || "text";
+    this._nextModality = null;
+    // Spoken turns: if her words aren't ready in ~0.6 s, she acknowledges
+    // you out loud ("Mm," / "Oh!") the way people do while they think.
+    let fillerTimer = null;
+    if (speech && modality === "voice") {
+      const kind = /\?\s*$|^(what|how|why|when|where|who|can|could|would|should|do|does|is|are)\b/i.test(message)
+        ? "think" : /!\s*$/.test(message) ? "react" : "ack";
+      // Not once a first sentence is nearly ready to be spoken anyway.
+      fillerTimer = setTimeout(() => {
+        const said = this._parseReply(raw, { streaming: true }).text.trim();
+        if (said.length < 30 && !this.tts._ttsPlaying) this.tts.playFiller(kind);
+      }, 600);
+    }
     try {
-      const resp = await this.backend.chatStream(message, this.activeConversationId, { regenerate, onDelta });
+      const resp = await this.backend.chatStream(message, this.activeConversationId, { regenerate, onDelta, modality });
+      clearTimeout(fillerTimer);
       bubble?.classList.remove("is-streaming");
       return { resp, bubble, speech };
     } catch (err) {
+      clearTimeout(fillerTimer);
       speech?.cancel();
       bubble?.classList.remove("is-streaming");
       if (!err?.streamUnavailable || bubble) throw err;
@@ -1567,6 +1691,8 @@ class SarahUI {
   async _pollWakeWord() {
     if (this.voiceListening || this.voiceProcessing || this._wakeRequestInFlight)
       return;
+    // Live voice listens continuously; the wake word would double-capture.
+    if (this.liveVoice?.active) return;
     // When voice is OFF, do not poll backend wake at all. Without this, false
     // wake fires from the backend (e.g. vosk hallucinating "hi"/"hey" on noise)
     // would re-activate the listening indicator and trigger silent captures.
@@ -5202,6 +5328,7 @@ class SarahUI {
     }
 
     console.log("[Chat] _sendChat called, activeConversationId before:", this.activeConversationId);
+    this._chatBusy = true;
 
     if (!this.activeConversationId) {
       try {
@@ -5285,6 +5412,8 @@ class SarahUI {
     } finally {
       this.setInputDisabled(false);
       if (this.chatInput) this.chatInput.focus();
+      this._chatBusy = false;
+      this._flushVoiceQueue();
     }
   }
 

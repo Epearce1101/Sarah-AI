@@ -206,6 +206,7 @@ async def api_chat(payload: ChatRequest):
 
     project_context = _project_context_for(payload.conversation_id)
     me = get_self()
+    me.note_modality(payload.conversation_id, payload.modality)
     me.chat_started()
     try:
         result = await sarah.handle_message(
@@ -249,6 +250,7 @@ async def api_chat_stream(payload: ChatRequest):
 
         project_context = _project_context_for(payload.conversation_id)
         me = get_self()
+        me.note_modality(payload.conversation_id, payload.modality)
         me.chat_started()
         try:
             async for event in sarah.handle_message_stream(

@@ -68,6 +68,9 @@ function installBackendAuth(sess) {
   const urls = [
     `http://127.0.0.1:${BACKEND_PORT}/*`,
     `http://localhost:${BACKEND_PORT}/*`,
+    // Live voice runs over a WebSocket; its upgrade request needs the token too.
+    `ws://127.0.0.1:${BACKEND_PORT}/*`,
+    `ws://localhost:${BACKEND_PORT}/*`,
   ];
   sess.webRequest.onBeforeSendHeaders({ urls }, (details, callback) => {
     details.requestHeaders[BACKEND_TOKEN_HEADER] = BACKEND_TOKEN;

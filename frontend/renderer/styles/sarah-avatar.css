@@ -1,4 +1,4 @@
-﻿/* ======================================================================= */
+/* ======================================================================= */
 /* SARAH Avatar-Specific Styles                                             */
 /* A1 keeps shell/chat/modal styling in styles.css + a1-components.css.      */
 /* ======================================================================= */
@@ -43,6 +43,30 @@
   cursor: pointer;
   touch-action: none;
 }
+
+/* What she's hearing you say, live, over her feet. */
+.voice-caption {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 12px;
+  z-index: 20;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--surface-glass);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  pointer-events: none;
+}
+.voice-caption.visible { opacity: 1; transform: none; }
+.voice-caption[data-state="heard"] { color: var(--text-main); background: var(--surface-active); }
+
+#mic-toggle.listening { box-shadow: 0 0 0 2px var(--surface-success); border-color: var(--accent-cyan); }
 
 .sarah-3d-canvas {
   width: 100%;

@@ -181,6 +181,7 @@ class SelfModel:
         self.body_at: float = 0.0
         self.sensations: Deque[Sensation] = deque(maxlen=24)
         self.perceived: Dict[int, str] = {}     # conversation -> how the user seemed
+        self.modality: Dict[int, tuple] = {}    # conversation -> ("voice"|"text", at)
         self.chats_in_flight = 0
         self.chat_serial = 0          # bumps on every chat turn (race detection)
         self.last_chat_started = 0.0
@@ -218,6 +219,13 @@ class SelfModel:
                 self.perceived[conversation_id] = description
             else:
                 self.perceived.pop(conversation_id, None)
+
+    def note_modality(self, conversation_id: Optional[int], modality: str) -> None:
+        """How the user's latest turn reached her: said out loud or typed."""
+        if conversation_id is None:
+            return
+        with self._lock:
+            self.modality[conversation_id] = ((modality or "text").lower(), time.time())
 
     # -- chat bookkeeping ----------------------------------------------------
     def chat_started(self) -> None:
@@ -295,6 +303,13 @@ class SelfModel:
         if conversation_id is not None:
             with self._lock:
                 perceived = self.perceived.get(conversation_id)
+                modality = self.modality.get(conversation_id)
+            if modality and modality[0] == "voice" and now - modality[1] < 120:
+                lines.append(
+                    f"- {user_name} is talking to you out loud, face to face. Answer the way you'd "
+                    "speak: short and natural, a sentence or three, no markdown, lists or code "
+                    "unless they ask for it."
+                )
             if perceived:
                 lines.append(f"- Reading {user_name}'s last message, they seem {perceived}.")
 

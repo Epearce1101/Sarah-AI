@@ -132,6 +132,7 @@
     </div>
 
     <div class="top-bar-right">
+      <button id="mic-toggle" class="pill-btn pill-btn-small" title="Click: live → muted → off">Mic: …</button>
       <button id="voice-toggle" class="pill-btn pill-btn-small">Voice: OFF</button>
       <button id="more-toggle" class="pill-btn pill-btn-small">More</button>
     </div>
@@ -254,6 +255,7 @@
       <div id="avatar-container" class="avatar-container">
         <canvas id="sarah-canvas" class="sarah-canvas"></canvas>
         <canvas id="sarah-3d-canvas" class="sarah-3d-canvas sarah-hidden"></canvas>
+        <div id="voice-caption" class="voice-caption" aria-live="polite"></div>
 
         <div id="avatar-fallback" class="avatar-fallback">
           <div class="pill-outer">

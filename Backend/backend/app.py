@@ -163,6 +163,19 @@ async def _startup() -> None:
     preload_sarah()
     start_wake_listener()
 
+    # Load + warm speech recognition off the startup path so the first live
+    # voice turn doesn't pay model load and CUDA setup (~5 s).
+    def _prewarm_stt():
+        try:
+            from backend.whisper_stt import get_whisper_stt
+            stt = get_whisper_stt()
+            logger.info(f"[INIT] Speech recognition ready ({stt.model_size} on {stt.device}).")
+        except Exception as exc:
+            logger.warning(f"[INIT] Speech recognition unavailable: {exc}")
+
+    import threading
+    threading.Thread(target=_prewarm_stt, name="stt-prewarm", daemon=True).start()
+
     logger.info("[INIT] Prewarming Piper TTS daemon...")
     try:
         from backend.piper.piper_tts import prewarm as prewarm_piper

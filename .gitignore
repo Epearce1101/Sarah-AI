@@ -39,3 +39,7 @@ Backend/backend/wake/models/
 frontend/renderer/assets/vrm/sarah.vrm
 frontend/renderer/assets/vrm/animations/*.vrma
 
+
+# Downloaded models (Whisper etc.; fetched on first run into the project, not C:)
+Backend/models/
+

@@ -371,7 +371,23 @@ export class SarahDirector {
     this._typingIdle = setTimeout(() => { if (this.mode === "listening") this._setMode("idle"); }, 2500);
   }
 
+  // You started talking out loud: she turns to you and listens.
+  onUserSpeaking() {
+    this._activity();
+    this.lastTyping = performance.now();
+    clearTimeout(this._typingIdle);
+    this.hearingVoice = true;
+    if (this.mode !== "thinking") this._setMode("listening");
+    this.lookAt("user", 4, "listening");
+  }
+
+  onUserStoppedSpeaking() {
+    this.hearingVoice = false;
+    if (this.mode === "listening") this._later(800, () => { if (this.mode === "listening") this._setMode("idle"); });
+  }
+
   onUserMessage() {
+    this.hearingVoice = false;
     this._activity();
     clearTimeout(this._typingIdle);
     this._setMode("thinking");
@@ -568,7 +584,7 @@ export class SarahDirector {
 
   _chooseAttention(now) {
     const cursorFresh = now - this.cursor.at < 2500;
-    if (this.mode === "listening") return this.lookAt("input", 2.5, "listening");
+    if (this.mode === "listening") return this.lookAt(this.hearingVoice ? "user" : "input", 2.5, "listening");
     if (this.mode === "thinking") return this.lookAt(pick(["up", "away", "up"]), rand(1.2, 2.2), "thinking");
     if (this.mode === "speaking") {
       // Mostly eye contact, with brief glances away like people do mid-thought.

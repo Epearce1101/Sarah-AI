@@ -13,11 +13,41 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class WhisperSTT:
-    """Whisper-based STT for short voice commands.
+def _add_cuda_dll_dirs() -> bool:
+    """Make the NVIDIA runtime wheels (nvidia-cublas-cu12, nvidia-cudnn-cu12)
+    in the venv visible to CTranslate2. Returns True if any were found."""
+    import glob
+    import site
 
-    Wake-word detection lives in `backend.audio.wake_loop` (Vosk daemon thread)
-    and is not handled here.
+    found = False
+    roots = [p for p in site.getsitepackages() if os.path.isdir(os.path.join(p, "nvidia"))]
+    for root in roots:
+        for d in glob.glob(os.path.join(root, "nvidia", "*", "bin")):
+            try:
+                os.add_dll_directory(d)
+            except (OSError, AttributeError):
+                continue
+            os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+            found = True
+    return found
+
+
+def _cuda_available() -> bool:
+    try:
+        import ctranslate2
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
+
+class WhisperSTT:
+    """Whisper speech recognition (faster-whisper).
+
+    Runs on the GPU (large-v3-turbo, ~0.25 s per 5 s of speech on an RTX
+    3060) when CUDA is available, else on the CPU with a small model. Models
+    download into ``settings.models_dir`` (the project folder), never C:.
+    Wake-word detection lives in ``backend.audio.wake_loop``; continuous live
+    voice in ``backend.voice``.
     """
 
     def __init__(
@@ -26,29 +56,61 @@ class WhisperSTT:
         device: Optional[str] = None,
         compute_type: Optional[str] = None,
     ):
-        # Model size
-        self.model_size = model_size or os.getenv("WHISPER_MODEL", "tiny.en")
+        import threading
 
-        # Force CPU always — prevents float16 GPU crash
-        self.device = "cpu"
+        self._lock = threading.Lock()
+        wanted = (device or _settings.whisper_device or "auto").lower()
+        use_gpu = wanted in ("auto", "cuda") and _add_cuda_dll_dirs() and _cuda_available()
+        download_root = str(_settings.models_dir / "hf" / "whisper")
 
-        # Force int8 for CPU — fastest & safest
-        self.compute_type = "int8"
+        self.model = None
+        if use_gpu:
+            # SARAH_WHISPER_MODEL; the legacy WHISPER_MODEL env var was a CPU-era
+            # choice (e.g. small.en) and only applies to the CPU fallback.
+            self.model_size = model_size or _settings.whisper_model
+            self.device, self.compute_type = "cuda", compute_type or "int8_float16"
+            try:
+                logger.info(f"[WhisperSTT] Loading model={self.model_size} device=cuda type={self.compute_type}")
+                self.model = WhisperModel(self.model_size, device="cuda", compute_type=self.compute_type,
+                                          download_root=download_root)
+            except Exception as exc:
+                logger.warning(f"[WhisperSTT] GPU load failed ({exc}); falling back to CPU")
+                self.model = None
+        if self.model is None:
+            self.model_size = os.getenv("WHISPER_MODEL") or _settings.whisper_cpu_model
+            self.device, self.compute_type = "cpu", "int8"
+            logger.info(f"[WhisperSTT] Loading model={self.model_size} device=cpu type=int8")
+            self.model = WhisperModel(self.model_size, device="cpu", compute_type="int8",
+                                      download_root=download_root)
 
-        # ---------------------------
-        # LOAD WHISPER MODEL
-        # ---------------------------
+        self._warmup()
+        logger.info(f"[WhisperSTT] Ready: {self.model_size} on {self.device}")
 
-        logger.info(f"[WhisperSTT] Loading model={self.model_size} "
-            f"device={self.device} type={self.compute_type}")
+    def _warmup(self) -> None:
+        """The first CUDA transcription pays ~3 s of kernel setup; pay it now."""
+        try:
+            silence = np.zeros(16000, dtype=np.float32)
+            with self._lock:
+                list(self.model.transcribe(silence, language="en", beam_size=1, without_timestamps=True)[0])
+        except Exception as exc:
+            logger.debug(f"[WhisperSTT] warmup skipped: {exc}")
 
-        self.model = WhisperModel(
-            self.model_size,
-            device=self.device,
-            compute_type=self.compute_type,
-        )
-
-        logger.info("[WhisperSTT] Model loaded.")
+    def transcribe_array(self, samples: np.ndarray, *, prompt: Optional[str] = None) -> str:
+        """16 kHz mono float32 -> text, original casing (live voice path)."""
+        if samples is None or len(samples) < 1600:
+            return ""
+        with self._lock:
+            segments, _info = self.model.transcribe(
+                samples.astype(np.float32, copy=False),
+                language="en",
+                beam_size=1,
+                vad_filter=False,
+                without_timestamps=True,
+                condition_on_previous_text=False,
+                initial_prompt=prompt,
+            )
+            text = " ".join(seg.text.strip() for seg in segments)
+        return text.strip()
 
     # ======================================================
     # PUBLIC API
@@ -152,7 +214,9 @@ class WhisperSTT:
                 logger.warning("%s %s", "[WhisperSTT] resample failed:", e)
 
         logger.info(f"[WhisperSTT] Starting transcription with Whisper...")
-        segments, info = self.model.transcribe(samples, beam_size=1, vad_filter=False, language="en")
+        with self._lock:
+            segments, info = self.model.transcribe(samples, beam_size=1, vad_filter=False, language="en")
+            segments = list(segments)
 
         # Don't print info object directly - it may contain unicode characters
         logger.info(f"[WhisperSTT] Transcription completed")
@@ -180,10 +244,12 @@ class WhisperSTT:
 # ============================================================
 
 whisper_stt: Optional[WhisperSTT] = None
+_singleton_lock = __import__("threading").Lock()
 
 
 def get_whisper_stt() -> WhisperSTT:
     global whisper_stt
-    if whisper_stt is None:
-        whisper_stt = WhisperSTT()
+    with _singleton_lock:  # a warmup thread and a request may race to load it
+        if whisper_stt is None:
+            whisper_stt = WhisperSTT()
     return whisper_stt
