@@ -35,7 +35,21 @@ export const GESTURES = {
   raise_hand: "dm_108", question: "dm_108", sing: "71_Singing",
   phone: "155_Talking On Phone", distant: "142_Sad Idle",
 };
-export const PROCEDURAL = ["lean_in", "step_back", "tilt", "nod_small", "look_around", "surprise", "dance", "spin"];
+// Held poses: she leans toward you (spine bends, eyes stay on you), tilts
+// her head and rocks a little, with a face and optionally a hand clip.
+// tilt: null = pick a side at random.
+// turn: she turns this far (either side, at random) so the lean shows.
+export const POSES = {
+  cute_pose: { lean: 0.44, turn: 0.35, tilt: null, sway: 0.05, face: "happy", clips: ["dm_24", "dm_56"], hold: 3.2, words: "leaning toward them, striking a cute pose" },
+  lean_forward: { lean: 0.38, turn: 0.2, tilt: null, face: "happy", hold: 2.6, words: "leaning forward toward them" },
+  peek: { lean: 0.26, roll: 0.22, tilt: 0.3, sway: 0.03, face: "playful", hold: 2.8, words: "leaning over to peek at them" },
+  curious_lean: { lean: 0.32, turn: 0.15, tilt: null, headPitch: 0.04, face: "thinking", hold: 2.6, words: "leaning in, curious" },
+  heart_lean: { lean: 0.4, turn: 0.25, tilt: null, sway: 0.03, face: "shy", clips: ["dm_29"], hold: 3.2, words: "leaning in, making a heart" },
+  peace_lean: { lean: 0.38, turn: 0.3, tilt: null, bob: 0.02, face: "wink", clips: ["dm_26"], hold: 3.2, words: "leaning in with a peace sign and a wink" },
+};
+const POSE_ALIASES = { cute: "cute_pose", pose: "cute_pose", cute_lean: "cute_pose", lean: "lean_forward", peek_a_boo: "peek" };
+export const PROCEDURAL = ["lean_in", "step_back", "tilt", "nod_small", "look_around", "surprise", "dance", "spin",
+  ...Object.keys(POSES)];
 const DANCES = ["47_Jazz Dancing", "70_Silly Dancing", "83_Swing Dancing", "45_House Dancing", "54_Macarena Dance", "dm_38", "41_Hip Hop Dancing", "67_Rumba Dancing"];
 // Clips that use the whole body: frame the full figure while they play.
 const FULL_BODY = /jump|danc|bow|defeat|crying|kneel|sitting|cheer|tantrum|throw|macarena|dm_(19|32|38|45|53|58|9)$/i;
@@ -50,7 +64,7 @@ const IDLE_SETS = {
 const TALKING = ["dm_5", "dm_6", "dm_7", "dm_13", "dm_14", "dm_15", "86_Talking"];
 const IDLE_ACTIONS = {
   calm: ["131_Neck Stretching", "look_around", "tilt", "dm_101"],
-  happy: ["dm_26", "look_around", "dm_24", "116_Happy Hand Gesture"],
+  happy: ["dm_26", "look_around", "dm_24", "116_Happy Hand Gesture", "cute_pose", "peek"],
   sad: ["65_Relieved Sigh", "look_around"],
   sleepy: ["dm_22", "131_Neck Stretching"],
 };
@@ -196,6 +210,8 @@ export class SarahDirector {
   gesture(name, amount = 1) {
     const key = String(name || "").toLowerCase().replace(/[\s-]+/g, "_");
     const body = this.avatar.body;
+    const poseName = POSES[key] ? key : POSE_ALIASES[key];
+    if (poseName) return this.strikePose(poseName, amount);
     if (key === "lean_in") { body.leanTarget = 0.14; this._later(1600, () => (body.leanTarget = 0)); return true; }
     if (key === "step_back") { body.leanTarget = -0.1; this._later(1400, () => (body.leanTarget = 0)); return true; }
     if (key === "tilt" || key === "head_tilt") { body.tiltTarget = (Math.random() < 0.5 ? -1 : 1) * 0.2; this._later(1500, () => (body.tiltTarget = 0)); return true; }
@@ -214,6 +230,23 @@ export class SarahDirector {
       return this.avatar.face.express(key, amount ?? 1, 3);
     }
     return this._playClip(id, { full: FULL_BODY.test(id) || FULL_BODY.test(key), maxSeconds: /Kneeling|Sitting/.test(id) ? 5 : null });
+  }
+
+  strikePose(name, amount = 1) {
+    const base = POSES[name];
+    if (!base) return false;
+    const k = Math.max(0.4, Math.min(1, Number(amount ?? 1)));
+    const spec = { ...base, lean: base.lean * k };
+    const side = Math.random() < 0.5 ? -1 : 1;
+    spec.turn = (spec.turn || 0) * side;
+    if (spec.tilt == null) spec.tilt = side * 0.22; // head tips toward the side she turned
+    this.avatar.body.strikePose(name, spec, spec.hold);
+    this.avatar.face.express(spec.face, 0.9, spec.hold + 0.4);
+    this.lookAt("user", spec.hold + 0.5, "pose");
+    const clips = (spec.clips || []).filter((id) => this.avatar.animator.has(id));
+    if (clips.length) this._playClip(pick(clips), { maxSeconds: spec.hold + 0.3 });
+    this.lastIdleAction = performance.now();
+    return true;
   }
 
   _playClip(id, { full = false, maxSeconds = null } = {}) {
@@ -423,7 +456,7 @@ export class SarahDirector {
       this._later(300, () => this.lookAt("down", 1.2, "touch"));
     } else {
       this.avatar.face.express("happy", 1, 2.5);
-      this.gesture(pick(["peace", "happy_hands", "wave"]));
+      this.gesture(pick(["peace_lean", "happy_hands", "wave", "cute_pose"]));
       this.lookAt("user", 2, "touch");
     }
   }
@@ -434,7 +467,9 @@ export class SarahDirector {
   describe() {
     const anim = this.avatar.animator;
     const now = performance.now();
-    const gesture = anim.oneShot?.id ? GESTURE_WORDS[anim.oneShot.id] || "moving" : null;
+    const pose = this.avatar.body.pose;
+    const gesture = pose && now < pose.until ? POSES[pose.name]?.words || "posing"
+      : anim.oneShot?.id ? GESTURE_WORDS[anim.oneShot.id] || "moving" : null;
     const stance = {
       speaking: "talking, gesturing along with your words",
       listening: "leaning in a little, listening",

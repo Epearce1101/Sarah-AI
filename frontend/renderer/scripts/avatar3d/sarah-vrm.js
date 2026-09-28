@@ -208,7 +208,15 @@ class Body {
     this.tiltTarget = 0;
     this.beat = 0;          // head nod (radians, positive = down)
     this.point = null;      // { side, target:Vector3, weight, until }
+    this.pose = null;       // { spec, weight, until, t, name }: a held pose (cute lean...)
     this.touched = new Map(); // node -> quaternion before offsets
+  }
+
+  // Hold a pose on top of whatever clip is playing. spec (radians):
+  // lean (forward, spread down the spine), roll (sideways), twist,
+  // tilt (head), headPitch, sway/bob (little rocking while held).
+  strikePose(name, spec, hold = 2.6) {
+    this.pose = { name, spec, weight: this.pose?.weight || 0, until: performance.now() + hold * 1000, t: 0 };
   }
 
   bone(name) {
@@ -232,7 +240,42 @@ class Body {
   update(dt, now) {
     this._applyGaze(dt);
     this._applyLeanAndTilt(dt);
+    this._applyPose(dt, now);
     this._applyPoint(dt, now);
+  }
+
+  _applyPose(dt, now) {
+    const p = this.pose;
+    if (!p) return;
+    const active = now < p.until;
+    p.weight = damp(p.weight, active ? 1 : 0, active ? 4.5 : 3.2, dt);
+    if (!active && p.weight < 0.01) {
+      this.pose = null;
+      return;
+    }
+    p.t += dt;
+    const s = p.spec;
+    const w = p.weight;
+    const lean = s.lean || 0;
+    const roll = s.roll || 0;
+    const twist = s.twist || 0;
+    const sway = Math.sin(p.t * 2.3) * (s.sway || 0);
+    const bob = Math.sin(p.t * 4.6) * (s.bob || 0);
+    const turn = (name, x, y, z) => {
+      const node = this.bone(name);
+      if (!node) return;
+      this._save(node);
+      node.quaternion.premultiply(tmpQ1.setFromEuler(tmpE.set(x * w, y * w, z * w, "YXZ")));
+    };
+    // A quarter turn (whole body, at the hips) so the lean reads from the front.
+    turn("hips", 0, s.turn || 0, 0);
+    // The lean is spread down the spine so it bends, not pivots.
+    turn("spine", lean * 0.35 + bob, twist * 0.3, roll * 0.4 + sway * 0.5);
+    turn("chest", lean * 0.35, twist * 0.3, roll * 0.3 + sway * 0.3);
+    turn("upperChest", lean * 0.3, twist * 0.4, roll * 0.3);
+    // Eyes stay on you: neck and head undo most of the lean, then tilt.
+    turn("neck", -lean * 0.45, 0, -roll * 0.3);
+    turn("head", -lean * 0.4 + (s.headPitch || 0), 0, (s.tilt || 0) - roll * 0.2 + sway * 0.4);
   }
 
   _applyGaze(dt) {

@@ -462,6 +462,20 @@ class OpenRouterClient:
         return ("You have used all your tool steps for this turn. "
                 "Answer now with what you found; say what is left to do if anything.")
 
+    @staticmethod
+    def _unfinished_plan_note(turn_started: float) -> Optional[str]:
+        try:
+            from backend.agency import plans
+            plan = plans.touched_since(turn_started)
+        except Exception:
+            return None
+        if not plan or plan["status"] != "active" or plans.next_step(plan) is None:
+            return None
+        pending = [f"{i}. {s['text']}" for i, s in enumerate(plan["steps"], 1) if s["status"] == "pending"]
+        return ("Not finished yet: your plan still has steps you haven't done or checked: " + "; ".join(pending)
+                + ". Carry on with them now, and check each one really worked. If one can't be done, mark it "
+                "failed or skipped with the reason. If you already said it's all done, correct that plainly.")
+
     async def chat_stream(
         self,
         conversation_id: int,
@@ -582,6 +596,7 @@ class OpenRouterClient:
         budget = self.MAX_TOOL_STEPS if tool_specs else 0
         turn_started = time.time()
         step = 0
+        nudges = 0
         while True:
             final_round = bool(tool_specs) and step >= budget
             if final_round:
@@ -631,6 +646,15 @@ class OpenRouterClient:
             meta["finish_reason"] = step_meta.get("finish_reason") or "stop"
             meta["model"] = step_meta.get("model") or meta["model"]
             calls = step_meta.get("tool_calls") or []
+            if not calls and not final_round and nudges < 2:
+                # Completion check: she's wrapping up but her plan isn't done.
+                nudge = self._unfinished_plan_note(turn_started)
+                if nudge:
+                    nudges += 1
+                    messages.append({"role": "assistant", "content": "".join(step_parts) or "..."})
+                    messages.append({"role": "system", "content": nudge})
+                    step += 1
+                    continue
             if not calls or final_round:
                 break
 

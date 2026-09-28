@@ -46,9 +46,20 @@ def api_tts(req: TTSRequest):
     started_at = time.perf_counter()
     # Her voice: Kokoro (natural), Piper only as a fallback.
     from backend import tts_kokoro
+    from backend.speech_text import for_speech
 
-    text = (req.text or "").strip()
-    if text and tts_kokoro.available():
+    # Words only: no emoji names, markdown, full URLs or folder paths.
+    text = for_speech(req.text or "")
+    if not text:  # only symbols (e.g. a lone "✅"): a moment of silence
+        import io
+        import wave
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(24000)
+            w.writeframes(b"\0\0" * 2400)
+        return Response(content=buf.getvalue(), media_type="audio/wav")
+    req.text = text
+    if tts_kokoro.available():
         try:
             wav_bytes = tts_kokoro.synthesize(text, req.length_scale)
             record_voice_latency("tts", (time.perf_counter() - started_at) * 1000, ok=True)

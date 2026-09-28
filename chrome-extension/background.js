@@ -320,9 +320,17 @@ const ACTIONS = {
   },
 };
 
+// What the page looks like, coarsely: did an action change anything?
+function pageSignature() {
+  const body = document.body ? document.body.innerText : "";
+  const field = document.activeElement && "value" in document.activeElement ? document.activeElement.value : "";
+  return `${location.href}|${document.title}|${body.length}|${body.slice(0, 200)}|${field}|${scrollY}`;
+}
+
 async function actThenRead(action, args) {
   const tab = await targetTab(args);
   const ref = args.ref != null ? Number(args.ref) : null;
+  const before = await run(tab.id, pageSignature);
   const note = await run(tab.id, pageAct, [action, ref, args.text ?? "", !!args.submit, args.direction || "down", args.key || ""]);
   await sleep(action === "scroll" ? 500 : 900);
   // A click may have opened a new tab: follow it.
@@ -330,5 +338,10 @@ async function actThenRead(action, args) {
   let id = tab.id;
   if (newest && newest.id !== tab.id && newest.openerTabId === tab.id) { herTab = newest.id; id = newest.id; }
   await waitLoaded(id, 15000);
-  return { did: note, ...(await summary(id, args.max_chars)) };
+  const changed = id !== tab.id || (await run(id, pageSignature)) !== before;
+  const result = { did: note, changed, ...(await summary(id, args.max_chars)) };
+  if (!changed) {
+    result.warning = "Nothing on the page changed after that. It probably didn't work: check before going on.";
+  }
+  return result;
 }

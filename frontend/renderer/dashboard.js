@@ -564,11 +564,11 @@ class SarahUI {
     if (d) {
       d.lookAt("user", 3, "gesture");
       const react = {
-        wave: () => { d.avatar.face.express("happy", 1, 3); d.gesture("wave"); },
+        wave: () => { d.avatar.face.express("happy", 1, 3); d.gesture("wave"); d._later?.(2600, () => d.gesture("cute_pose")); },
         thumbs_up: () => { d.avatar.face.express("happy", 0.9, 2.5); d.gesture("nod_small"); },
         thumbs_down: () => { d.avatar.face.express("pout", 0.8, 2.5); d.gesture("tilt"); },
-        peace: () => { d.avatar.face.express("playful", 1, 3); d.gesture("peace"); },
-        love: () => { d.avatar.face.express("shy", 1, 3); d.gesture("heart"); },
+        peace: () => d.gesture("peace_lean"),
+        love: () => d.gesture("heart_lean"),
         point_up: () => { d.lookAt("up", 2.5, "gesture"); d.avatar.face.express("surprised", 0.7, 2); },
       }[name];
       react?.();

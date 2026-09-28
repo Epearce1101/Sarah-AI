@@ -46,6 +46,16 @@ _INDEX_JS = r"""
 """
 
 
+# What the page looks like, coarsely: did an action change anything?
+_SIGNATURE_JS = r"""
+() => {
+  const body = document.body ? document.body.innerText : '';
+  const f = document.activeElement && 'value' in document.activeElement ? document.activeElement.value : '';
+  return `${location.href}|${document.title}|${body.length}|${body.slice(0, 200)}|${f}|${scrollY}`;
+}
+"""
+
+
 class SarahBrowser:
     def __init__(self) -> None:
         self._pw = None
@@ -102,6 +112,25 @@ class SarahBrowser:
             "elements": elements,
         }
 
+    async def _do(self, page, action: str, ref: Optional[int], text: str, submit: bool, key: str) -> None:
+        if action == "press":
+            await page.keyboard.press(key or "Enter")
+            await page.wait_for_timeout(700)
+            return
+        if ref is None and not text:
+            raise ValueError("give ref (the element number) or text to find")
+        locator = page.locator(f'[data-sarah-ref="{int(ref)}"]') if ref is not None else page.get_by_text(text, exact=False).first
+        if action == "click":
+            await locator.click(timeout=10000)
+            await page.wait_for_timeout(900)
+        elif action == "type":
+            await locator.fill(text, timeout=10000)
+            if submit:
+                await locator.press("Enter")
+                await page.wait_for_timeout(1200)
+        else:
+            await locator.select_option(label=text, timeout=10000)
+
     async def act(self, action: str, url: str = "", ref: Optional[int] = None, text: str = "",
                   submit: bool = False, key: str = "", direction: str = "down", question: str = "",
                   visible: Optional[bool] = None, max_chars: int = 5000) -> Any:
@@ -116,24 +145,21 @@ class SarahBrowser:
                 await page.wait_for_timeout(800)
             elif action == "read":
                 pass
-            elif action in ("click", "type", "select"):
-                if ref is None and not text:
-                    raise ValueError("give ref (the element number) or text to find")
-                locator = page.locator(f'[data-sarah-ref="{int(ref)}"]') if ref is not None else page.get_by_text(text, exact=False).first
-                if action == "click":
-                    await locator.click(timeout=10000)
-                    await page.wait_for_timeout(900)
-                elif action == "type":
-                    await locator.fill(text, timeout=10000)
-                    if submit:
-                        await locator.press("Enter")
-                        await page.wait_for_timeout(1200)
-                else:
-                    await locator.select_option(label=text, timeout=10000)
+            elif action in ("click", "type", "select", "press"):
+                # Same "did anything change?" signal as in Chrome.
+                before = await page.evaluate(_SIGNATURE_JS)
+                await self._do(page, action, ref, text, submit, key)
                 page = self._page or page
-            elif action == "press":
-                await page.keyboard.press(key or "Enter")
-                await page.wait_for_timeout(700)
+                try:
+                    changed = page.url != before.split("|", 1)[0] or await page.evaluate(_SIGNATURE_JS) != before
+                except Exception:
+                    changed = True  # navigating: it did something
+                result = await self._summary(page, max_chars)
+                result["changed"] = changed
+                if not changed:
+                    result["warning"] = ("Nothing on the page changed after that. It probably didn't work: "
+                                         "check before going on.")
+                return result
             elif action == "scroll":
                 await page.mouse.wheel(0, 900 if direction != "up" else -900)
                 await page.wait_for_timeout(600)

@@ -140,6 +140,9 @@ def update(plan_id: Optional[int], step: Optional[int] = None, status: Optional[
                 raise ValueError(f"plan #{plan['id']} has steps 1-{len(plan['steps'])}")
             if status not in STEP_STATUSES:
                 raise ValueError(f"step status must be one of {', '.join(STEP_STATUSES)}")
+            if status == "done" and len((note or "").strip()) < 4:
+                raise ValueError("say in note what you checked that shows this step worked (e.g. 'page shows "
+                                 "search results for lofi'); if you didn't check, check first")
             s = plan["steps"][int(step) - 1]
             s["status"], s["note"] = status, (note or "")[:300]
             plan["last"] = status

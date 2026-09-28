@@ -724,8 +724,8 @@ def make_plan(goal: str, steps: List[str]):
     return plans.render(plans.create(goal, steps, conv)) + "\nStart with step 1."
 
 
-@tool("update_plan", "Mark a step of your plan after checking its result: status done, failed or skipped "
-      "(1-based step number). add_steps inserts new steps next (a detour or a fix for a failure). "
+@tool("update_plan", "Mark a step of your plan after checking its result: status done (note = the evidence "
+      "you saw), failed or skipped (1-based step number). add_steps inserts new steps next (a detour or a fix for a failure). "
       "plan_status: 'blocked' if you need Zero (say what in note), 'cancelled' if it no longer makes sense, "
       "'done' when the goal is met early.",
       {"step": {"type": "integer"}, "status": {"type": "string", "enum": ["done", "failed", "skipped"]},

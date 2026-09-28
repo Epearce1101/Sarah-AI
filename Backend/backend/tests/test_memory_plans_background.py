@@ -139,15 +139,21 @@ def test_plan_lifecycle():
     assert "a step just failed" in plans.status_line(p)
     p = plans.update(None, add_steps=["extract with browser tables instead"])
     assert [s["text"] for s in p["steps"]][2] == "extract with browser tables instead"
-    p = plans.update(None, 3, "done")
-    p = plans.update(None, 4, "done")
+    p = plans.update(None, 3, "done", "table read ok")
+    p = plans.update(None, 4, "done", "hn.txt has 5 lines")
     assert p["status"] == "done" and "all finished" in plans.status_line(p)
     assert plans.open_plans() == []
 
 
+def test_done_needs_evidence():
+    plans.create("Open YouTube", ["open youtube", "search lofi"])
+    with pytest.raises(ValueError, match="what you checked"):
+        plans.update(None, 1, "done")
+
+
 def test_blocked_plans_wait_and_show_in_her_moment():
     p = plans.create("Log into the router", ["open router page", "sign in"])
-    plans.update(p["id"], 1, "done")
+    plans.update(p["id"], 1, "done", "it loaded")
     plans.update(p["id"], plan_status="blocked", note="need Zero's router password")
     assert "blocked" in plans.status_line(plans.get(p["id"]))
     assert "Your open plans" in get_self().render_now(1, "Zero")
@@ -202,6 +208,41 @@ def test_executor_extends_the_budget_while_a_plan_is_open(monkeypatch):
     # Out of steps with the plan open: told it stays open.
     assert "plan stays open" in seen[-1][-1]["content"]
     assert events[-1]["response"].content == "Got through most of it."
+
+
+def test_she_cant_wrap_up_with_plan_steps_left(monkeypatch):
+    from backend.memory import openrouter_client as oc
+
+    seen, n = [], [0]
+
+    class Completions:
+        def create(self, **kw):
+            n[0] += 1
+            seen.append(kw["messages"])
+            if n[0] == 1:
+                args = json.dumps({"goal": "YouTube lofi", "steps": ["open youtube", "search lofi"]})
+                return FakeStream([_chunk(tool_calls=[_tc(0, "p", "make_plan", args)], finish="tool_calls")])
+            if n[0] == 2:
+                return FakeStream([_chunk("All done!", finish="stop")])       # the shortcut
+            return FakeStream([_chunk("Actually not yet: I couldn't search.", finish="stop")])
+
+    client = oc.OpenRouterClient.__new__(oc.OpenRouterClient)
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    client.config = SimpleNamespace(llm_max_completion_tokens=100, llm_temperature=0.5, chars_per_token=4)
+    client._is_local_mode = lambda: False
+    packet = SimpleNamespace(messages=[{"role": "user", "content": "play lofi"}], estimated_tokens=10, debug_info={})
+    client._prepare_turn = lambda *a, **k: (packet, 1)
+    client._finish_turn = lambda **kw: SimpleNamespace(content=kw["raw_content"])
+    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda: {"model": "fake:free", "extra_body": None})
+    monkeypatch.setattr(tools, "_custom_tools", lambda: {})
+
+    async def collect():
+        return [e async for e in client.chat_stream(1, "play lofi")]
+
+    events = run(collect())
+    assert "Not finished yet" in seen[2][-1]["content"] and "open youtube" in seen[2][-1]["content"]
+    assert "couldn't search" in events[-1]["response"].content
+    assert n[0] <= 5  # nudged at most twice
 
 
 # --- background / her own time ------------------------------------------------------
@@ -268,7 +309,7 @@ def test_unfinished_plan_is_picked_up_and_spoken_when_zero_is_here(monkeypatch):
     me = get_self()
     me.last_conversation_id = 4
     p = plans.create("Sort the photos", ["list", "group by month", "move"])
-    plans.update(p["id"], 1, "done")
+    plans.update(p["id"], 1, "done", "it loaded")
     data = json.loads(plans._FILE.read_text())
     data[-1]["touched"] = time.time() - 600
     plans._FILE.write_text(json.dumps(data))
