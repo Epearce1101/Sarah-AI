@@ -21,10 +21,11 @@ does the same.
 ## What Sarah can do
 
 - **Live voice** — always listening (echo-cancelled, no wake word), GPU Whisper
-  `large-v3-turbo`, talk over her to interrupt. Top bar **Mic**: live → muted → off.
+  `large-v3-turbo`, talk over her to interrupt. Top bar **Mic**: ON/OFF.
 - **Eyes** — watches your screen and webcam, sending a frame to a free cloud
   vision model only when the view changes (frames are never saved). Top bar
-  **Eyes**: camera + screen → screen only → off (red dot = camera on).
+  **Camera** and **Screen**: ON/OFF (red dot = camera on). Camera, Screen and
+  Mic stay off until you switch them back on.
 - **Agency** — uses tools on her own (web search/reading, Python, PowerShell,
   files, apps, mouse/keyboard, fresh looks, reminders) and builds new tools for
   herself (`Backend/data/sarah_workspace/tools`). System hardware/software is
