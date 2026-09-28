@@ -38,6 +38,10 @@ export const METRIC_DEFINITIONS = [
   m("model.usage_distribution", "Model Usage Distribution", "model_ops", "text", "", "cyan", "collecting"),
   m("model.switch_frequency", "Model Switch Frequency", "model_ops", "number", "/hr"),
   m("model.success_failure_by_model", "Success vs Failure", "model_ops", "text", "", "green", "100 / 0"),
+  m("usage.free_requests_today", "Free Requests Today", "model_ops", "number", "", "cyan"),
+  m("usage.free_requests_left", "Free Requests Left", "model_ops", "number", "", "green"),
+  m("usage.free_requests_pct", "Daily Allowance Used", "model_ops", "percent", "%", "amber"),
+  m("usage.free_requests_by_use", "Requests By Use", "model_ops", "text", "", "cyan", "none"),
 
   m("chat.messages_day", "Messages Today", "chat_activity"),
   m("chat.messages_week", "Messages Week", "chat_activity"),

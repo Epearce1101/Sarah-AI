@@ -174,36 +174,39 @@ class SarahUI {
     this._startUsageMeter();
   }
 
-  // Today's free-model requests (all of Sarah: talking, seeing, initiative,
-  // memory...), refreshed every 20 s. Hover for what they were spent on.
+  // Free daily allowance: no meter on screen (it's in Diagnostics), just a
+  // warning the first time today's use passes 50 %, 75 %, 90 % and 95 %.
   _startUsageMeter() {
-    const el = document.getElementById("usage-indicator");
-    const fill = document.getElementById("usage-bar-fill");
-    const text = document.getElementById("usage-text");
-    if (!el) return;
-    const refresh = async () => {
+    const LEVELS = [95, 90, 75, 50];
+    const check = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/usage`);
         if (!res.ok) return;
         const u = await res.json();
-        const pct = Math.min(100, Math.round((u.share || 0) * 100));
-        if (text) text.textContent = `${u.used} / ${u.limit}`;
-        if (fill) fill.style.width = `${pct}%`;
-        el.classList.toggle("usage-warn", pct >= 70 && pct < 90);
-        el.classList.toggle("usage-critical", pct >= 90 || (u.non_free_models || []).length > 0);
-        const parts = Object.entries(u.by_category || {}).map(([k, v]) => `${k}: ${v}`);
-        el.title = [
-          `Free model requests today (resets at 00:00 UTC): ${u.used} of ${u.limit}, ${u.remaining} left`,
-          parts.length ? `Spent on: ${parts.join(", ")}` : "Nothing used yet today",
-          u.rate_limited ? `Rate-limited by providers: ${u.rate_limited}` : "",
-          (u.non_free_models || []).length ? `WARNING: non-free models used: ${u.non_free_models.join(", ")}` : "",
-        ].filter(Boolean).join("\n");
+        const pct = (u.share || 0) * 100;
+        const level = LEVELS.find((l) => pct >= l);
+        if (!level) return;
+        let warned = {};
+        try { warned = JSON.parse(localStorage.getItem("sarah.usageWarned") || "{}"); } catch {}
+        if (warned.day === u.day_utc && warned.level >= level) return;
+        localStorage.setItem("sarah.usageWarned", JSON.stringify({ day: u.day_utc, level }));
+        this._showWarning(`Sarah has used ${level}% of today's free requests (${u.used} of ${u.limit}). It resets at midnight UTC.`, level >= 90);
       } catch {
         /* backend restarting */
       }
     };
-    refresh();
-    this._usageTimer = setInterval(refresh, 20000);
+    check();
+    this._usageTimer = setInterval(check, 60000);
+  }
+
+  _showWarning(message, urgent = false) {
+    const el = document.createElement("div");
+    el.className = "sarah-warning" + (urgent ? " urgent" : "");
+    el.textContent = message;
+    el.title = "Click to dismiss";
+    el.addEventListener("click", () => el.remove());
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 15000);
   }
 
   //---------------------------------------------------------------------------

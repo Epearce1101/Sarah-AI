@@ -1,4 +1,4 @@
-﻿/* ======================================================================= */
+/* ======================================================================= */
 /* SARAH V10 A1 Component Overrides                                           */
 /* Loaded last to stabilize the visual system while legacy CSS is migrated.  */
 /* ======================================================================= */
@@ -1491,7 +1491,19 @@ select:focus {
 @keyframes sarah-tool-pulse { 50% { opacity: 0.55; } }
 #stop-actions { border-color: var(--accent-rose); color: var(--accent-rose); }
 
-/* Free-request budget meter: amber from 70 %, red from 90 % (or any paid model). */
-.usage-indicator.usage-warn .token-bar-fill { background: var(--accent-amber); }
-.usage-indicator.usage-critical .token-bar-fill { background: var(--accent-rose); }
-.usage-indicator.usage-critical .token-usage-text { color: var(--accent-rose); }
+/* Warning when the free daily allowance passes 50/75/90/95 %. */
+.sarah-warning {
+  position: fixed;
+  top: 64px;
+  right: 18px;
+  z-index: 9999;
+  max-width: 360px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--surface-glass-strong);
+  border: 1px solid var(--accent-amber);
+  color: var(--text-main);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sarah-warning.urgent { border-color: var(--accent-rose); }

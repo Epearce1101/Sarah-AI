@@ -386,6 +386,20 @@ def build_telemetry_snapshot() -> Dict[str, Any]:
         "latencyBuckets": _latency_buckets(latencies),
     })
 
+    # Free-model allowance used today (shown in Diagnostics only).
+    try:
+        from backend import usage
+
+        u = usage.today()
+        metrics.update({
+            "usage.free_requests_today": u["used"],
+            "usage.free_requests_left": u["remaining"],
+            "usage.free_requests_pct": round(u["share"] * 100, 1),
+            "usage.free_requests_by_use": ", ".join(f"{k}:{v}" for k, v in u["by_category"].items()) or "none",
+        })
+    except Exception:
+        pass
+
     alerts = []
     if metrics.get("alerts.critical"):
         alerts.append({"level": "critical", "message": "backend error spike detected"})
