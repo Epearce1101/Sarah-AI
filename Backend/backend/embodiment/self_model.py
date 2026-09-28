@@ -184,6 +184,7 @@ class SelfModel:
         self.modality: Dict[int, tuple] = {}    # conversation -> ("voice"|"text", at)
         self.sight: Dict[str, Dict[str, Any]] = {}   # "screen"/"camera" -> observation + "at"
         self.sight_log: Deque[Dict[str, Any]] = deque(maxlen=30)  # notable things seen
+        self.last_conversation_id: Optional[int] = None  # where background speech goes
         self.chats_in_flight = 0
         self.chat_serial = 0          # bumps on every chat turn (race detection)
         self.last_chat_started = 0.0
@@ -245,6 +246,7 @@ class SelfModel:
             return
         with self._lock:
             self.modality[conversation_id] = ((modality or "text").lower(), time.time())
+            self.last_conversation_id = conversation_id
 
     # -- chat bookkeeping ----------------------------------------------------
     def chat_started(self) -> None:

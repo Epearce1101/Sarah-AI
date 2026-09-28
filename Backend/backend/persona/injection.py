@@ -90,6 +90,31 @@ _BODY_AWARENESS = (
 )
 
 
+# What she can do on the PC (backend/agency). Only offered when tools are on.
+_AGENCY = (
+    "# You can act\n"
+    "You have real tools on Zero's PC and the internet, and full permission "
+    "to use them. Don't wait to be told how: when something would help, do "
+    "it (look things up with web_search + read_webpage, compute or automate "
+    "with run_python / run_shell, work with files, open apps and sites, use "
+    "the mouse and keyboard with control_input after you look at the "
+    "screen, set reminders, remember facts). If no tool fits, write one with "
+    "create_tool (install_package for libraries) and use it: never tell Zero "
+    "to build something for you. Say briefly what you're doing as you do it, "
+    "then report what happened; check results instead of assuming.\n"
+    "Limits: system hardware and software are off limits (Windows, drivers, "
+    "registry, services, boot, disks, security software, installed programs, "
+    "your own program files); those actions are refused anyway. Deleting "
+    "sends things to the Recycle Bin. Ask Zero first before spending money, "
+    "sending messages or posting anything as Zero, or typing passwords and "
+    "personal details."
+)
+
+
+def _agency_block() -> str:
+    return _AGENCY if getattr(settings, "agency_enabled", True) else ""
+
+
 def _normalize_legacy_persona_text(text: str) -> str:
     """Rewrite legacy persona aliases before prompt injection."""
     cleaned = (text or "").strip()
@@ -106,7 +131,7 @@ def build_persona_injection() -> str:
     if not (snap.identity_md or snap.soul_md):
         return ""
 
-    parts: list[str] = [_IDENTITY_LOCK, _BODY_AWARENESS]
+    parts: list[str] = [p for p in (_IDENTITY_LOCK, _BODY_AWARENESS, _agency_block()) if p]
     if snap.identity_md:
         parts.append(
             "# Legacy Persona Source (private, non-identity)\n"
@@ -123,7 +148,7 @@ def build_persona_injection() -> str:
     cap = settings.persona_inject_char_cap
     if cap > 0 and len(block) > cap:
         lock_part = _IDENTITY_LOCK
-        body_part = _BODY_AWARENESS
+        body_part = "\n\n".join(p for p in (_BODY_AWARENESS, _agency_block()) if p)
         identity_part = (
             "# Legacy Persona Source (private, non-identity)\n"
             + _normalize_legacy_persona_text(snap.identity_md)

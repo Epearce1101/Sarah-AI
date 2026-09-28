@@ -28,6 +28,7 @@ import "./scripts/core/screen-capture.js";
 import { parseCues } from "./scripts/avatar3d/cues.js";
 import { LiveVoice, isEcho } from "./scripts/core/live-voice.js";
 import { SarahEyes } from "./scripts/core/eyes.js";
+import { SarahSenses } from "./scripts/core/senses.js";
 
 // -----------------------------------------------------------------------------
 // UI Controller
@@ -218,6 +219,8 @@ class SarahUI {
     let mode = "on";
     try { mode = localStorage.getItem("sarah.eyes") || "on"; } catch {}
     this.eyes.setMode(mode);
+    // Her mind's line to her body (fresh looks, things she decides to say).
+    this.senses = new SarahSenses({ eyes: this.eyes, ui: this }).start();
   }
 
   async _toggleLiveVoice() {
@@ -948,6 +951,18 @@ class SarahUI {
 
     const modality = this._nextModality || "text";
     this._nextModality = null;
+    // What she's doing with her tools, shown live in her bubble.
+    const onTool = (evt) => {
+      if (!bubble) {
+        this._hideLoadingIndicator(loadingEl);
+        bubble = this.appendMessage("assistant", "…");
+        textEl = bubble?.querySelector(".chat-bubble-text");
+        bubble?.classList.add("is-streaming");
+      }
+      this._showToolActivity(bubble, evt);
+      if (evt.status === "start") director?.onWorking?.(evt.name);
+      this._scrollToBottom();
+    };
     // Spoken turns: if her words aren't ready in ~0.6 s, she acknowledges
     // you out loud ("Mm," / "Oh!") the way people do while they think.
     let fillerTimer = null;
@@ -961,12 +976,14 @@ class SarahUI {
       }, 600);
     }
     try {
-      const resp = await this.backend.chatStream(message, this.activeConversationId, { regenerate, onDelta, modality });
+      const resp = await this.backend.chatStream(message, this.activeConversationId, { regenerate, onDelta, onTool, modality });
       clearTimeout(fillerTimer);
+      this._setActing(false);
       bubble?.classList.remove("is-streaming");
       return { resp, bubble, speech };
     } catch (err) {
       clearTimeout(fillerTimer);
+      this._setActing(false);
       speech?.cancel();
       bubble?.classList.remove("is-streaming");
       if (!err?.streamUnavailable || bubble) throw err;
@@ -974,6 +991,70 @@ class SarahUI {
       const resp = await this.backend.chat(message, true, this.activeConversationId, regenerate);
       return { resp, bubble: null, speech: null };
     }
+  }
+
+  // One line per tool call inside her bubble: what she's doing, then ✓/✗.
+  _showToolActivity(bubble, evt) {
+    if (!bubble) return;
+    let list = bubble.querySelector(".chat-tool-activity");
+    if (!list) {
+      list = document.createElement("div");
+      list.className = "chat-tool-activity";
+      bubble.insertBefore(list, bubble.querySelector(".chat-bubble-text"));
+    }
+    const a = evt.args || {};
+    const short = (s, n = 60) => { s = String(s ?? ""); return s.length > n ? `${s.slice(0, n)}…` : s; };
+    const host = (u) => { try { return new URL(u).hostname; } catch { return short(u, 40); } };
+    const labels = {
+      web_search: () => `🔎 Searching “${short(a.query)}”`,
+      read_webpage: () => `📄 Reading ${host(a.url)}`,
+      run_python: () => "🐍 Running some code",
+      run_shell: () => `⌨️ ${short(a.command, 70)}`,
+      read_file: () => `📂 Reading ${short(a.path)}`,
+      list_directory: () => `📂 Looking in ${short(a.path)}`,
+      write_file: () => `✏️ Writing ${short(a.path)}`,
+      move_path: () => `📦 Moving ${short(a.source, 40)}`,
+      delete_path: () => `🗑️ Recycling ${short(a.path)}`,
+      open_item: () => `🚀 Opening ${short(a.target)}`,
+      control_input: () => `🖱️ ${a.action}${a.text ? ` “${short(a.text, 30)}”` : ""}`,
+      look: () => `👀 Looking: ${short(a.question)}`,
+      remember: () => "🧠 Remembering that",
+      set_reminder: () => `⏰ Reminder: ${short(a.text)}`,
+      install_package: () => `📦 Installing ${short(a.package)}`,
+      create_tool: () => `🛠️ Building a tool: ${a.name}`,
+    };
+    if (evt.status === "start") {
+      const row = document.createElement("div");
+      row.className = "chat-tool-row running";
+      row.textContent = (labels[evt.name] || (() => `🛠️ ${evt.name}`))();
+      list.appendChild(row);
+      this._setActing(true);
+    } else {
+      const row = [...list.querySelectorAll(".chat-tool-row.running")].pop();
+      if (row) {
+        row.classList.remove("running");
+        row.classList.add(evt.ok ? "ok" : "failed");
+        row.title = evt.summary || "";
+        row.textContent += evt.ok ? " ✓" : " ✗";
+      }
+    }
+  }
+
+  // The Stop button shows while she's acting; it pauses all her tools.
+  _setActing(on) {
+    const btn = (this.stopActionsBtn ||= document.getElementById("stop-actions"));
+    if (!btn) return;
+    if (!btn._bound) {
+      btn._bound = true;
+      btn.addEventListener("click", async () => {
+        btn.textContent = "Stopping…";
+        await this.backend.stopActions(60).catch(() => {});
+        this.tts?.stop();
+        btn.textContent = "■ Stop";
+        this._setActing(false);
+      });
+    }
+    btn.classList.toggle("sarah-hidden", !on);
   }
 
   // Put the final reply into the streamed bubble (or a new one). Returns the

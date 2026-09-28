@@ -48,7 +48,7 @@ export class SarahBackend {
   // mean the endpoint doesn't exist (older backend) and nothing was sent, so
   // falling back to chat() is safe; any other failure may already have saved
   // the user's turn and must not be retried blindly.
-  async chatStream(message, conversationId = null, { regenerate = false, onDelta, modality = "text" } = {}) {
+  async chatStream(message, conversationId = null, { regenerate = false, onDelta, onTool, modality = "text" } = {}) {
     const payload = { message, from_creator: true };
     if (conversationId != null) payload.conversation_id = conversationId;
     if (regenerate) payload.regenerate = true;
@@ -85,6 +85,7 @@ export class SarahBackend {
         if (!data.length) continue;
         const parsed = JSON.parse(data.join("\n"));
         if (event === "delta") onDelta?.(parsed.text || "");
+        else if (event === "tool") onTool?.(parsed);
         else if (event === "done") final = parsed;
         else if (event === "error") throw new Error(parsed.detail || "Chat stream error");
       }
@@ -92,6 +93,17 @@ export class SarahBackend {
     }
     if (!final) throw new Error("Chat stream ended without a reply");
     return final;
+  }
+
+  // Stop button: pause every tool she might be using.
+  async stopActions(seconds = 120) {
+    const res = await fetch(`${this.base}/api/agency/stop?seconds=${seconds}`, { method: "POST" });
+    return res.ok;
+  }
+
+  async resumeActions() {
+    const res = await fetch(`${this.base}/api/agency/resume`, { method: "POST" });
+    return res.ok;
   }
 
   async getLLMMode() {

@@ -430,6 +430,19 @@ class OpenRouterClient:
         except Exception as e:
             return self._error_response(e, user_message_id)
 
+    MAX_TOOL_STEPS = 8
+
+    def _tool_specs(self, use_local: bool) -> Optional[List[Dict[str, Any]]]:
+        """Her tools (built-in + self-made) for online turns, if agency is on."""
+        if use_local or not getattr(_settings, "agency_enabled", True):
+            return None
+        try:
+            from backend.agency import tools as agency_tools
+            return agency_tools.specs() or None
+        except Exception as exc:
+            logger.warning("tools unavailable: %s", exc)
+            return None
+
     async def chat_stream(
         self,
         conversation_id: int,
@@ -441,6 +454,11 @@ class OpenRouterClient:
     ) -> AsyncIterator[Dict[str, Any]]:
         """Like `chat`, but yields `{"type": "delta", "text": ...}` as tokens
         arrive and finally `{"type": "done", "response": LLMResponse}`.
+
+        Online turns can use tools: when the model calls some, they run
+        (``{"type": "tool", ...}`` events report each), their results go back
+        to the model, and it continues, up to MAX_TOOL_STEPS rounds. Text from
+        every round is streamed and saved as one reply.
 
         Deltas are raw model text for live display; the `done` response holds
         the sanitized reply that is saved and should replace the preview.
@@ -455,44 +473,56 @@ class OpenRouterClient:
             save_messages, save_user_message, project_context,
         )
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue = asyncio.Queue()
-        stop = threading.Event()
-        meta: Dict[str, Any] = {"finish_reason": "stop", "usage": None, "model": None}
         kwargs = None if use_local else llm_models.completion_kwargs()
+        tool_specs = self._tool_specs(use_local)
+        messages = list(packet.messages)
+        usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        meta: Dict[str, Any] = {"finish_reason": "stop", "model": None}
+        text_parts: List[str] = []
 
-        def emit(item):
-            loop.call_soon_threadsafe(queue.put_nowait, item)
-
-        def _produce_openrouter():
+        def _produce_openrouter(msgs, emit, stop, step_meta):
+            extra = {"tools": tool_specs, "tool_choice": "auto"} if tool_specs else {}
             stream = self._client.chat.completions.create(
-                messages=packet.messages,
+                messages=msgs,
                 max_tokens=self.config.llm_max_completion_tokens,
                 temperature=self.config.llm_temperature,
                 stream=True,
                 stream_options={"include_usage": True},
+                **extra,
                 **kwargs,
             )
+            calls: Dict[int, Dict[str, str]] = {}
             try:
                 for chunk in stream:
                     if stop.is_set():
                         break
-                    meta["model"] = getattr(chunk, "model", None) or meta["model"]
+                    step_meta["model"] = getattr(chunk, "model", None) or step_meta.get("model")
                     if getattr(chunk, "usage", None):
-                        meta["usage"] = self._usage_dict(chunk.usage)
+                        step_meta["usage"] = self._usage_dict(chunk.usage)
                     for choice in chunk.choices or []:
-                        text = getattr(choice.delta, "content", None)
+                        delta = choice.delta
+                        text = getattr(delta, "content", None)
                         if text:
                             emit(("delta", text))
+                        for tc in getattr(delta, "tool_calls", None) or []:
+                            slot = calls.setdefault(tc.index or 0, {"id": "", "name": "", "arguments": ""})
+                            if tc.id:
+                                slot["id"] = tc.id
+                            fn = getattr(tc, "function", None)
+                            if fn is not None:
+                                slot["name"] += fn.name or ""
+                                slot["arguments"] += fn.arguments or ""
                         if choice.finish_reason:
-                            meta["finish_reason"] = choice.finish_reason
+                            step_meta["finish_reason"] = choice.finish_reason
             finally:
                 stream.close()
+            step_meta["tool_calls"] = [calls[i] for i in sorted(calls) if calls[i]["name"]]
 
-        def _produce_local():
+        def _produce_local(msgs, emit, stop, step_meta):
             url = f"{_settings.ollama_base_url.rstrip('/')}/api/chat"
             payload = {
                 "model": self._current_model_name(),
-                "messages": packet.messages,
+                "messages": msgs,
                 "stream": True,
                 "options": {
                     "num_predict": self._current_completion_budget(),
@@ -517,45 +547,98 @@ class OpenRouterClient:
                     if data.get("done"):
                         prompt_tokens = int(data.get("prompt_eval_count") or 0)
                         completion_tokens = int(data.get("eval_count") or 0)
-                        meta["usage"] = {
+                        step_meta["usage"] = {
                             "prompt_tokens": prompt_tokens,
                             "completion_tokens": completion_tokens,
                             "total_tokens": prompt_tokens + completion_tokens,
                         }
-                        meta["finish_reason"] = data.get("done_reason") or "stop"
-                        meta["model"] = data.get("model")
+                        step_meta["finish_reason"] = data.get("done_reason") or "stop"
+                        step_meta["model"] = data.get("model")
+            step_meta["tool_calls"] = []
 
-        def _run():
+        for step in range(self.MAX_TOOL_STEPS if tool_specs else 1):
+            queue: asyncio.Queue = asyncio.Queue()
+            stop = threading.Event()
+            step_meta: Dict[str, Any] = {"finish_reason": "stop", "usage": None, "model": None, "tool_calls": []}
+            step_parts: List[str] = []
+
+            def emit(item):
+                loop.call_soon_threadsafe(queue.put_nowait, item)
+
+            def _run(msgs=list(messages), sm=step_meta, st=stop):
+                try:
+                    (_produce_local if use_local else _produce_openrouter)(msgs, emit, st, sm)
+                    emit(("end", None))
+                except Exception as exc:  # surfaced to the consumer below
+                    emit(("error", exc))
+
+            worker = loop.run_in_executor(None, _run)
             try:
-                (_produce_local if use_local else _produce_openrouter)()
-                emit(("end", None))
-            except Exception as exc:  # surfaced to the consumer below
-                emit(("error", exc))
+                while True:
+                    kind, value = await queue.get()
+                    if kind == "delta":
+                        if not step_parts and text_parts and not "".join(text_parts).endswith(("\n", " ")):
+                            # A new round after tools: keep it a new paragraph.
+                            text_parts.append("\n\n")
+                            yield {"type": "delta", "text": "\n\n"}
+                        step_parts.append(value)
+                        text_parts.append(value)
+                        yield {"type": "delta", "text": value}
+                    elif kind == "error":
+                        if text_parts:
+                            logger.warning("LLM error after partial reply: %s", value)
+                            break
+                        yield {"type": "done", "response": self._error_response(value, user_message_id)}
+                        return
+                    else:
+                        break
+            finally:
+                stop.set()  # client went away mid-stream: let the worker close up
+            await worker
 
-        worker = loop.run_in_executor(None, _run)
-        parts: List[str] = []
-        try:
-            while True:
-                kind, value = await queue.get()
-                if kind == "delta":
-                    parts.append(value)
-                    yield {"type": "delta", "text": value}
-                elif kind == "error":
-                    yield {"type": "done", "response": self._error_response(value, user_message_id)}
-                    return
+            for key in usage_total:
+                usage_total[key] += int((step_meta.get("usage") or {}).get(key, 0) or 0)
+            meta["finish_reason"] = step_meta.get("finish_reason") or "stop"
+            meta["model"] = step_meta.get("model") or meta["model"]
+            calls = step_meta.get("tool_calls") or []
+            if not calls:
+                break
+
+            # The model asked for tools: run them and let it continue.
+            from backend.agency import tools as agency_tools
+
+            messages.append({
+                "role": "assistant",
+                "content": "".join(step_parts) or None,
+                "tool_calls": [
+                    {"id": c["id"] or f"call_{step}_{i}", "type": "function",
+                     "function": {"name": c["name"], "arguments": c["arguments"] or "{}"}}
+                    for i, c in enumerate(calls)
+                ],
+            })
+            for i, c in enumerate(calls):
+                call_id = c["id"] or f"call_{step}_{i}"
+                try:
+                    args = json.loads(c["arguments"] or "{}")
+                    if not isinstance(args, dict):
+                        raise ValueError("arguments must be an object")
+                except ValueError as exc:
+                    result = {"ok": False, "result": f"Invalid JSON arguments: {exc}", "ms": 0}
+                    args = {}
                 else:
-                    break
-        finally:
-            stop.set()  # client went away mid-stream: let the worker close up
-        await worker
+                    yield {"type": "tool", "status": "start", "name": c["name"], "args": args}
+                    result = await agency_tools.call(c["name"], args)
+                yield {"type": "tool", "status": "done", "name": c["name"], "ok": result["ok"],
+                       "summary": result["result"][:200], "ms": result["ms"]}
+                messages.append({"role": "tool", "tool_call_id": call_id, "content": result["result"]})
 
-        usage = meta["usage"] or {
+        usage = usage_total if usage_total["total_tokens"] else {
             "prompt_tokens": packet.estimated_tokens,
-            "completion_tokens": int(len("".join(parts)) / self.config.chars_per_token),
+            "completion_tokens": int(len("".join(text_parts)) / self.config.chars_per_token),
             "total_tokens": 0,
         }
         yield {"type": "done", "response": self._finish_turn(
-            conversation_id=conversation_id, packet=packet, raw_content="".join(parts),
+            conversation_id=conversation_id, packet=packet, raw_content="".join(text_parts),
             finish_reason=meta["finish_reason"], usage=usage,
             model_name=meta["model"] or (self._current_model_name() if use_local else kwargs["model"]),
             provider="Ollama" if use_local else "OpenRouter", use_local=use_local,

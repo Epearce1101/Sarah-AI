@@ -371,6 +371,14 @@ export class SarahDirector {
     this._typingIdle = setTimeout(() => { if (this.mode === "listening") this._setMode("idle"); }, 2500);
   }
 
+  // She's using a tool: busy, focused on the screen (or the web).
+  onWorking(tool) {
+    this._setMode("thinking");
+    this.avatar.face.express("thinking", 0.7, 4);
+    const where = /look|control_input|open_item/.test(tool) ? "screen" : Math.random() < 0.5 ? "chat" : "down";
+    this.lookAt(where, 3, "working");
+  }
+
   // You started talking out loud: she turns to you and listens.
   onUserSpeaking() {
     this._activity();

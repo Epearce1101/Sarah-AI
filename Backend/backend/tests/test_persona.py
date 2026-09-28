@@ -219,7 +219,7 @@ class TestInjection:
             assert build_persona_injection() == ""
 
     def test_cap_truncates_soul_preserves_identity(self):
-        from backend.persona.injection import _IDENTITY_LOCK, _BODY_AWARENESS, _TRUNC_MARKER
+        from backend.persona.injection import _AGENCY, _IDENTITY_LOCK, _BODY_AWARENESS, _TRUNC_MARKER
 
         identity = "IDENTITY_KEEP" * 5          # 65 chars
         soul = "SOUL_BODY_PADDING_" * 400        # ~7200 chars — must be trimmed
@@ -228,10 +228,11 @@ class TestInjection:
             identity_md=identity,
             soul_md=soul,
         ))
-        # The identity lock + body-awareness block are always preserved in full;
-        # the cap only trims SOUL. Size the cap so a *partial* slice of SOUL
-        # survives, exercising the trim path rather than a full drop.
-        cap = len(_IDENTITY_LOCK) + len(_BODY_AWARENESS) + len(identity) + 300
+        # The identity lock + body-awareness + agency blocks are always
+        # preserved in full; the cap only trims SOUL. Size the cap so a
+        # *partial* slice of SOUL survives, exercising the trim path rather
+        # than a full drop.
+        cap = len(_IDENTITY_LOCK) + len(_BODY_AWARENESS) + len(_AGENCY) + len(identity) + 300
         with patch("backend.persona.injection.settings") as mock_settings:
             mock_settings.persona_enabled = True
             mock_settings.persona_inject_char_cap = cap

@@ -96,6 +96,8 @@ def describe(kind: str, detail: Dict[str, Any]) -> Tuple[Optional[str], bool]:
         )
     if kind == "dismissed":
         return f"{user} hid your window", False
+    if kind == "reminder":
+        return f"it's time for a reminder you set: {str(detail.get('text', ''))[:300]}", True
     return None, False
 
 
@@ -115,7 +117,7 @@ async def handle_event(kind: str, detail: Dict[str, Any], conversation_id: Optio
         reason = "no conversation"
     elif me.chats_in_flight or time.time() - me.last_chat_started < 5:
         reason = "busy talking"
-    elif time.time() - me.last_spoke_at < (min(TOUCH_COOLDOWN, _cooldown_seconds()) if kind == "touch" else _cooldown_seconds()):
+    elif kind != "reminder" and time.time() - me.last_spoke_at < (min(TOUCH_COOLDOWN, _cooldown_seconds()) if kind == "touch" else _cooldown_seconds()):
         reason = "cooldown"
     elif _speaking.locked():
         reason = "already speaking"

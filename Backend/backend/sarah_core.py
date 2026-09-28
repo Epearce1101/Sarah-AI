@@ -677,7 +677,7 @@ class SarahCore:
             save_user_message=save_user_message,
             project_context=project_context,
         ):
-            if event["type"] == "delta":
+            if event["type"] in ("delta", "tool"):
                 yield event
             else:
                 yield {

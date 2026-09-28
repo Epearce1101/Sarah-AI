@@ -1474,3 +1474,19 @@ select:focus {
 @keyframes streamCaretBlink {
   50% { opacity: 0; }
 }
+
+/* What Sarah is doing with her tools, live inside her reply. */
+.chat-tool-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.chat-tool-row { padding: 2px 8px; border-radius: 8px; background: var(--surface-badge); }
+.chat-tool-row.running { color: var(--text-soft); animation: sarah-tool-pulse 1.2s ease-in-out infinite; }
+.chat-tool-row.ok { color: var(--text-muted); }
+.chat-tool-row.failed { color: var(--accent-rose); }
+@keyframes sarah-tool-pulse { 50% { opacity: 0.55; } }
+#stop-actions { border-color: var(--accent-rose); color: var(--accent-rose); }

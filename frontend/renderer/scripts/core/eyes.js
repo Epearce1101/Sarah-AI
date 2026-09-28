@@ -161,6 +161,8 @@ export class SarahEyes {
 
   // Send the current frames of `kinds` to be looked at. Also used on demand.
   async look(kinds = Object.keys(this.sources), { reason = "request", question = null, urgent = false } = {}) {
+    // A deliberate look (her mind asked) waits for a background one to finish.
+    for (let i = 0; urgent && this.inFlight && i < 40; i++) await new Promise((r) => setTimeout(r, 200));
     if (this.inFlight) return null;
     const body = { reason, question, urgent };
     for (const kind of kinds) {

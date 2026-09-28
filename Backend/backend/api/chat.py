@@ -261,6 +261,8 @@ async def api_chat_stream(payload: ChatRequest):
             ):
                 if event["type"] == "delta":
                     yield _sse("delta", {"text": event["text"]})
+                elif event["type"] == "tool":
+                    yield _sse("tool", {k: v for k, v in event.items() if k != "type"})
                 else:
                     response = _chat_response(event["reply"], payload, original_message, started_at)
                     yield _sse("done", response.model_dump())

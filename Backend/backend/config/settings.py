@@ -270,6 +270,10 @@ class Settings:
     vision_daily_cap: int = field(default_factory=lambda: _int("SARAH_VISION_DAILY_CAP", 400))
     vision_min_interval_seconds: int = field(default_factory=lambda: _int("SARAH_VISION_MIN_INTERVAL", 10))
 
+    # Agency: tools in chat turns (web, code, files, apps, input, her own
+    # tools), guarded by backend/agency/guard.py.
+    agency_enabled: bool = field(default_factory=lambda: _bool("SARAH_AGENCY", True))
+
     # Embodiment: Sarah may speak on her own when something happens to her
     # body or presence (a head pat, the user coming back). Off = she still
     # reacts physically and remembers it, but stays quiet.

@@ -89,9 +89,12 @@ def create_app() -> FastAPI:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     await _startup()
+    from backend.agency.reminders import reminder_loop
+
     background = [
         asyncio.create_task(_start_ollama_manager()),
         asyncio.create_task(_backup_loop()),
+        asyncio.create_task(reminder_loop()),
     ]
     try:
         yield
@@ -221,6 +224,11 @@ async def _shutdown() -> None:
 
 
 async def _start_ollama_manager() -> None:
+    if not settings.ollama_exe_path.exists():
+        # Cloud-only setup: no local models, so nothing to start or monitor
+        # (it used to retry and log an ERROR every few seconds).
+        logger.info("[INIT] Ollama not installed; local model mode unavailable (cloud models in use).")
+        return
     try:
         from backend.services.ollama_manager import get_ollama_manager
         ollama_mgr = get_ollama_manager()
