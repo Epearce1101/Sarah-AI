@@ -72,15 +72,30 @@ export class SarahEyes {
     this.restUntil = 0;             // don't send frames before this (spacing/backoff)
   }
 
-  async setMode(mode) {
-    this.mode = mode;
-    const wantCamera = mode === "on";
-    const wantScreen = mode === "on" || mode === "screen";
-    if (wantScreen) await this._open("screen"); else this._close("screen");
-    if (wantCamera) await this._open("camera"); else this._close("camera");
+  // Which eyes are open. Only the user's toggles call this: nothing she does
+  // (tools, initiative) ever opens an eye the user closed.
+  async setSources({ screen = false, camera = false } = {}) {
+    this.mode = screen && camera ? "on" : screen ? "screen" : camera ? "camera" : "off";
+    if (screen) await this._open("screen"); else this._close("screen");
+    if (camera) await this._open("camera"); else this._close("camera");
     clearInterval(this._timer);
-    if (mode !== "off") this._timer = setInterval(() => this._tick(), TICK_MS);
+    if (screen || camera) this._timer = setInterval(() => this._tick(), TICK_MS);
     this._status();
+  }
+
+  async setMode(mode) {
+    return this.setSources({ screen: mode === "on" || mode === "screen", camera: mode === "on" || mode === "camera" });
+  }
+
+  // What each eye can see right now, locally: "on", "dark" (locked screen,
+  // lights off, camera covered) or "off". Told to her mind with her body state.
+  view() {
+    const out = {};
+    for (const kind of ["screen", "camera"]) {
+      const s = this.sources[kind];
+      out[kind] = !s ? "off" : s.blank ? "dark" : "on";
+    }
+    return out;
   }
 
   _status() {

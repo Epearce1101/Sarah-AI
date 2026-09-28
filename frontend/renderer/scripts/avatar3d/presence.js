@@ -58,7 +58,10 @@ export class SarahPresence {
   }
 
   async report(force = false) {
-    const state = { ...this.director.describe(), conversation_id: this.getConversationId() };
+    const view = window.SARAH_UI?.eyes?.view?.() || {};
+    const state = { ...this.director.describe(), conversation_id: this.getConversationId(),
+                    eyes_screen: view.screen || "off", eyes_camera: view.camera || "off",
+                    ears: window.SARAH_UI?.liveVoice?.active ? "on" : "off" };
     const key = JSON.stringify({ ...state, user_idle_seconds: idleBucket(state.user_idle_seconds) });
     const now = Date.now();
     if (!force && key === this.lastKey && now - this.lastSent < 30000) return;

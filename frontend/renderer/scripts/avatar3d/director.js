@@ -17,23 +17,23 @@ export const GESTURES = {
   wave: "161_Waving", hello: "79_Standing Greeting", greet: "79_Standing Greeting", hi: "dm_4",
   nod: "118_Head Nod Yes", yes: "118_Head Nod Yes", agree: "dm_12",
   shake_head: "144_Shaking Head No", no: "144_Shaking Head No", refuse: "dm_27", tease: "56_No", annoyed: "95_Annoyed Head Shake",
-  crouch: "50_Kneeling Idle", kneel: "50_Kneeling Idle", sit: "75_Sitting", curious: "52_Looking", search: "52_Looking",
+  sit: "75_Sitting",
   shrug: "145_Shrugging", whatever: "93_Whatever Gesture",
   think: "88_Thinking", thinking: "88_Thinking", thinking_pose: "88_Thinking", idea: "dm_108", point_up: "dm_108",
   clap: "19_Clapping", cheer: "dm_28", encourage: "dm_2", yay: "dm_45", excited: "dm_53",
   thanks: "156_Thankful", thankful: "156_Thankful", hand_to_chest: "156_Thankful", grateful: "156_Thankful",
-  bow: "138_Quick Informal Bow", formal_bow: "137_Quick Formal Bow", cute_bow: "dm_58",
+  bow: "138_Quick Informal Bow", formal_bow: "137_Quick Formal Bow", cute_bow: "138_Quick Informal Bow",
   happy_hands: "116_Happy Hand Gesture", present: "dm_0", explain: "dm_90", show: "dm_0",
   peace: "dm_26", victory: "dm_30", heart: "dm_29", blow_kiss: "dm_20", kiss: "dm_41",
   shy: "dm_51", blush: "dm_51", sorry: "dm_40", apologize: "dm_40",
   shush: "dm_42", salute: "dm_10", tsundere: "dm_8", pout: "dm_8", tantrum: "dm_9",
   angry: "94_Angry Gesture", frustrated: "0_Angry",
-  sigh: "65_Relieved Sigh", relieved: "65_Relieved Sigh", stretch: "131_Neck Stretching", yawn: "163_Yawn",
+  sigh: "65_Relieved Sigh", relieved: "65_Relieved Sigh", stretch: "131_Neck Stretching", yawn: "dm_22",
   jump: "49_Joyful Jump", joy: "49_Joyful Jump", arms_up: "dm_19", cute_jump: "dm_32", laugh: "dm_2",
   cat: "dm_43", nya: "dm_48", dog: "dm_47", tiger: "dm_57",
   cry: "22_Crying", sob: "23_Crying_2", defeat: "26_Defeat", facepalm: "26_Defeat",
-  raise_hand: "39_Hand Raising", question: "39_Hand Raising", sing: "71_Singing", drum: "dm_94",
-  throw: "158_Throw", phone: "155_Talking On Phone", distant: "142_Sad Idle",
+  raise_hand: "dm_108", question: "dm_108", sing: "71_Singing",
+  phone: "155_Talking On Phone", distant: "142_Sad Idle",
 };
 export const PROCEDURAL = ["lean_in", "step_back", "tilt", "nod_small", "look_around", "surprise", "dance", "spin"];
 const DANCES = ["47_Jazz Dancing", "70_Silly Dancing", "83_Swing Dancing", "45_House Dancing", "54_Macarena Dance", "dm_38", "41_Hip Hop Dancing", "67_Rumba Dancing"];
@@ -52,7 +52,7 @@ const IDLE_ACTIONS = {
   calm: ["131_Neck Stretching", "look_around", "tilt", "dm_101"],
   happy: ["dm_26", "look_around", "dm_24", "116_Happy Hand Gesture"],
   sad: ["65_Relieved Sigh", "look_around"],
-  sleepy: ["163_Yawn", "131_Neck Stretching"],
+  sleepy: ["dm_22", "131_Neck Stretching"],
 };
 const MOOD_FACE = {
   happy: "happy", excited: "excited", affectionate: "shy", shy: "shy", confused: "thinking",
@@ -66,9 +66,9 @@ for (const [name, id] of Object.entries(GESTURES)) GESTURE_WORDS[id] ||= name.re
 Object.assign(GESTURE_WORDS, {
   "161_Waving": "waving", "118_Head Nod Yes": "nodding", "144_Shaking Head No": "shaking your head",
   "145_Shrugging": "shrugging", "88_Thinking": "striking a thinking pose", "19_Clapping": "clapping",
-  "156_Thankful": "hand on your chest", "131_Neck Stretching": "stretching your neck", "163_Yawn": "yawning",
+  "156_Thankful": "hand on your chest", "131_Neck Stretching": "stretching your neck", "dm_22": "yawning",
   "65_Relieved Sigh": "sighing", "dm_51": "being shy", "dm_26": "making a peace sign", "dm_29": "making a heart",
-  "dm_101": "swaying a little", "52_Looking": "looking around curiously", "22_Crying": "crying",
+  "dm_101": "swaying a little", "22_Crying": "crying",
 });
 for (const id of ["47_Jazz Dancing", "70_Silly Dancing", "83_Swing Dancing", "45_House Dancing", "54_Macarena Dance", "dm_38", "41_Hip Hop Dancing", "67_Rumba Dancing"]) GESTURE_WORDS[id] = "dancing";
 const FACE_WORDS = {
@@ -233,7 +233,7 @@ export class SarahDirector {
     if (name) {
       this.avatar.setFrame(name);
     } else {
-      this.wakeFrame = setTimeout(() => this.avatar.setFrame(this.userFrame || "upper"), 400);
+      this.wakeFrame = setTimeout(() => this.avatar.setFrame(this.userFrame || "full"), 400);
     }
   }
 
@@ -528,20 +528,25 @@ export class SarahDirector {
     this.avatar.canvas.addEventListener("pointerdown", (ev) => {
       const r = this.avatar.canvas.getBoundingClientRect();
       const y = (ev.clientY - r.top) / r.height;
-      const headY = this.avatar.frame === "face" ? 0.7 : this.avatar.frame === "upper" ? 0.4 : 0.22;
+      // Where her head actually is on screen (any framing, any pose): the
+      // head bone sits at the base of the skull, so anything above chin level
+      // counts as her head.
+      const head = this.avatar.headPosition(new THREE.Vector3()).project(this.avatar.camera);
+      const headY = Math.min(0.95, (1 - head.y) / 2 + 0.04);
       clearTimeout(this._touchTimer);
       if (ev.detail > 1) return;
       this._touchTimer = setTimeout(() => this.onTouch(y < headY ? "head" : "body"), 260);
     });
     this.avatar.canvas.addEventListener("dblclick", () => {
       clearTimeout(this._touchTimer);
-      const order = ["upper", "face", "full"];
+      const order = ["full", "upper", "face"];
       this.userFrame = order[(order.indexOf(this.avatar.frame) + 1) % order.length];
       this.avatar.setFrame(this.userFrame);
-      try { localStorage.setItem("sarah.avatar.frame", this.userFrame); } catch {}
+      try { localStorage.setItem("sarah.avatar.view", this.userFrame); } catch {}
     });
     try {
-      const saved = localStorage.getItem("sarah.avatar.frame");
+      // New key: older saved framings were tighter; start from the full view.
+      const saved = localStorage.getItem("sarah.avatar.view");
       if (saved) { this.userFrame = saved; this.avatar.setFrame(saved, true); }
     } catch {}
   }

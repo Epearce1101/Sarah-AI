@@ -324,8 +324,21 @@ class SelfModel:
             if isinstance(idle, (int, float)) and idle >= 120 and not b.get("user_typing"):
                 lines.append(f"- {user_name} hasn't moved or typed in your window for {duration_text(idle)}.")
 
+        # What her eyes can physically see right now (local signal, no cloud).
+        if self.body_live():
+            eye_screen, eye_camera = self.body.get("eyes_screen"), self.body.get("eyes_camera")
+            if eye_screen == "dark":
+                lines.append(f"- {user_name}'s screen is dark right now (locked, asleep or off).")
+            if eye_camera == "dark":
+                lines.append("- Your camera sees only darkness (lights off or the lens covered); nobody visible.")
+            if eye_screen == "off" and eye_camera == "off":
+                lines.append(f"- Your eyes are switched off by {user_name}, so you can't see right now.")
+            elif eye_camera == "off" and eye_screen:
+                lines.append(f"- Your camera is switched off by {user_name} (you can't see them).")
+            if self.body.get("ears") == "off":
+                lines.append(f"- Your microphone is switched off by {user_name}: you can't hear them, only read what they type.")
         screen = self.seen_recently("screen", 15 * 60)
-        if screen:
+        if screen and not (self.body_live() and self.body.get("eyes_screen") == "dark"):
             what = " - ".join(str(screen[k]) for k in ("app", "activity") if screen.get(k))
             details = f" {screen['details']}" if screen.get("details") else ""
             lines.append(f"- On {user_name}'s screen ({_ago(now - screen['at'])}): {what}.{details}")

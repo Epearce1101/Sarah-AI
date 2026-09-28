@@ -182,8 +182,13 @@ class SarahUI {
     this.micToggleBtn = document.getElementById("mic-toggle");
     this.voiceCaption = document.getElementById("voice-caption");
     this._voiceQueue = [];
+    // Mic ON/OFF is yours: saved, and nothing turns it back on but you.
     let enabled = true;
-    try { enabled = localStorage.getItem("sarah.liveVoice") !== "off"; } catch {}
+    try {
+      const saved = localStorage.getItem("sarah.mic") ?? localStorage.getItem("sarah.liveVoice");
+      enabled = saved !== "off";
+    } catch {}
+    this._micOn = enabled;
     this.liveVoice = new LiveVoice({
       onEvent: (msg) => this._onLiveVoiceEvent(msg),
       onStatus: (status, detail) => this._onLiveVoiceStatus(status, detail),
@@ -201,24 +206,41 @@ class SarahUI {
   // Her eyes: camera + screen, watched locally and looked at (free cloud
   // vision) only when the view changes. Top-bar button cycles
   // camera+screen -> screen only -> off; the camera shows a red dot.
+  // Camera and screen are separate ON/OFF switches. Your choice is saved and
+  // only you change it: a restart, her tools or her initiative never turn a
+  // switched-off camera (or screen) back on.
   _initEyes() {
-    this.eyesToggleBtn = document.getElementById("eyes-toggle");
-    this.eyes = new SarahEyes({
-      onStatus: (mode, open) => {
-        if (!this.eyesToggleBtn) return;
-        const label = mode === "off" ? "Eyes: OFF" : open.length ? `Eyes: ${open.join(" + ")}` : "Eyes: …";
-        this.eyesToggleBtn.textContent = label;
-        this.eyesToggleBtn.classList.toggle("camera-on", open.includes("camera"));
-      },
-    });
-    this.eyesToggleBtn?.addEventListener("click", () => {
-      const next = { on: "screen", screen: "off", off: "on" }[this.eyes.mode] || "on";
-      try { localStorage.setItem("sarah.eyes", next); } catch {}
-      this.eyes.setMode(next);
-    });
-    let mode = "on";
-    try { mode = localStorage.getItem("sarah.eyes") || "on"; } catch {}
-    this.eyes.setMode(mode);
+    const cameraBtn = document.getElementById("camera-toggle");
+    const screenBtn = document.getElementById("screen-toggle");
+    const pref = (key, fallback) => { try { return localStorage.getItem(key) || fallback; } catch { return fallback; } };
+    // Carry over the old single "Eyes" setting the first time.
+    const legacy = pref("sarah.eyes", "on");
+    this._eyePrefs = {
+      camera: pref("sarah.camera", legacy === "on" ? "on" : "off") === "on",
+      screen: pref("sarah.screen", legacy === "off" ? "off" : "on") === "on",
+    };
+    const render = (open = []) => {
+      if (cameraBtn) {
+        const on = this._eyePrefs.camera;
+        cameraBtn.textContent = on ? (open.includes("camera") ? "Camera: ON" : "Camera: …") : "Camera: OFF";
+        cameraBtn.classList.toggle("camera-on", open.includes("camera"));
+        if (on && !open.includes("camera")) cameraBtn.title = "Camera unavailable (in use or not connected)";
+      }
+      if (screenBtn) {
+        screenBtn.textContent = this._eyePrefs.screen ? "Screen: ON" : "Screen: OFF";
+        screenBtn.classList.toggle("listening", open.includes("screen"));
+      }
+    };
+    this.eyes = new SarahEyes({ onStatus: (_mode, open) => render(open) });
+    const toggle = (kind) => {
+      this._eyePrefs[kind] = !this._eyePrefs[kind];
+      try { localStorage.setItem(`sarah.${kind}`, this._eyePrefs[kind] ? "on" : "off"); } catch {}
+      this.eyes.setSources(this._eyePrefs);
+    };
+    cameraBtn?.addEventListener("click", () => toggle("camera"));
+    screenBtn?.addEventListener("click", () => toggle("screen"));
+    render();
+    this.eyes.setSources(this._eyePrefs);
     // Her mind's line to her body (fresh looks, things she decides to say).
     this.senses = new SarahSenses({ eyes: this.eyes, ui: this }).start();
     this._initInitiativeToggle();
@@ -259,28 +281,35 @@ class SarahUI {
     }
   }
 
+  // Mic ON <-> OFF. OFF stops the microphone entirely (the device is
+  // released, Windows' mic indicator goes out) until you switch it back on.
   async _toggleLiveVoice() {
     const lv = this.liveVoice;
     if (!lv) return;
-    if (!lv.active) {
+    this._micOn = !this._micOn;
+    try { localStorage.setItem("sarah.mic", this._micOn ? "on" : "off"); } catch {}
+    if (this._micOn) {
       await lv.start();
-    } else if (!lv.muted) {
-      lv.setMuted(true);
     } else {
       lv.stop();
+      this._releaseCachedMic();
     }
-    try { localStorage.setItem("sarah.liveVoice", lv.active ? "on" : "off"); } catch {}
+  }
+
+  _releaseCachedMic() {
+    this._cachedMicStream?.getTracks().forEach((t) => t.stop());
+    this._cachedMicStream = null;
   }
 
   _onLiveVoiceStatus(status, detail = "") {
     this._liveVoiceStatus = status;
     const labels = {
-      listening: "Mic: LIVE", muted: "Mic: MUTED", connecting: "Mic: …", off: "Mic: OFF",
+      listening: "Mic: ON", muted: "Mic: OFF", connecting: "Mic: …", off: "Mic: OFF",
       "no-mic": "Mic: NO DEVICE", error: "Mic: ERROR",
     };
     if (this.micToggleBtn) {
       this.micToggleBtn.textContent = labels[status] || `Mic: ${status}`;
-      this.micToggleBtn.title = detail || "Click: live → muted → off";
+      this.micToggleBtn.title = detail || "Her microphone. Stays off until you turn it back on.";
       this.micToggleBtn.classList.toggle("listening", status === "listening");
     }
     if (status === "error" || status === "no-mic") console.warn("[LiveVoice]", status, detail);
@@ -1819,6 +1848,10 @@ class SarahUI {
   }
 
   async _prewarmMicrophone() {
+    // Retired: live voice owns the microphone, and Mic OFF must mean off, so
+    // no spare stream is held open "just in case".
+    return;
+    // eslint-disable-next-line no-unreachable
     if (this._cachedMicStream) return;
     try {
       this._cachedMicStream = await navigator.mediaDevices.getUserMedia({
@@ -1862,6 +1895,11 @@ class SarahUI {
   async _beginVoiceCapture() {
     if (this.voiceListening) {
       console.log("[Voice] Already listening, skipping");
+      return;
+    }
+    // Mic OFF means off: the old record-a-clip path mustn't open it either.
+    if (this._micOn === false) {
+      this.setStatus("Mic is off");
       return;
     }
     if (!navigator?.mediaDevices?.getUserMedia) {

@@ -558,6 +558,9 @@ class Face {
 // ---------------------------------------------------------------------------
 // height: metres of her (from the top of the head down) that must be in
 // view; width: metres that must fit across; headroom above the head.
+// Every framing sits 15% further back than a tight fit (her whole figure
+// with room around it by default).
+const ZOOM_OUT = 1.15;
 const FRAMES = {
   full: { height: null, width: 0.9, headroom: 0.1 },
   upper: { height: 0.95, width: 0.62, headroom: 0.07 },
@@ -572,7 +575,7 @@ export class SarahVRM {
     this.animationsUrl = animationsUrl;
     this.loader = makeLoader();
     this.clock = new THREE.Clock();
-    this.frame = "upper";
+    this.frame = "full";
     this.cameraGoal = { pos: new THREE.Vector3(0, 1.3, 3), look: new THREE.Vector3(0, 1.2, 0) };
     this.cameraLook = new THREE.Vector3(0, 1.2, 0);
     this.onFrame = null; // director hook: (dt, nowMs) => void
@@ -649,17 +652,20 @@ export class SarahVRM {
   }
 
   setFrame(name, instant = false) {
-    const spec = FRAMES[name] || FRAMES.upper;
-    this.frame = name in FRAMES ? name : "upper";
+    const spec = FRAMES[name] || FRAMES.full;
+    this.frame = name in FRAMES ? name : "full";
     const p = this.points;
     const height = (spec.height ?? p.top - p.bottom) + spec.headroom;
     const tanHalf = Math.tan(degToRad(this.camera.fov / 2));
     const aspect = Math.max(0.2, this.camera.aspect);
-    const dist = Math.max(height / 2 / tanHalf, spec.width / 2 / (tanHalf * aspect));
-    // Anchor the head near the top of the frame; in a tall panel the extra
-    // room goes below her instead of above.
+    // ZOOM_OUT pulls every view back a little so she never feels cramped.
+    const dist = ZOOM_OUT * Math.max(height / 2 / tanHalf, spec.width / 2 / (tanHalf * aspect));
+    // Whole body: centred, head to toe with even room around her. Closer
+    // views anchor the head near the top (extra room goes below).
     const visible = 2 * dist * tanHalf;
-    const centerY = p.top + spec.headroom - visible / 2;
+    const centerY = spec.height == null
+      ? (p.top + spec.headroom + p.bottom) / 2
+      : p.top + spec.headroom - visible / 2;
     this.cameraGoal.pos.set(0, centerY + 0.02, dist);
     this.cameraGoal.look.set(0, centerY, 0);
     if (instant) {

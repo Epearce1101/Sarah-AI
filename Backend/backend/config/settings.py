@@ -180,6 +180,10 @@ class Settings:
         ),
     ))
     wake_input_device: str = field(default_factory=lambda: _str("SARAH_WAKE_INPUT_DEVICE", ""))
+    # The legacy Vosk wake-word listener holds the microphone in the backend
+    # permanently. Live voice (renderer mic, /ws/voice) replaced it, and the
+    # app's Mic OFF must really mean off, so it only runs when opted in.
+    wake_listener_enabled: bool = field(default_factory=lambda: _bool("SARAH_WAKE_LISTENER", False))
     wake_input_samplerate: int = field(default_factory=lambda: _int("SARAH_WAKE_INPUT_SAMPLERATE", 48000))
     wake_cooldown_seconds: float = field(default_factory=lambda: _float("SARAH_WAKE_COOLDOWN_SECONDS", 2.0))
     wake_min_confidence: float = field(default_factory=lambda: _float("SARAH_WAKE_MIN_CONFIDENCE", 0.35))

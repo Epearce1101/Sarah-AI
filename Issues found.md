@@ -4,6 +4,17 @@ Tracking file for current/previous issues. Tick a box when fixed; leave a short 
 
 ---
 
+## 2026-09-27 — Real-hardware trial + requested controls (#117–#122)
+
+- [x] **#117 Camera / Mic toggles that stay off** (requested) — top bar **Camera**, **Screen** and **Mic** are plain ON/OFF switches, saved, and only the user turns them back on (restart, tools and initiative never reopen them). OFF stops the device (tracks `ended`, verified on the real USB camera and Stealth 600 mic). The startup mic "pre-warm" stream is retired and the legacy record path respects Mic OFF.
+- [x] **#118 Backend held the mic permanently** — the old Vosk wake-word listener opened the microphone in the backend at startup regardless of the app; now opt-in (`SARAH_WAKE_LISTENER=1`), live voice listens instead.
+- [x] **#119 Avatar too zoomed in** (requested) — default view is her whole figure, centred, and every framing sits 15% further back (`ZOOM_OUT`); older saved framings are ignored (new key). Head pats are detected from her projected head position, not a fixed band.
+- [x] **#120 She didn't know when her view was dark** — the eyes report per-source state locally (on / dark / off); "Right now" tells her the screen is locked/asleep, the room is dark, or Zero switched her camera/mic off. Found on the real trial: the PC was locked (uniform frame) and the room dark (luma 2–4), so she correctly sent no vision calls.
+- [x] **#121 13 animations in the catalog had no file** (e.g. yawn, hand raise) — pruned (145 → 132); gestures remapped to existing clips; `core_animation_catalog_check.mjs` fails the suite if the director references a missing clip.
+- [x] **#122 Tests touched her real workspace** — a live autonomy test left a fictional "Check in before the 10am interview" in the real agenda (removed); a conftest fixture now isolates agenda/reminders for every test. Harness lesson: settings written just before an abrupt kill are lost, so test runs now close the window cleanly (the user's Voice/Camera/Mic settings were restored and verified).
+
+Real-hardware note: audio is a Stealth 600 headset (speakers and mic in the headset), so a speaker→mic test can't run unattended; with a headset her voice also can't leak into the mic.
+
 ## 2026-09-27 — Real-time companion, phase 4: initiative (#114–#116)
 
 - [x] **#114 She only acted when prompted** — `backend/agency/mind.py`: a mind loop (every 10 s) that looks for reasons to act: something notable her eyes caught, an agenda item coming due, or a long quiet stretch while Zero is around. At a good moment (not during/just after a conversation, not too soon after she last spoke, within a daily budget of 150), she gets a private moment with her full awareness and tools and decides herself: stay quiet (`<silent/>`), speak up, or act and report. Lines are saved and pushed to the app (`/ws/senses` "say"); tools she uses on her own show under her feet. Live: shown a boss fight (synthetic Elden Ring HUD, "YOU DIED x7"), she spoke up unprompted 18 s later with tips (Spirit Ashes, Margit's Shackle).

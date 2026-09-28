@@ -58,3 +58,14 @@ def _isolate_persona_state():
     set_persona(PersonaSnapshot())
     yield
     set_persona(PersonaSnapshot())
+
+
+@pytest.fixture(autouse=True)
+def _isolate_sarah_workspace_state(tmp_path, monkeypatch):
+    """Her agenda and reminders live in her real workspace; tests must never
+    read or write them (a live test once left a fictional "interview"
+    follow-up in the real agenda)."""
+    from backend.agency import agenda, reminders
+
+    monkeypatch.setattr(agenda, "_FILE", tmp_path / "agenda.json")
+    monkeypatch.setattr(reminders, "_FILE", tmp_path / "reminders.json")

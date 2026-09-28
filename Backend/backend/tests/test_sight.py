@@ -71,3 +71,15 @@ def test_what_she_sees_reaches_the_moment():
     assert text.count("You noticed") == 1  # "null" isn't something she noticed
     me.sight["screen"]["at"] = time.time() - 3600
     assert "On Zero's screen" not in me.render_now(1, "Zero")
+
+
+def test_she_knows_when_her_view_is_dark():
+    me = get_self()
+    me.update_body({"activity": "idle", "eyes_screen": "dark", "eyes_camera": "dark"})
+    text = me.render_now(1, "Zero")
+    assert "screen is dark right now (locked" in text and "camera sees only darkness" in text
+    me.update_body({"activity": "idle", "eyes_screen": "off", "eyes_camera": "off", "ears": "off"})
+    text = me.render_now(1, "Zero")
+    assert "eyes are switched off by Zero" in text and "microphone is switched off" in text
+    me.update_body({"activity": "idle", "eyes_screen": "on", "eyes_camera": "off"})
+    assert "camera is switched off by Zero" in me.render_now(1, "Zero")

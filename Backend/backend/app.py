@@ -166,7 +166,10 @@ async def _startup() -> None:
         logger.warning(f"[INIT] Memory system unavailable: {e}")
 
     preload_sarah()
-    start_wake_listener()
+    if settings.wake_listener_enabled:
+        start_wake_listener()
+    else:
+        logger.info("[INIT] Wake-word listener off (live voice listens instead; SARAH_WAKE_LISTENER=1 to enable).")
 
     # Load + warm speech recognition off the startup path so the first live
     # voice turn doesn't pay model load and CUDA setup (~5 s).
