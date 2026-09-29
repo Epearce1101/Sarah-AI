@@ -180,40 +180,22 @@ def build_persona_injection() -> str:
     if not (snap.identity_md or snap.soul_md):
         return ""
 
-    parts: list[str] = [p for p in (_IDENTITY_LOCK, _BODY_AWARENESS, _agency_block()) if p]
-    if snap.identity_md:
-        parts.append(
-            "# Legacy Persona Source (private, non-identity)\n"
-            + _normalize_legacy_persona_text(snap.identity_md)
-        )
-    if snap.soul_md:
-        parts.append(
-            "# Voice Style Source (private)\n"
-            + _normalize_legacy_persona_text(snap.soul_md)
-        )
-
-    block = "\n\n".join(parts)
+    # Her operating instructions (identity lock, body, tools) are always
+    # there in full; the size cap is for the persona source files only, so
+    # new abilities never squeeze out her personality.
+    operating = "\n\n".join(p for p in (_IDENTITY_LOCK, _BODY_AWARENESS, _agency_block()) if p)
+    identity_part = (
+        "# Legacy Persona Source (private, non-identity)\n"
+        + _normalize_legacy_persona_text(snap.identity_md)
+    ) if snap.identity_md else ""
+    soul = _normalize_legacy_persona_text(snap.soul_md) if snap.soul_md else ""
+    soul_header = "# Voice Style Source (private)\n"
 
     cap = settings.persona_inject_char_cap
-    if cap > 0 and len(block) > cap:
-        lock_part = _IDENTITY_LOCK
-        body_part = "\n\n".join(p for p in (_BODY_AWARENESS, _agency_block()) if p)
-        identity_part = (
-            "# Legacy Persona Source (private, non-identity)\n"
-            + _normalize_legacy_persona_text(snap.identity_md)
-        ) if snap.identity_md else ""
-        preserved = "\n\n".join(p for p in (lock_part, body_part, identity_part) if p)
-        preserved_len = len(preserved)
-        if snap.soul_md and preserved_len + len(_TRUNC_MARKER) < cap:
-            budget = cap - preserved_len - len(_TRUNC_MARKER) - 2
-            soul_trimmed = _normalize_legacy_persona_text(snap.soul_md)[:max(0, budget)]
-            block = (
-                preserved
-                + "\n\n# Voice Style Source (private)\n"
-                + soul_trimmed
-                + _TRUNC_MARKER
-            ).strip()
-        else:
-            block = preserved.rstrip() + _TRUNC_MARKER
-
-    return block
+    persona_len = len(identity_part) + (len(soul_header) + len(soul) + 2 if soul else 0)
+    if soul and cap > 0 and persona_len > cap:
+        budget = cap - len(identity_part) - len(soul_header) - len(_TRUNC_MARKER) - 2
+        soul_part = (soul_header + soul[:budget] + _TRUNC_MARKER).strip() if budget > 0 else ""
+    else:
+        soul_part = soul_header + soul if soul else ""
+    return "\n\n".join(p for p in (operating, identity_part, soul_part) if p)

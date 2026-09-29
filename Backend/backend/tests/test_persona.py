@@ -228,26 +228,31 @@ class TestInjection:
             identity_md=identity,
             soul_md=soul,
         ))
-        # The identity lock + body-awareness + agency blocks are always
-        # preserved in full; the cap only trims SOUL. Size the cap so a
-        # *partial* slice of SOUL survives, exercising the trim path rather
-        # than a full drop.
-        cap = len(_IDENTITY_LOCK) + len(_BODY_AWARENESS) + len(_AGENCY) + len(identity) + 300
+        # The cap is for the persona sources only: the identity lock, body
+        # awareness and agency blocks are always there in full. Size it so a
+        # *partial* slice of SOUL survives, exercising the trim path.
+        cap = len(identity) + 400
         with patch("backend.persona.injection.settings") as mock_settings:
             mock_settings.persona_enabled = True
             mock_settings.persona_inject_char_cap = cap
             out = build_persona_injection()
 
-        # Identity lock + identity body preserved verbatim.
-        assert _IDENTITY_LOCK in out
+        # Operating instructions and the identity body preserved verbatim.
+        assert _IDENTITY_LOCK in out and _BODY_AWARENESS in out and _AGENCY in out
         assert "IDENTITY_KEEP" in out
         # SOUL got hard-trimmed: marker present, and the full soul is NOT included.
         assert "[truncated]" in out
         assert "SOUL_BODY_PADDING_" in out          # a partial slice survives
         assert out.count("SOUL_BODY_PADDING_") < 400  # but not the whole thing
-        # Output stays within the cap plus the fixed "Voice Style Source"
-        # header + truncation-marker overhead the trimmer appends.
-        assert len(out) <= cap + len(_TRUNC_MARKER) + 80
+        operating = len(_IDENTITY_LOCK) + len(_BODY_AWARENESS) + len(_AGENCY)
+        assert len(out) <= operating + cap + 120
+
+    def test_new_abilities_never_squeeze_out_the_soul(self):
+        # A realistically sized persona must survive whole at the default cap,
+        # however long her tool instructions grow.
+        set_persona(PersonaSnapshot(slug="x", identity_md="I" * 1500, soul_md="S" * 5000))
+        out = build_persona_injection()
+        assert "[truncated]" not in out and out.count("S") >= 5000
 
 
 # ---------- prompt-site integration ----------
