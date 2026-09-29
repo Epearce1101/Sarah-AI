@@ -137,9 +137,30 @@ def test_research_picks_distinct_sources_and_relevant_passages(monkeypatch):
                                "Margit, the Fell Omen is weak to bleed and jump attacks; Margit's Shackle stuns him twice.",
         "https://b.example/x": "",
     }
-    monkeypatch.setattr(tools, "_page_text", lambda url: texts[url])
+    async def fake_page(url):
+        return {"text": texts[url], "how": "fetched"}
+
+    monkeypatch.setattr(tools, "page_markdown", fake_page)
     out = json.loads(run(tools.call("research", {"question": "How do I beat Margit the Fell Omen?", "sources": 3}))["result"])
     urls = [s["url"] for s in out["sources"]]
     assert urls == ["https://a.example/1", "https://b.example/x"]  # one page per site
     assert out["sources"][0]["passages"][0].startswith("Margit, the Fell Omen")
     assert out["sources"][1]["passages"] == ["snippet b"]  # unreadable page: fall back to the snippet
+
+
+def test_javascript_pages_are_rendered_when_a_plain_fetch_is_thin(monkeypatch):
+    import trafilatura
+    from backend.agency import browser as browser_mod
+
+    shell = "<html><body><div id='app'>Loading...</div></body></html>"
+    article = ("<html><body><article><h1>Patch notes</h1>" + "<p>" + "The new season adds ranked play. " * 30
+               + "</p><ul><li>New map</li><li>Two agents</li></ul></article></body></html>")
+    monkeypatch.setattr(trafilatura, "fetch_url", lambda url: shell)
+
+    async def render(url, wait_ms=1500):
+        return article
+
+    monkeypatch.setattr(browser_mod.browser, "render", render)
+    out = run(tools.call("read_webpage", {"url": "https://spa.example/news"}))
+    assert out["ok"] and out["result"].startswith("(rendered (JavaScript page)")
+    assert "# Patch notes" in out["result"] and "- New map" in out["result"]   # Markdown kept

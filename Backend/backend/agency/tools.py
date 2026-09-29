@@ -369,20 +369,51 @@ def web_search(query: str, max_results: int = 5):
     return [{"title": r.get("title"), "url": r.get("href"), "snippet": r.get("body")} for r in results]
 
 
-@tool("read_webpage", "Fetch a web page and return its main text (articles, docs, forum posts).",
-      {"url": {"type": "string"}, "max_chars": {"type": "integer", "description": "default 6000"}},
-      ["url"], timeout=40)
-def read_webpage(url: str, max_chars: int = 6000):
+THIN_PAGE = 400  # chars: less than this from a plain fetch -> it's probably built by JavaScript
+
+
+def _extract(html: str) -> str:
     import trafilatura
 
+    return (trafilatura.extract(html, output_format="markdown", include_tables=True, include_links=False,
+                                favor_recall=True) or "") if html else ""
+
+
+async def page_markdown(url: str) -> Dict[str, Any]:
+    """A page's main content as Markdown (headings, lists, tables kept):
+    a quick plain fetch, and if that comes back empty or thin (a JavaScript
+    site), the page rendered in her own browser."""
+    import trafilatura
+
+    html = await asyncio.to_thread(trafilatura.fetch_url, url)
+    text = await asyncio.to_thread(_extract, html)
+    how = "fetched"
+    if len(text) < THIN_PAGE:
+        try:
+            from .browser import browser
+            rendered = await asyncio.wait_for(browser.render(url), timeout=45)
+            better = await asyncio.to_thread(_extract, rendered)
+            if len(better) > len(text):
+                text, how = better, "rendered (JavaScript page)"
+        except Exception as exc:
+            logger.debug("render fallback failed for %s: %s", url, exc)
+    return {"text": text, "how": how}
+
+
+@tool("read_webpage", "Read a web page's main content as Markdown (articles, docs, forums, product pages; "
+      "JavaScript-built pages are rendered in your own browser automatically).",
+      {"url": {"type": "string"}, "max_chars": {"type": "integer", "description": "default 6000"}},
+      ["url"], timeout=70)
+async def read_webpage(url: str, max_chars: int = 6000):
     if not re.match(r"^https?://", url or ""):
         raise ValueError("url must start with http:// or https://")
-    html = trafilatura.fetch_url(url)
-    if not html:
-        return f"Could not fetch {url}"
-    text = trafilatura.extract(html, include_links=False, include_tables=True, favor_recall=True) or ""
+    page = await page_markdown(url)
+    text = page["text"]
+    if not text:
+        return f"Could not read anything from {url}"
     limit = max(500, min(20000, int(max_chars or 6000)))
-    return text[:limit] + ("\n...[more on the page]" if len(text) > limit else "")
+    body = text[:limit] + ("\n...[more on the page]" if len(text) > limit else "")
+    return f"({page['how']}, {len(text)} chars)\n\n{body}"
 
 
 @tool("browser", "Real web browsing: pages that need JavaScript, clicking, typing, forms, scrolling. "
@@ -467,10 +498,9 @@ async def research(question: str, sources: int = 4, query: Optional[str] = None)
 
     async def read(hit):
         try:
-            text = await asyncio.wait_for(asyncio.to_thread(_page_text, hit["href"]), timeout=25)
+            return (await asyncio.wait_for(page_markdown(hit["href"]), timeout=40))["text"]
         except Exception:
-            text = ""
-        return text
+            return ""
 
     texts = await asyncio.gather(*(read(h) for h in picked))
     found = []

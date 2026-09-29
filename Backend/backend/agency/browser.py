@@ -157,6 +157,25 @@ class SarahBrowser:
         else:
             await locator.select_option(label=text, timeout=10000)
 
+    async def render(self, url: str, wait_ms: int = 1500) -> str:
+        """A page's HTML after its JavaScript ran, in a throwaway tab of her
+        own (hidden) browser; whatever she's doing in her main tab is untouched."""
+        async with self._lock:
+            await self._ensure(None)
+            page = await self._context.new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
+            await page.wait_for_timeout(wait_ms)
+            return await page.content()
+        finally:
+            await page.close()
+            if self._page is page:
+                self._page = self._context.pages[0] if self._context and self._context.pages else None
+
     async def act(self, action: str, url: str = "", ref: Optional[int] = None, text: str = "",
                   submit: bool = False, key: str = "", direction: str = "down", question: str = "",
                   visible: Optional[bool] = None, max_chars: int = 5000, selector: str = "",
