@@ -29,13 +29,10 @@ import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.config import settings
-from backend.voice.endpointer import EndpointConfig, Endpointer, StreamingVAD, plausible
+from backend.voice.endpointer import EndpointConfig, Endpointer, StreamingVAD, plausible, sounds_finished
 
 router = APIRouter()
 logger = logging.getLogger("sarah.voice")
-
-# A transcript that reads as a complete sentence (not "so what I think is,").
-_FINISHED = __import__("re").compile(r"[.?!][\"')\]]*\s*$")
 
 
 def _authorised(ws: WebSocket) -> bool:
@@ -64,6 +61,14 @@ async def ws_voice(ws: WebSocket):
     endpointer = Endpointer(StreamingVAD(), EndpointConfig(end_silence_ms=settings.voice_end_silence_ms))
     stt_lock = asyncio.Lock()
     partial_busy = False
+    # Stretches of speech are numbered: a transcript that comes back after
+    # they already started talking again is part of a longer thought
+    # ("more_coming"), so the app waits and joins them into one turn.
+    started = 0
+    blips: set = set()   # stretches that turned out to be a cough/click
+
+    def more_after(seq: int) -> bool:
+        return any(s not in blips for s in range(seq + 1, started + 1))
     tasks: set = set()
     await ws.send_json({"type": "ready", "device": stt.device, "model": stt.model_size})
     logger.info("[VOICE] live session open (%s on %s)", stt.model_size, stt.device)
@@ -84,22 +89,26 @@ async def ws_voice(ws: WebSocket):
         finally:
             partial_busy = False
 
-    async def final(audio: np.ndarray, speech_ms: int) -> None:
-        started = time.perf_counter()
+    async def final(audio: np.ndarray, speech_ms: int, seq: int) -> None:
+        t0 = time.perf_counter()
         async with stt_lock:
             text = await asyncio.to_thread(stt.transcribe_array, audio)
-        stt_ms = int((time.perf_counter() - started) * 1000)
+        stt_ms = int((time.perf_counter() - t0) * 1000)
+        more = more_after(seq)  # they spoke again after this part ended
         if plausible(text, speech_ms):
-            logger.info("[VOICE] heard (%d ms speech, stt %d ms): %s", speech_ms, stt_ms, text)
-            await send({"type": "final", "text": text, "speech_ms": speech_ms, "stt_ms": stt_ms})
+            logger.info("[VOICE] heard (%d ms speech, stt %d ms%s): %s", speech_ms, stt_ms,
+                        ", more coming" if more else "", text)
+            await send({"type": "final", "text": text, "speech_ms": speech_ms, "stt_ms": stt_ms,
+                        "finished": sounds_finished(text), "more_coming": more})
         else:
-            await send({"type": "speech_cancel", "reason": "noise", "text": text})
+            blips.add(seq)
+            await send({"type": "speech_cancel", "reason": "noise", "text": text, "more_coming": more})
 
-    async def early_end(serial: int, speech_ms: int) -> None:
+    async def early_end(serial: int, speech_ms: int, seq: int) -> None:
         """Semantic endpointing: a short pause after what reads as a finished
         sentence ends the turn now, reusing this transcript (saves the rest
         of the silence wait and a second transcription)."""
-        started = time.perf_counter()
+        t0 = time.perf_counter()
         async with stt_lock:
             if not endpointer.paused_since(serial):
                 return
@@ -107,12 +116,13 @@ async def ws_voice(ws: WebSocket):
             text = await asyncio.to_thread(stt.transcribe_array, audio)
         if not endpointer.paused_since(serial):
             return  # they went on talking, or the normal endpoint already fired
-        if not _FINISHED.search(text or "") or not plausible(text, speech_ms):
+        if not sounds_finished(text) or not plausible(text, speech_ms):
             return
         endpointer.force_end()
-        stt_ms = int((time.perf_counter() - started) * 1000)
+        stt_ms = int((time.perf_counter() - t0) * 1000)
         logger.info("[VOICE] heard early (%d ms speech, stt %d ms): %s", speech_ms, stt_ms, text)
-        await send({"type": "final", "text": text, "speech_ms": speech_ms, "stt_ms": stt_ms, "early": True})
+        await send({"type": "final", "text": text, "speech_ms": speech_ms, "stt_ms": stt_ms, "early": True,
+                    "finished": True, "more_coming": more_after(seq)})
 
     def spawn(coro) -> None:
         task = asyncio.create_task(coro)
@@ -129,16 +139,18 @@ async def ws_voice(ws: WebSocket):
                 samples = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
                 for event in endpointer.feed(samples):
                     if event.type == "speech_start":
+                        started += 1
                         await send({"type": "speech_start", **event.info})
                     elif event.type == "partial_due" and not partial_busy:
                         partial_busy = True
                         spawn(partial(endpointer.current_audio()))
                     elif event.type == "pause":
-                        spawn(early_end(event.info["serial"], event.speech_ms))
+                        spawn(early_end(event.info["serial"], event.speech_ms, started))
                     elif event.type == "utterance":
-                        spawn(final(event.audio, event.speech_ms))
+                        spawn(final(event.audio, event.speech_ms, started))
                     elif event.type == "speech_cancel":
-                        await send({"type": "speech_cancel"})
+                        blips.add(started)
+                        await send({"type": "speech_cancel", "more_coming": False})
                 continue
             text = message.get("text")
             if text:

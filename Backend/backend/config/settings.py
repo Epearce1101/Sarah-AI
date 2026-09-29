@@ -266,7 +266,7 @@ class Settings:
     tts_engine: str = field(default_factory=lambda: _str("SARAH_TTS_ENGINE", "kokoro"))
     tts_voice: str = field(default_factory=lambda: _str("SARAH_TTS_VOICE", "af_bella"))
     # Live voice (continuous mic over /ws/voice): silence that ends a turn.
-    voice_end_silence_ms: int = field(default_factory=lambda: _int("SARAH_VOICE_END_SILENCE_MS", 550))
+    voice_end_silence_ms: int = field(default_factory=lambda: _int("SARAH_VOICE_END_SILENCE_MS", 800))
 
     # Sight (camera + screen) via free cloud vision models only; tried in
     # order by OpenRouter. Anything without ":free" is refused (no paid use).

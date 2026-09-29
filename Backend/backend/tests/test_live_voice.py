@@ -33,7 +33,7 @@ def run(ep, *pieces):
 
 def test_a_turn_starts_and_ends():
     ep = Endpointer(energy_vad)
-    events = run(ep, silence(400), tone(1500), silence(800))
+    events = run(ep, silence(400), tone(1500), silence(1000))
     kinds = [e.type for e in events]
     assert kinds[0] == "speech_start" and kinds[-1] == "utterance"
     assert "partial_due" in kinds  # long enough for a live caption
@@ -46,14 +46,14 @@ def test_a_turn_starts_and_ends():
 
 def test_blips_and_short_noises_are_ignored():
     ep = Endpointer(energy_vad)
-    assert run(ep, silence(200), tone(64), silence(800)) == []
-    events = run(ep, tone(160), silence(800))
+    assert run(ep, silence(200), tone(64), silence(1000)) == []
+    events = run(ep, tone(160), silence(1000))
     assert [e.type for e in events] == ["speech_start", "speech_cancel"]
 
 
 def test_pauses_shorter_than_the_endpoint_keep_the_turn_open():
-    ep = Endpointer(energy_vad, EndpointConfig(end_silence_ms=550))
-    events = run(ep, tone(600), silence(300), tone(600), silence(700))
+    ep = Endpointer(energy_vad)
+    events = run(ep, tone(600), silence(480), tone(600), silence(1000))
     kinds = [e.type for e in events if e.type != "partial_due"]
     assert kinds == ["speech_start", "pause", "pause", "utterance"]
     # The first pause was voided when speech resumed.
@@ -63,7 +63,7 @@ def test_pauses_shorter_than_the_endpoint_keep_the_turn_open():
 
 def test_pause_can_end_the_turn_early():
     ep = Endpointer(energy_vad)
-    events = run(ep, tone(800), silence(290))
+    events = run(ep, tone(800), silence(450))
     pause = [e for e in events if e.type == "pause"][-1]
     assert ep.paused_since(pause.info["serial"])
     utt = ep.force_end()
@@ -126,7 +126,7 @@ def test_websocket_protocol(monkeypatch, heard, early):
     with TestClient(app).websocket_connect("/ws/voice") as ws:
         assert ws.receive_json()["type"] == "ready"
         ws.send_text(json.dumps({"type": "tts", "speaking": False}))
-        for piece in (silence(300), tone(1200), silence(800)):
+        for piece in (silence(300), tone(1200), silence(1100)):
             for i in range(0, len(piece), 1024):
                 ws.send_bytes(to_pcm(piece[i:i + 1024]))
         seen = []
@@ -137,3 +137,70 @@ def test_websocket_protocol(monkeypatch, heard, early):
         # A finished sentence ends at the pause; an unfinished one waits.
         assert bool(seen[-1].get("early")) is early
         assert [m["type"] for m in seen].count("final") == 1
+
+
+def test_a_period_alone_does_not_mean_they_are_done():
+    from backend.voice.endpointer import sounds_finished
+
+    assert sounds_finished("Oh, you can buy an extended barrel, level 3.")
+    assert sounds_finished("What do you think?") and sounds_finished("No way!")
+    for trailing in ("I want to go to the.", "Let me check out the gunshot to see if they got anything for.",
+                     "So I was thinking and.", "Well,", "It's like...", "maybe we could", "I think I."):
+        assert not sounds_finished(trailing), trailing
+
+
+def test_turns_wait_longer_before_ending():
+    from backend.voice.endpointer import EndpointConfig
+
+    cfg = EndpointConfig()
+    assert cfg.end_silence_ms >= 800 and cfg.pause_ms >= 400
+
+
+def test_a_sentence_with_a_pause_is_marked_as_one_thought(monkeypatch):
+    """Two stretches of speech; the first transcript comes back after the second
+    started: it must say more is coming, the last one must not."""
+    import time as _time
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import backend.api.voice_live as voice_live
+    import backend.whisper_stt as whisper_stt
+
+    # Captions and the early-finish check transcribe too: answer by length.
+
+    class SlowSTT:
+        device, model_size = "cpu", "fake"
+
+        def transcribe_array(self, audio, prompt=None):
+            _time.sleep(0.6)  # a busy GPU
+            return ("you can buy an extended barrel level three" if len(audio) > 16000 * 2.4
+                    else "for 19 000 in the shop.")
+
+    monkeypatch.setattr(whisper_stt, "get_whisper_stt", lambda: SlowSTT())
+
+    class FakeVAD:
+        def __call__(self, chunk):
+            return energy_vad(chunk)
+
+        def reset(self):
+            pass
+
+    monkeypatch.setattr(voice_live, "StreamingVAD", FakeVAD)
+    monkeypatch.setattr(voice_live.settings.__class__, "api_token", property(lambda self: ""), raising=False)
+    app = FastAPI()
+    app.include_router(voice_live.router)
+    to_pcm = lambda a: (a * 32767).astype(np.int16).tobytes()
+    with TestClient(app).websocket_connect("/ws/voice") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_text(json.dumps({"type": "tts", "speaking": False}))
+        for piece in (silence(300), tone(2500), silence(900), tone(800), silence(1200)):
+            for i in range(0, len(piece), 1024):
+                ws.send_bytes(to_pcm(piece[i:i + 1024]))
+        finals = []
+        while len(finals) < 2:
+            msg = ws.receive_json()
+            if msg["type"] == "final":
+                finals.append(msg)
+        assert finals[0]["more_coming"] is True and finals[0]["finished"] is False
+        assert finals[1]["more_coming"] is False

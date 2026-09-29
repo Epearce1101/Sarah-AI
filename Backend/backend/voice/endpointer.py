@@ -58,8 +58,8 @@ class EndpointConfig:
     start_ms: int = 128              # voiced this long -> speech_start (clicks span <=3 chunks)
     guard_prob: float = 0.8          # ...while she is speaking (barge-in)
     guard_start_ms: int = 256
-    end_silence_ms: int = 550        # silence this long ends the turn
-    pause_ms: int = 256              # ...but at this point, check if the sentence is finished
+    end_silence_ms: int = 800        # silence this long ends the turn
+    pause_ms: int = 416              # ...but at this point, check if the sentence is finished
     preroll_ms: int = 320            # audio kept from before the start
     min_speech_ms: int = 220         # shorter than this -> speech_cancel
     max_utterance_ms: int = 30000
@@ -175,6 +175,32 @@ _HALLUCINATIONS = {
     "you", "thank you", "thank you.", "thanks for watching", "thanks for watching!",
     "bye", "bye.", ".", "so", "hmm", "uh", "um", "okay.", "the end", "subscribe",
 }
+
+
+# Whisper ends almost everything with a period, even half a sentence, so a
+# period alone doesn't mean they're done: not when the last word is one that
+# leads into more ("I want to go to the...", "it's for", "and").
+_LEADS_ON = {
+    "and", "but", "or", "so", "because", "cause", "for", "to", "the", "a", "an", "of", "with", "in", "on", "at",
+    "if", "that", "like", "my", "your", "our", "their", "his", "her", "is", "was", "are", "were", "then", "um",
+    "uh", "just", "about", "from", "into", "when", "which", "who", "as", "than", "what", "where", "how", "i",
+    "we", "you", "it's", "i'm", "gonna", "wanna", "maybe", "also", "plus", "well", "by", "since", "until",
+}
+
+
+def sounds_finished(text: str) -> bool:
+    """Does this read like the end of what they meant to say?"""
+    import re
+
+    t = (text or "").strip()
+    if not t or t.endswith(("...", "…", ",", "-", "—")):
+        return False
+    if not re.search(r"[.?!][\"')\]]*$", t):
+        return False
+    if t.endswith(("?", "!")):
+        return True
+    words = re.findall(r"[a-z']+", t.lower())
+    return len(words) >= 2 and words[-1] not in _LEADS_ON
 
 
 def plausible(text: str, speech_ms: int) -> bool:

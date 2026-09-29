@@ -541,6 +541,8 @@ class SarahUI {
     if (inTray) {
       this._trayAt = Date.now();
       this._voiceQueue = []; // nothing half-heard gets sent after you've gone
+      this._heldVoice = [];
+      clearTimeout(this._voiceHoldTimer);
       this.tts?.stop();
       this.eyes?.setSources({ screen: false, camera: false });
       if (this._micOn) {
@@ -661,6 +663,8 @@ class SarahUI {
   _onLiveVoiceEvent(msg) {
     const director = window.SARAH_AVATAR_DIRECTOR;
     if (msg.type === "speech_start") {
+      // They went on talking: whatever we're holding waits for the rest.
+      clearTimeout(this._voiceHoldTimer);
       this._voiceTurnStarted = performance.now();
       // Talking over her: she stops and listens, like a person would.
       if (msg.barge_in || this.tts?._ttsPlaying) this.tts.stop();
@@ -669,22 +673,48 @@ class SarahUI {
     } else if (msg.type === "partial") {
       this._setVoiceCaption(msg.text, "hearing");
     } else if (msg.type === "speech_cancel") {
+      if (msg.more_coming) return;
       this._setVoiceCaption("");
       director?.onUserStoppedSpeaking?.();
+      this._releaseHeldVoice(); // nothing more is coming: send what was held
     } else if (msg.type === "final") {
       const text = String(msg.text || "").trim();
       if (!text || isEcho(text, this.tts?.spokenRecently?.(6000)) && this.tts?.isMuting?.()) {
+        if (msg.more_coming) return;
         this._setVoiceCaption("");
         director?.onUserStoppedSpeaking?.();
+        this._releaseHeldVoice();
         return;
       }
-      this._setVoiceCaption(text, "heard");
-      setTimeout(() => this._setVoiceCaption(""), 1500);
       if (window.B6_TIMING || window.SARAH_LATENCY) {
         console.log(`[LATENCY] speech->final ${Math.round(performance.now() - (this._voiceTurnStarted || 0))} ms (stt ${msg.stt_ms} ms)`);
       }
-      this._submitVoiceTurn(text);
+      // One thought, even with pauses in it: hold this part while they're
+      // still talking (or if it trails off mid-sentence), and send the whole
+      // sentence as one turn.
+      this._heldVoice = [...(this._heldVoice || []), text];
+      clearTimeout(this._voiceHoldTimer);
+      this._setVoiceCaption(this._heldVoice.join(" "), "heard");
+      if (msg.more_coming) {
+        // Safety net: never hold on to it for long if the rest goes missing.
+        this._voiceHoldTimer = setTimeout(() => this._releaseHeldVoice(), 8000);
+        return;
+      }
+      if (msg.finished === false) {
+        this._voiceHoldTimer = setTimeout(() => this._releaseHeldVoice(), 1300);
+        return;
+      }
+      this._releaseHeldVoice();
     }
+  }
+
+  _releaseHeldVoice() {
+    clearTimeout(this._voiceHoldTimer);
+    const parts = this._heldVoice || [];
+    this._heldVoice = [];
+    if (!parts.length) return;
+    setTimeout(() => this._setVoiceCaption(""), 1500);
+    this._submitVoiceTurn(parts.join(" ").replace(/\s+/g, " ").trim());
   }
 
   // A spoken turn goes in like a typed one. If she's still answering the
