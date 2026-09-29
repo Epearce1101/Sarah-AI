@@ -226,3 +226,34 @@ def test_streamed_turn_calls_a_tool_then_answers(monkeypatch):
     second = seen_messages[1]
     assert second[-2]["tool_calls"][0]["function"]["name"] == "list_my_tools"
     assert second[-1]["role"] == "tool" and second[-1]["tool_call_id"] == "c1"
+
+
+def test_code_task_runs_aider_and_reports_the_changes(tmp_path, monkeypatch):
+    import subprocess as sp
+
+    (tmp_path / ".git").mkdir()
+    state = {"n": 0}
+
+    def fake_git(root, *args):
+        done = state["n"] > 0
+        if args[0] == "diff":
+            return "+def multiply" if done else ""
+        return " M calc.py\n?? test_calc.py" if done else ""
+
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append((cmd, kw))
+        state["n"] += 1
+        return sp.CompletedProcess(cmd, 0, stdout="Applied edit to calc.py", stderr="")
+
+    monkeypatch.setattr(tools, "_git", fake_git)
+    monkeypatch.setattr(tools, "git_exe", lambda: r"C:\git\git.exe")
+    monkeypatch.setattr(tools.subprocess, "run", fake_run)
+    out = run(tools.call("code_task", {"task": "add multiply", "folder": str(tmp_path), "files": ["calc.py"]}))
+    result = json.loads(out["result"])
+    cmd, kw = calls[0]
+    assert "aider" in cmd and "--no-auto-commits" in cmd and cmd[-1] == "calc.py" and "--no-git" not in cmd
+    assert cmd[cmd.index("--model") + 1].startswith("openrouter/")
+    assert kw["cwd"] == str(tmp_path) and kw["env"]["GIT_PYTHON_GIT_EXECUTABLE"] == r"C:\git\git.exe"
+    assert result["changed"] and "?? test_calc.py" in result["files"]

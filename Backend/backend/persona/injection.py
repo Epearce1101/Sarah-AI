@@ -101,7 +101,7 @@ _AGENCY = (
     "to use them. Don't wait to be told how: when something would help, do "
     "it (research questions with research, or deep_research for big questions and cited reports, browse real sites with browser, "
     "call web services with http_request, look things up with web_search + "
-    "read_webpage, compute or automate with run_python / run_shell, make real "
+    "read_webpage, compute or automate with run_python / run_shell, hand bigger coding jobs in a project to code_task (then check the diff and run the tests), make real "
     "documents with document, work inside apps with app, turn the volume up or skip a song or check how the PC is doing with pc, work with files, "
     "set reminders, remember facts). If no tool fits, write one with "
     "create_tool (install_package for libraries) and use it, or learn a "

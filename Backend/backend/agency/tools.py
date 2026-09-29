@@ -532,6 +532,77 @@ async def deep_research(question: str, depth: int = 2, save_to: str = ""):
     return result
 
 
+@tool("code_task", "Hand a coding job to Aider (a pair-programming agent) working in a project folder: "
+      "multi-file edits, new features, fixes, refactors, tests. Give the task in plain words, the folder, and "
+      "the files to edit if you know them (it can find others itself). Runs on your free model; changes are "
+      "NOT committed. Returns Aider's summary and the diff so you can check the work (read the files or run "
+      "the tests after).",
+      {"task": {"type": "string"}, "folder": {"type": "string"},
+       "files": {"type": "array", "items": {"type": "string"}, "description": "files to edit, relative to folder"},
+       "read_only": {"type": "array", "items": {"type": "string"}, "description": "files for context only"}},
+      ["task", "folder"], timeout=900)
+def code_task(task: str, folder: str, files: Optional[List[str]] = None, read_only: Optional[List[str]] = None):
+    from backend import llm_models
+    from backend.config import settings
+
+    root = _resolve(folder)
+    if not root.is_dir():
+        raise ValueError(f"{root} is not a folder")
+    guard.check_write(root / "x")
+    git = git_exe()
+    is_git = bool(git) and (root / ".git").exists()
+    before = (_git(root, "diff"), _git(root, "status", "--porcelain")) if is_git else None
+    cmd = [workspace_python(), "-m", "aider", "--model", f"openrouter/{llm_models.current_online_model()}",
+           "--yes-always", "--no-auto-commits", "--no-pretty", "--no-stream", "--no-check-update",
+           "--no-show-model-warnings", "--analytics-disable", "--no-fancy-input", "--map-tokens", "1024",
+           "--message", task]
+    if not is_git:
+        cmd.append("--no-git")
+    for f in read_only or []:
+        cmd += ["--read", f]
+    cmd += list(files or [])
+    env = _env()
+    env["OPENROUTER_API_KEY"] = settings.openrouter_api_key or os.environ.get("OPENROUTER_API_KEY", "")
+    if git:
+        env["GIT_PYTHON_GIT_EXECUTABLE"] = git
+        env["PATH"] = str(Path(git).parent) + os.pathsep + env.get("PATH", "")
+    proc = subprocess.run(cmd, cwd=str(root), env=env, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=880, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    log = re.sub(r"\n{3,}", "\n\n", (proc.stdout + "\n" + proc.stderr).strip())
+    out: Dict[str, Any] = {"exit_code": proc.returncode, "aider_said": log[-4000:]}
+    if is_git:
+        diff, status = _git(root, "diff"), _git(root, "status", "--porcelain")
+        out["changed"] = (diff, status) != before
+        out["files"] = status.strip()[-1500:] or "(nothing changed)"   # " M" edited, "??" new
+        out["diff"] = diff[:12000] or "(no edits to tracked files)"
+    return out
+
+
+def git_exe() -> Optional[str]:
+    """git on PATH, or the portable MinGit this PC uses."""
+    import shutil
+
+    found = shutil.which("git")
+    if found:
+        return found
+    for candidate in (r"E:\Tools\MinGit\cmd\git.exe", r"C:\Program Files\Git\cmd\git.exe"):
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _git(root: Path, *args: str) -> str:
+    exe = git_exe()
+    if not exe:
+        return ""
+    try:
+        return subprocess.run([exe, *args], cwd=str(root), capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=30,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+    except Exception:
+        return ""
+
+
 @tool("pc", "Everyday PC controls: volume (level 0-100, or change like +10/-10, or mute true/false; returns "
       "the level after), media (key: play_pause, next, previous, stop: for Spotify/YouTube/any player), "
       "clipboard_read, clipboard_write (text), screenshot (path, default Pictures/Sarah screenshots), stats "

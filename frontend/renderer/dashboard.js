@@ -1600,6 +1600,7 @@ class SarahUI {
       }[a.action] || `🪟 ${a.action}`),
       document: () => ({ create: `📝 Making ${short(a.path, 60)}`, append: `📝 Adding to ${short(a.path, 60)}`,
         read: `📖 Reading ${short(a.path, 60)}` }[a.action] || `📝 ${a.action}`),
+      code_task: () => `💻 Coding: ${short(a.task, 50)} (in ${short(a.folder, 30)})`,
       deep_research: () => `📚 Deep research: “${short(a.question, 50)}” (a minute or two)`,
       pc: () => ({
         volume: a.mute === true ? "🔇 Muting" : a.mute === false ? "🔊 Unmuting" : `🔊 Volume ${a.level ?? (a.change > 0 ? `+${a.change}` : a.change ?? "")}`,
