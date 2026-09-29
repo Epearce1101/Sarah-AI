@@ -190,16 +190,36 @@ function enterPetMode() {
   if (petWindow) { petWindow.show(); return; }
   const { screen } = require("electron");
   const area = screen.getPrimaryDisplay().workArea;
-  const width = 340;
-  const height = 560;
+  // Small by default (about a quarter of her usual panel); your own size and
+  // spot are remembered once you resize or move her.
+  const saved = appPrefs.petBounds || {};
+  const width = Math.max(120, saved.width || 170);
+  const height = Math.max(200, saved.height || 290);
+  const onScreen = saved.x != null && screen.getAllDisplays().some((d) => {
+    const b = d.workArea;
+    return saved.x >= b.x - 50 && saved.x < b.x + b.width - 50 && saved.y >= b.y - 50 && saved.y < b.y + b.height - 50;
+  });
   petWindow = new BrowserWindow({
-    width, height, x: area.x + area.width - width - 16, y: area.y + area.height - height,
+    width, height,
+    x: onScreen ? saved.x : area.x + area.width - width - 16,
+    y: onScreen ? saved.y : area.y + area.height - height,
     frame: false, transparent: true, backgroundColor: "#00000000", hasShadow: false,
-    alwaysOnTop: true, skipTaskbar: true, resizable: true, minWidth: 220, minHeight: 320,
+    alwaysOnTop: true, skipTaskbar: true, resizable: true, minWidth: 120, minHeight: 200,
     icon: path.join(__dirname, "renderer", "assets", "sarah.ico"),
     webPreferences: webPreferences(),
   });
   petWindow.setAlwaysOnTop(true, "floating");
+  let saveTimer = null;
+  const rememberBounds = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      if (!petWindow) return;
+      appPrefs.petBounds = petWindow.getBounds();
+      saveAppPrefs();
+    }, 500);
+  };
+  petWindow.on("resize", rememberBounds);
+  petWindow.on("move", rememberBounds);
   petWindow.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { pet: "1" } });
   petWindow.on("closed", () => {
     petWindow = null;
