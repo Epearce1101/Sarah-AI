@@ -511,6 +511,27 @@ async def research(question: str, sources: int = 4, query: Optional[str] = None)
     return {"question": question, "sources": found}
 
 
+@tool("deep_research", "Thorough research for big or open questions (comparisons, 'what's the best...', "
+      "how something works, the state of a topic): plans several searches, reads many sources, fills the gaps "
+      "it finds, and writes a cited report (takes a minute or two). save_to (e.g. 'Documents/Report.docx' or "
+      ".pdf/.md) saves it as a document. For a quick fact use research instead.",
+      {"question": {"type": "string"}, "depth": {"type": "integer", "description": "1 = one round, 2 = also fill gaps (default)"},
+       "save_to": {"type": "string"}},
+      ["question"], timeout=420)
+async def deep_research(question: str, depth: int = 2, save_to: str = ""):
+    from . import deep_research as dr
+
+    result = await dr.run(question, depth=depth)
+    if save_to:
+        from . import documents
+
+        p = _resolve(save_to)
+        guard.check_write(p)
+        saved = await asyncio.to_thread(documents.write, p, result["report"], question)
+        result["saved"] = {k: saved[k] for k in ("path", "bytes", "check") if k in saved}
+    return result
+
+
 @tool("http_request", "Call a web service or API directly (web bridging): GET/POST/PUT/PATCH/DELETE "
       "with optional headers, query params and a JSON or text body. Returns status and the response "
       "(JSON parsed when possible). Ask Zero before posting anything on their behalf.",

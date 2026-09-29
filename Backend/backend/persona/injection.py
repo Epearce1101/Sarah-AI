@@ -99,7 +99,7 @@ _AGENCY = (
     "# You can act\n"
     "You have real tools on Zero's PC and the internet, and full permission "
     "to use them. Don't wait to be told how: when something would help, do "
-    "it (research questions with research, browse real sites with browser, "
+    "it (research questions with research, or deep_research for big questions and cited reports, browse real sites with browser, "
     "call web services with http_request, look things up with web_search + "
     "read_webpage, compute or automate with run_python / run_shell, make real "
     "documents with document, work inside apps with app, work with files, "

@@ -164,3 +164,55 @@ def test_javascript_pages_are_rendered_when_a_plain_fetch_is_thin(monkeypatch):
     out = run(tools.call("read_webpage", {"url": "https://spa.example/news"}))
     assert out["ok"] and out["result"].startswith("(rendered (JavaScript page)")
     assert "# Patch notes" in out["result"] and "- New map" in out["result"]   # Markdown kept
+
+
+def test_deep_research_plans_fills_gaps_and_cites(tmp_path, monkeypatch):
+    from backend.agency import deep_research as dr
+
+    prompts, searched = [], []
+
+    async def complete(prompt):
+        prompts.append(prompt)
+        if "planning web research" in prompt:
+            return '{"queries": ["kokoro tts quality", "kokoro vs piper"]}'
+        if "still unanswered" in prompt:
+            return '{"queries": ["kokoro tts license"]}'
+        return "Kokoro sounds natural [1] and is faster than Piper on GPU [2]; it's Apache-licensed [3]."
+
+    async def research(question, sources=3):
+        searched.append(question)
+        n = len(searched)
+        return {"sources": [{"title": f"Page {n}", "url": f"https://site{n}.example/x", "passages": [f"passage about {question}"]},
+                            {"title": "Shared", "url": "https://shared.example", "passages": [f"shared {n}"]}]}
+
+    out = run(dr.run("Is Kokoro a good TTS?", complete=complete, research=research))
+    assert searched == ["kokoro tts quality", "kokoro vs piper", "kokoro tts license"]   # plan, then the gap
+    assert out["queries"] == [["kokoro tts quality", "kokoro vs piper"], ["kokoro tts license"]]
+    assert "## Sources" in out["report"] and "(https://shared.example)" in out["report"]
+    assert len({s["url"] for s in out["sources"]}) == len(out["sources"])                 # each page once
+    assert "[1]" in prompts[-1] and "passage about kokoro vs piper" in prompts[-1]
+
+
+def test_deep_research_tool_saves_a_document(tmp_path, monkeypatch):
+    from backend.agency import deep_research as dr
+
+    async def fake_run(question, depth=2):
+        return {"question": question, "report": "# Findings\n\nIt works [1].\n\n## Sources\n1. [A](https://a.example)",
+                "sources": [{"n": 1, "title": "A", "url": "https://a.example"}], "queries": [["q"]]}
+
+    monkeypatch.setattr(dr, "run", fake_run)
+    target = tmp_path / "report.docx"
+    out = run(tools.call("deep_research", {"question": "Does it work?", "save_to": str(target)}))
+    assert out["ok"] and target.exists() and '"saved"' in out["result"]
+
+
+def test_report_keeps_only_the_report():
+    from backend.agency.deep_research import clean_report
+
+    marked = "The user wants X.\n\nLet me think.\n\n<report>\n## Answer\nKokoro [1].\n</report>\nDone."
+    assert clean_report(marked) == "## Answer\nKokoro [1]."
+    unmarked = ("The user wants a research report.\n\nI need to use only the sources.\n\n"
+                "Key requirements:\n- free\n\n# Best local TTS\n\nKokoro is best [1].")
+    assert clean_report(unmarked) == "# Best local TTS\n\nKokoro is best [1]."
+    plain = "Kokoro is the best pick [1].\n\n## Why\nFast [2]."
+    assert clean_report(plain) == plain
