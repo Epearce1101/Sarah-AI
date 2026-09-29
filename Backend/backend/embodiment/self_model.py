@@ -394,6 +394,9 @@ class SelfModel:
                 lines.append(f"- Your camera is switched off by {user_name} (you can't see them).")
             if self.body.get("ears") == "off":
                 lines.append(f"- Your microphone is switched off by {user_name}: you can't hear them, only read what they type.")
+            elif self.body.get("ears") == "wake word":
+                lines.append(f"- Your microphone is in wake-word mode: you only hear {user_name} when they say your "
+                             "name (then the conversation stays open for a bit); other talk in the room is ignored.")
         screen = self.seen_recently("screen", 15 * 60)
         if screen and not (self.body_live() and self.body.get("eyes_screen") == "dark"):
             what = " - ".join(str(screen[k]) for k in ("app", "activity") if screen.get(k))

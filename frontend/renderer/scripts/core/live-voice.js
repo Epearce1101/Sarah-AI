@@ -140,6 +140,25 @@ export class LiveVoice {
   }
 }
 
+// Her name as speech recognition tends to write it.
+const NAME = "(?:sarah|sara|sarrah|serah|sera|zarah|sahra)";
+const WAKE_ANYWHERE = new RegExp(`\\b${NAME}\\b`, "i");
+const WAKE_LEADING = new RegExp(`^\\s*(?:(?:hey|hi|hello|ok|okay|yo|oi)[\\s,]+)?${NAME}\\b[\\s,.!?:;-]*`, "i");
+
+/**
+ * Wake word: did they say her name, and what's the request?
+ * "Hey Sarah, what's the time?" -> { heard: true, rest: "what's the time?" }
+ * "What do you think, Sarah?"    -> { heard: true, rest: the whole sentence }
+ * "Hey Sarah."                   -> { heard: true, rest: "" } (she waits for the rest)
+ */
+export function wakeWord(text) {
+  const t = String(text || "").trim();
+  if (!WAKE_ANYWHERE.test(t)) return { heard: false, rest: "" };
+  const lead = t.match(WAKE_LEADING);
+  const rest = lead ? t.slice(lead[0].length).trim() : t;
+  return { heard: true, rest: rest.replace(/^[,.!?\s]+/, "") };
+}
+
 // Words heard that are just Sarah's own voice leaking back in.
 export function isEcho(heard, spoken) {
   const words = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").split(/\s+/).filter(Boolean);

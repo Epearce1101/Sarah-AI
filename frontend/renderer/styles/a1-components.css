@@ -1614,3 +1614,17 @@ select:focus {
 }
 .more-panel-tabs { padding: 4px 2px 6px; }
 .more-panel-tabs .more-tab { padding: 7px 10px; font-size: 12px; }
+
+/* A setting with several choices (Mic: Always / Wake word / Off). */
+.fn-choices { display: flex; flex: none; border: 1px solid var(--border-strong); border-radius: 999px; overflow: hidden; }
+.fn-choice {
+  padding: 4px 10px;
+  border: none;
+  background: var(--surface-button);
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fn-choice + .fn-choice { border-left: 1px solid var(--border-faint); }
+.fn-choice.on { background: var(--surface-success); color: var(--accent-green); }

@@ -26,7 +26,7 @@ import { openAttachment } from "./scripts/core/attachments.js";
 import { ProjectModal } from "./scripts/core/project-modal.js";
 import "./scripts/core/screen-capture.js";
 import { parseCues } from "./scripts/avatar3d/cues.js";
-import { LiveVoice, isEcho } from "./scripts/core/live-voice.js";
+import { LiveVoice, isEcho, wakeWord } from "./scripts/core/live-voice.js";
 import { SarahEyes } from "./scripts/core/eyes.js";
 import { SarahSenses } from "./scripts/core/senses.js";
 import { SarahGestures } from "./scripts/core/gestures.js";
@@ -219,20 +219,32 @@ class SarahUI {
     this.micToggleBtn = document.getElementById("mic-toggle");
     this.voiceCaption = document.getElementById("voice-caption");
     this._voiceQueue = [];
-    // Mic ON/OFF is yours: saved, and nothing turns it back on but you.
-    let enabled = true;
+    // Mic mode is yours: "on" (always listening), "wake" (only when you say
+    // her name) or "off" (mic released). Saved; nothing changes it but you.
+    let mode = "on";
     try {
       const saved = localStorage.getItem("sarah.mic") ?? localStorage.getItem("sarah.liveVoice");
-      enabled = saved !== "off";
+      mode = saved === "off" ? "off" : saved === "wake" ? "wake" : "on";
     } catch {}
-    this._micOn = enabled;
+    this._micMode = mode;
+    this._micOn = mode !== "off";
+    const enabled = this._micOn;
     this.liveVoice = new LiveVoice({
       onEvent: (msg) => this._onLiveVoiceEvent(msg),
       onStatus: (status, detail) => this._onLiveVoiceStatus(status, detail),
     });
     this.micToggleBtn?.addEventListener("click", () => this._toggleLiveVoice());
-    // Keep the listener told whether she's talking (echo guard, barge-in).
-    this._speakingSync = setInterval(() => this.liveVoice?.setSpeaking(Boolean(this.tts?._ttsPlaying)), 100);
+    // Keep the listener told whether she's talking (echo guard, barge-in);
+    // in wake-word mode, a reply keeps the conversation open a little longer.
+    let wasTalking = false;
+    this._speakingSync = setInterval(() => {
+      const talking = Boolean(this.tts?._ttsPlaying);
+      this.liveVoice?.setSpeaking(talking);
+      if (wasTalking && !talking && this._micMode === "wake" && performance.now() < (this._wakeArmedUntil || 0) + 60000) {
+        this._wakeArmedUntil = Math.max(this._wakeArmedUntil || 0, performance.now() + 15000);
+      }
+      wasTalking = talking;
+    }, 100);
     if (enabled) this.liveVoice.start();
     else this._onLiveVoiceStatus("off");
     // Pre-synthesize her acknowledgement sounds once the backend is up.
@@ -432,8 +444,11 @@ class SarahUI {
         on: () => this._eyePrefs?.camera, toggle: click("camera-toggle") },
       { label: "Screen", hint: "She watches your screen: games, code, whatever you're on.",
         on: () => this._eyePrefs?.screen, toggle: click("screen-toggle") },
-      { label: "Mic", hint: "She listens all the time; just talk.",
-        on: () => this._micOn, toggle: click("mic-toggle") },
+      { label: "Mic", hint: this._micMode === "wake"
+          ? "She only answers when you say “Sarah” (“Hey Sarah, …”); then follow-ups need no name for a bit."
+          : this._micMode === "off" ? "Microphone fully off." : "She listens all the time; just talk.",
+        choices: [["on", "Always"], ["wake", "Wake word"], ["off", "Off"]],
+        value: () => this._micMode, set: (mode) => this.setMicMode(mode) },
       { label: "Spoken replies", hint: "She answers out loud.",
         on: () => this.tts?.isEnabled(), toggle: click("voice-toggle") },
       { label: "Initiative", hint: "She speaks up and does things on her own.",
@@ -479,6 +494,10 @@ class SarahUI {
     }
     box.innerHTML = "";
     for (const s of this._functionSwitches()) {
+      if (s.choices) {
+        box.appendChild(this._choiceRow(s));
+        continue;
+      }
       const on = Boolean(s.on());
       const row = document.createElement("div");
       row.className = "fn-switch";
@@ -506,6 +525,41 @@ class SarahUI {
       row.append(text, btn);
       box.appendChild(row);
     }
+  }
+
+  // A setting with several choices (e.g. Mic: Always / Wake word / Off).
+  _choiceRow(s) {
+    const row = document.createElement("div");
+    row.className = "fn-switch";
+    const text = document.createElement("div");
+    text.className = "fn-switch-text";
+    const label = document.createElement("div");
+    label.className = "fn-switch-label";
+    label.textContent = s.label;
+    const hint = document.createElement("div");
+    hint.className = "fn-switch-hint";
+    hint.textContent = s.hint;
+    text.append(label, hint);
+    const group = document.createElement("div");
+    group.className = "fn-choices";
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", s.label);
+    const current = s.value();
+    for (const [value, name] of s.choices) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "fn-choice" + (value === current ? " on" : "");
+      btn.setAttribute("role", "radio");
+      btn.setAttribute("aria-checked", String(value === current));
+      btn.textContent = name;
+      btn.addEventListener("click", async () => {
+        await s.set(value);
+        setTimeout(() => this._renderFunctions(), 150);
+      });
+      group.appendChild(btn);
+    }
+    row.append(text, group);
+    return row;
   }
 
   _setGestures(on) {
@@ -618,19 +672,35 @@ class SarahUI {
     }
   }
 
-  // Mic ON <-> OFF. OFF stops the microphone entirely (the device is
-  // released, Windows' mic indicator goes out) until you switch it back on.
+  // Mic modes: on -> wake word -> off. OFF stops the microphone entirely (the
+  // device is released, Windows' mic indicator goes out) until you switch it
+  // back on; wake word keeps it on but she only answers when you say her name.
   async _toggleLiveVoice() {
+    const next = { on: "wake", wake: "off", off: "on" }[this._micMode || "on"];
+    return this.setMicMode(next);
+  }
+
+  async setMicMode(mode) {
     const lv = this.liveVoice;
-    if (!lv) return;
-    this._micOn = !this._micOn;
-    try { localStorage.setItem("sarah.mic", this._micOn ? "on" : "off"); } catch {}
-    if (this._micOn) {
-      await lv.start();
-    } else {
+    if (!lv || !["on", "wake", "off"].includes(mode)) return;
+    this._micMode = mode;
+    this._micOn = mode !== "off";
+    this._wakeArmedUntil = 0;
+    this._heldVoice = [];
+    try { localStorage.setItem("sarah.mic", mode); } catch {}
+    if (mode === "off") {
       lv.stop();
       this._releaseCachedMic();
+    } else if (!lv.active) {
+      await lv.start();
     }
+    this._onLiveVoiceStatus(this._liveVoiceStatus || (mode === "off" ? "off" : "connecting"));
+    window.SARAH_PRESENCE?.report?.(true);
+  }
+
+  // Wake-word mode: is she waiting for her name right now (vs. mid-conversation)?
+  _needsWakeWord() {
+    return this._micMode === "wake" && performance.now() > (this._wakeArmedUntil || 0);
   }
 
   _releaseCachedMic() {
@@ -641,7 +711,7 @@ class SarahUI {
   _onLiveVoiceStatus(status, detail = "") {
     this._liveVoiceStatus = status;
     const labels = {
-      listening: "Mic: ON", muted: "Mic: OFF", connecting: "Mic: …", off: "Mic: OFF",
+      listening: this._micMode === "wake" ? "Mic: WAKE WORD" : "Mic: ON", muted: "Mic: OFF", connecting: "Mic: …", off: "Mic: OFF",
       "no-mic": "Mic: NO DEVICE", error: "Mic: ERROR",
     };
     if (this.micToggleBtn) {
@@ -666,11 +736,16 @@ class SarahUI {
       // They went on talking: whatever we're holding waits for the rest.
       clearTimeout(this._voiceHoldTimer);
       this._voiceTurnStarted = performance.now();
+      if (this._needsWakeWord()) return; // just talk in the room (until her name comes up)
       // Talking over her: she stops and listens, like a person would.
       if (msg.barge_in || this.tts?._ttsPlaying) this.tts.stop();
       director?.onUserSpeaking?.();
       this._setVoiceCaption("…", "hearing");
     } else if (msg.type === "partial") {
+      if (this._needsWakeWord()) {
+        if (!wakeWord(msg.text).heard) return; // not for her: no caption
+        director?.onUserSpeaking?.();
+      }
       this._setVoiceCaption(msg.text, "hearing");
     } else if (msg.type === "speech_cancel") {
       if (msg.more_coming) return;
@@ -694,7 +769,8 @@ class SarahUI {
       // sentence as one turn.
       this._heldVoice = [...(this._heldVoice || []), text];
       clearTimeout(this._voiceHoldTimer);
-      this._setVoiceCaption(this._heldVoice.join(" "), "heard");
+      const soFar = this._heldVoice.join(" ");
+      if (!this._needsWakeWord() || wakeWord(soFar).heard) this._setVoiceCaption(soFar, "heard");
       if (msg.more_coming) {
         // Safety net: never hold on to it for long if the rest goes missing.
         this._voiceHoldTimer = setTimeout(() => this._releaseHeldVoice(), 8000);
@@ -714,7 +790,28 @@ class SarahUI {
     this._heldVoice = [];
     if (!parts.length) return;
     setTimeout(() => this._setVoiceCaption(""), 1500);
-    this._submitVoiceTurn(parts.join(" ").replace(/\s+/g, " ").trim());
+    let text = parts.join(" ").replace(/\s+/g, " ").trim();
+    if (this._micMode === "wake") {
+      if (this._needsWakeWord()) {
+        const wake = wakeWord(text);
+        if (!wake.heard) {                 // talk that wasn't for her: dropped
+          this._setVoiceCaption("");
+          window.SARAH_AVATAR_DIRECTOR?.onUserStoppedSpeaking?.();
+          return;
+        }
+        if (!wake.rest) {                  // just "Hey Sarah": she's listening now
+          this._wakeArmedUntil = performance.now() + 8000;
+          this._setVoiceCaption("Listening…", "hearing");
+          window.SARAH_AVATAR_DIRECTOR?.onUserSpeaking?.();
+          this.tts?.playFiller?.("ack");
+          return;
+        }
+        text = wake.rest;
+      }
+      // A conversation: follow-ups don't need her name for a while.
+      this._wakeArmedUntil = performance.now() + 20000;
+    }
+    this._submitVoiceTurn(text);
   }
 
   // A spoken turn goes in like a typed one. If she's still answering the
