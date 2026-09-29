@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <title>Sarah V10 - Multimodal</title>
+  <!-- Desktop pet mode (?pet=1): just her, in a small see-through window. -->
+  <script>
+    if (new URLSearchParams(location.search).has("pet")) document.documentElement.classList.add("pet-mode");
+  </script>
 
   <!-- SECURITY POLICY - DISABLED TO TEST CLIPBOARD -->
   <!-- <meta http-equiv="Content-Security-Policy"
@@ -99,6 +103,13 @@
 <!-- ========================================================= -->
 <!-- ORIGINAL UI ROOT LAYOUT (UNTOUCHED STRUCTURE)            -->
 <!-- ========================================================= -->
+<!-- Desktop pet mode controls (only shown in the pet window) -->
+<div id="pet-controls" class="pet-controls" aria-label="Sarah pet window">
+  <div class="pet-drag" title="Drag to move her">⠿ Sarah</div>
+  <button id="pet-expand" class="pet-btn" type="button" title="Back to the full app">⤢</button>
+  <button id="pet-close" class="pet-btn" type="button" title="Close pet mode">✕</button>
+</div>
+
 <div class="app-root">
 
   <!-- ========================================================= -->

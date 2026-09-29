@@ -1628,3 +1628,53 @@ select:focus {
 }
 .fn-choice + .fn-choice { border-left: 1px solid var(--border-faint); }
 .fn-choice.on { background: var(--surface-success); color: var(--accent-green); }
+
+/* Desktop pet mode (?pet=1): only her, on a see-through always-on-top window. */
+.pet-controls { display: none; }
+html.pet-mode, html.pet-mode body, html.pet-mode .app-root, html.pet-mode .layout {
+  background: transparent !important;
+  overflow: hidden;
+}
+html.pet-mode .top-bar, html.pet-mode .vision-status-bar, html.pet-mode .sidebar, html.pet-mode .chat-column,
+html.pet-mode .emotion-panel, html.pet-mode .more-panel, html.pet-mode #diagnostics-dashboard,
+html.pet-mode .sarah-warning { display: none !important; }
+html.pet-mode .layout { display: block; height: 100vh; padding: 0; }
+html.pet-mode .avatar-column {
+  display: block !important;   /* narrow windows normally hide her column */
+  position: fixed;
+  inset: 0;
+  padding: 0;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+html.pet-mode .avatar-container { height: 100vh; background: transparent !important; border: none !important; box-shadow: none !important; }
+html.pet-mode .pet-controls {
+  display: flex;
+  position: fixed;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px;
+  border-radius: 999px;
+  background: var(--surface-glass-strong);
+  border: 1px solid var(--border-violet);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+html.pet-mode body:hover .pet-controls { opacity: 1; }
+.pet-drag { -webkit-app-region: drag; cursor: move; padding: 2px 8px; font-size: 12px; color: var(--text-soft); user-select: none; }
+.pet-btn {
+  -webkit-app-region: no-drag;
+  border: none;
+  border-radius: 999px;
+  width: 24px;
+  height: 24px;
+  background: var(--surface-button);
+  color: var(--text-main);
+  cursor: pointer;
+}
+.pet-btn:hover { background: var(--surface-button-hover); }

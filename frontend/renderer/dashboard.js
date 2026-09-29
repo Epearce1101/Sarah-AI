@@ -462,6 +462,9 @@ class SarahUI {
       { label: "Gestures & face reactions", hint: "Wave, thumbs up, peace sign, a smile, a nod, a head tilt… "
           + "she reacts (camera on).",
         on: () => this._gesturesOn, toggle: () => this._setGestures(!this._gesturesOn) },
+      { label: "Desktop pet mode", hint: "Just Sarah, in a small see-through window that stays on top of "
+          + "your games and apps. Talk by voice; hover her for the controls to come back.",
+        on: () => false, toggle: () => window.sarahApp?.setPetMode?.(true), disabled: !window.sarahApp },
       { label: "Keep running when closed", hint: "Closing the window sends her to the tray, where she keeps "
           + "working on her own time. Camera, screen and mic switch off while she's there.",
         on: () => this._backgroundOn, toggle: () => this._setBackgroundMode(!this._backgroundOn),
@@ -587,20 +590,24 @@ class SarahUI {
   async _initBackgroundMode() {
     this._inTray = false;
     this._backgroundOn = false;
+    this.isPet = document.documentElement.classList.contains("pet-mode");
+    document.getElementById("pet-expand")?.addEventListener("click", () => window.sarahApp?.setPetMode?.(false));
+    document.getElementById("pet-close")?.addEventListener("click", () => window.sarahApp?.setPetMode?.(false));
     if (!window.sarahApp) return;
+    window.sarahApp.onWindowState((state) => this._onWindowState(Boolean(state?.tray), state || {}));
     try { this._backgroundOn = Boolean((await window.sarahApp.getPrefs())?.background); } catch {}
-    window.sarahApp.onWindowState((state) => this._onWindowState(Boolean(state?.tray)));
   }
 
   async _setBackgroundMode(on) {
     try { this._backgroundOn = Boolean((await window.sarahApp?.setPrefs({ background: Boolean(on) }))?.background); } catch {}
   }
 
-  _onWindowState(inTray) {
+  _onWindowState(inTray, state = {}) {
     if (inTray === this._inTray) return;
     this._inTray = inTray;
     if (inTray) {
       this._trayAt = Date.now();
+      this._trayForPet = Boolean(state.pet); // the pet window has her senses meanwhile
       this._voiceQueue = []; // nothing half-heard gets sent after you've gone
       this._heldVoice = [];
       clearTimeout(this._voiceHoldTimer);
@@ -615,6 +622,12 @@ class SarahUI {
     }
     this.eyes?.setSources(this._eyePrefs);
     if (this._micOn) this.liveVoice?.start();
+    if (this._trayForPet) {   // back from pet mode: not a "welcome back"
+      this._trayForPet = false;
+      // What was said in the pet window shows up here too.
+      if (this.activeConversationId) this.setActiveConversation(this.activeConversationId);
+      return;
+    }
     const away = Math.round((Date.now() - (this._trayAt || Date.now())) / 1000);
     window.SARAH_PRESENCE?.sense?.("returned", { away_seconds: away, from_tray: true });
     console.info("[Background] back from the tray after", away, "s");

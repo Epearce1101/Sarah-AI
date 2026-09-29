@@ -58,6 +58,8 @@ export class SarahPresence {
   }
 
   async report(force = false) {
+    // Hidden while the pet window (or the tray) has her: the active window reports.
+    if (window.SARAH_UI?._inTray && window.SARAH_UI?._trayForPet) return;
     const view = window.SARAH_UI?.eyes?.view?.() || {};
     const face = window.SARAH_UI?.faceWatch;
     const state = { ...this.director.describe(), conversation_id: this.getConversationId(),

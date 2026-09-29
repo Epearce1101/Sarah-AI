@@ -178,17 +178,68 @@ function quitSarah() {
   app.quit();
 }
 
+// ---------------------------------------------------------------------------
+// DESKTOP PET MODE: Sarah alone in a small see-through window that stays on
+// top of games and apps (talk by voice). It's the same app in a compact
+// layout (?pet=1); the main window hides and hands over camera/mic/voice
+// meanwhile (like the tray, but she isn't "away").
+// ---------------------------------------------------------------------------
+let petWindow = null;
+
+function enterPetMode() {
+  if (petWindow) { petWindow.show(); return; }
+  const { screen } = require("electron");
+  const area = screen.getPrimaryDisplay().workArea;
+  const width = 340;
+  const height = 560;
+  petWindow = new BrowserWindow({
+    width, height, x: area.x + area.width - width - 16, y: area.y + area.height - height,
+    frame: false, transparent: true, backgroundColor: "#00000000", hasShadow: false,
+    alwaysOnTop: true, skipTaskbar: true, resizable: true, minWidth: 220, minHeight: 320,
+    icon: path.join(__dirname, "renderer", "assets", "sarah.ico"),
+    webPreferences: webPreferences(),
+  });
+  petWindow.setAlwaysOnTop(true, "floating");
+  petWindow.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { pet: "1" } });
+  petWindow.on("closed", () => {
+    petWindow = null;
+    if (!quitting) showMainAfterPet();
+  });
+  if (mainWindow) {
+    mainWindow.hide();
+    mainWindow.webContents.send("sarah:window-state", { tray: true, pet: true });
+  }
+}
+
+function showMainAfterPet() {
+  if (!mainWindow) { createWindow(); return; }
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send("sarah:window-state", { tray: false, pet: true });
+}
+
+function leavePetMode() {
+  if (petWindow) petWindow.close();  // "closed" brings the main window back
+  else showWindow();
+}
+
+ipcMain.handle("pet-mode", (_event, on) => {
+  if (on) enterPetMode(); else leavePetMode();
+  return { pet: Boolean(on) };
+});
+
 function setupTray() {
   if (tray) return;
   tray = new Tray(path.join(__dirname, "renderer", "assets", "sarah.ico"));
   tray.setToolTip("Sarah");
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "Open Sarah", click: showWindow },
+    { label: "Open Sarah", click: () => (petWindow ? leavePetMode() : showWindow()) },
+    { label: "Desktop pet mode", click: () => (petWindow ? leavePetMode() : enterPetMode()) },
     { type: "separator" },
     { label: "Quit Sarah", click: quitSarah },
   ]));
-  tray.on("click", showWindow);
-  tray.on("double-click", showWindow);
+  tray.on("click", () => (petWindow ? petWindow.show() : showWindow()));
+  tray.on("double-click", () => (petWindow ? leavePetMode() : showWindow()));
 }
 
 ipcMain.handle("app-prefs-get", () => ({ ...appPrefs, background: backgroundEnabled() }));
@@ -246,7 +297,7 @@ const isFirstInstance = process.env.SARAH_SINGLE_INSTANCE === "0" || app.request
 if (!isFirstInstance) {
   app.quit();
 } else {
-  app.on("second-instance", showWindow);
+  app.on("second-instance", () => (petWindow ? leavePetMode() : showWindow()));
 }
 
 app.on("before-quit", () => { quitting = true; });
@@ -254,6 +305,28 @@ app.on("before-quit", () => { quitting = true; });
 // ---------------------------------------------------------------------------
 // WINDOW CREATION
 // ---------------------------------------------------------------------------
+function webPreferences() {
+  return {
+    preload: path.resolve(__dirname, "preload.js"),
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: false,
+    // Same-origin policy stays on: backend calls work through its CORS
+    // headers, and a hijacked page can't read arbitrary file:// paths.
+    webSecurity: true,
+    nodeIntegrationInSubFrames: false,
+    allowRunningInsecureContent: false,
+    enableRemoteModule: false,
+    backgroundThrottling: false,
+    media: true,
+    audio: true,
+    video: false,
+    experimentalFeatures: true,
+    autoplayPolicy: "no-user-gesture-required",
+    enableBlinkFeatures: 'ClipboardRead,ClipboardWrite',
+  };
+}
+
 function createWindow() {
   // Clear cache only (NOT storage data - we need localStorage for conversation restore)
   session.defaultSession.clearCache();
@@ -268,26 +341,7 @@ function createWindow() {
     autoHideMenuBar: true,
     icon: path.join(__dirname, "renderer", "assets", "sarah.ico"),
     useContentSize: true,
-
-    webPreferences: {
-      preload: path.resolve(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
-      // Same-origin policy stays on: backend calls work through its CORS
-      // headers, and a hijacked page can't read arbitrary file:// paths.
-      webSecurity: true,
-      nodeIntegrationInSubFrames: false,
-      allowRunningInsecureContent: false,
-      enableRemoteModule: false,
-      backgroundThrottling: false,
-      media: true,
-      audio: true,
-      video: false,
-      experimentalFeatures: true,
-      autoplayPolicy: "no-user-gesture-required",
-      enableBlinkFeatures: 'ClipboardRead,ClipboardWrite',
-    }
+    webPreferences: webPreferences(),
   });
 
   if (PERF_ENABLED) {

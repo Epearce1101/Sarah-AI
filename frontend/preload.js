@@ -135,6 +135,7 @@ contextBridge.exposeInMainWorld("sarahApp", {
   onWindowState: (callback) => ipcRenderer.on("sarah:window-state", (_event, state) => callback(state)),
   setupChrome: () => ipcRenderer.invoke("setup-chrome-bridge"),
   listExtraAnimations: () => ipcRenderer.invoke("list-extra-animations"),
+  setPetMode: (on) => ipcRenderer.invoke("pet-mode", Boolean(on)),
 });
 
 contextBridge.exposeInMainWorld("electron", {
