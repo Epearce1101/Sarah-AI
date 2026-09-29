@@ -187,6 +187,8 @@ async def _startup() -> None:
         try:  # her voice (Kokoro): load + warm so the first sentence is quick
             from backend import tts_kokoro
             tts_kokoro.available()
+            from backend.voice import smart_turn  # end-of-turn model: load before the first turn
+            smart_turn.available()
         except Exception as exc:
             logger.warning(f"[INIT] Kokoro voice unavailable: {exc}")
         try:  # episodic memory: load the embedding model, index anything new

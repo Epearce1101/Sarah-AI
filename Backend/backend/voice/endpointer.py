@@ -59,7 +59,7 @@ class EndpointConfig:
     guard_prob: float = 0.8          # ...while she is speaking (barge-in)
     guard_start_ms: int = 256
     end_silence_ms: int = 800        # silence this long ends the turn
-    pause_ms: int = 416              # ...but at this point, check if the sentence is finished
+    pause_ms: int = 224              # ...but at this point, check if the sentence is finished
     preroll_ms: int = 320            # audio kept from before the start
     min_speech_ms: int = 220         # shorter than this -> speech_cancel
     max_utterance_ms: int = 30000
@@ -89,6 +89,7 @@ class Endpointer:
         self._speech_ms = 0
         self._since_partial = 0
         self._pause_sent = False
+        self._end_override: Optional[int] = None  # a longer allowed pause (they're mid-thought)
         self.pause_serial = 0        # bumps whenever speech resumes after a pause
         self._pre: Deque[np.ndarray] = deque(maxlen=max(1, self.cfg.preroll_ms // CHUNK_MS))
         self._utt: List[np.ndarray] = []
@@ -97,6 +98,13 @@ class Endpointer:
 
     def current_audio(self) -> np.ndarray:
         return np.concatenate(self._utt) if self._utt else np.zeros(0, dtype=np.float32)
+
+    def audio_at_pause(self, keep_silence_ms: int = 200) -> np.ndarray:
+        """The turn so far, ending ``keep_silence_ms`` after the last voiced
+        chunk (Smart Turn is trained on ~0.2 s of trailing silence)."""
+        extra = max(0, (self._silence_ms - keep_silence_ms) // CHUNK_MS)
+        chunks = self._utt[: len(self._utt) - extra] if extra else self._utt
+        return np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
 
     def feed(self, samples: np.ndarray) -> List[Event]:
         events: List[Event] = []
@@ -132,11 +140,13 @@ class Endpointer:
             if self._pause_sent:
                 self.pause_serial += 1   # they kept talking: that pause is void
             self._pause_sent = False
+            self._end_override = None
             self._silence_ms = 0
             self._speech_ms += CHUNK_MS
         total_ms = len(self._utt) * CHUNK_MS
 
-        if self._silence_ms >= cfg.end_silence_ms or total_ms >= cfg.max_utterance_ms:
+        end_after = self._end_override or cfg.end_silence_ms
+        if self._silence_ms >= end_after or total_ms >= cfg.max_utterance_ms:
             return [self._finish()]
         if self._silence_ms >= cfg.pause_ms and not self._pause_sent and self._speech_ms >= cfg.min_speech_ms:
             self._pause_sent = True
@@ -150,6 +160,13 @@ class Endpointer:
         """Still in the same pause (no speech since `serial` was issued)."""
         return self.in_speech and self._pause_sent and self.pause_serial == serial
 
+    def extend(self, serial: int, end_silence_ms: int) -> bool:
+        """They sound mid-thought: allow a longer pause before ending this turn."""
+        if not self.paused_since(serial):
+            return False
+        self._end_override = max(self.cfg.end_silence_ms, int(end_silence_ms))
+        return True
+
     def force_end(self) -> Event:
         """End the turn now (the sentence was clearly finished)."""
         return self._finish()
@@ -162,6 +179,7 @@ class Endpointer:
         speech_ms = self._speech_ms
         self.in_speech = False
         self._pause_sent = False
+        self._end_override = None
         self._voiced_ms = 0
         self._utt = []
         self._pre.clear()

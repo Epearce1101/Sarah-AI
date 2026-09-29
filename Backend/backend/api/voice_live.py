@@ -105,10 +105,23 @@ async def ws_voice(ws: WebSocket):
             await send({"type": "speech_cancel", "reason": "noise", "text": text, "more_coming": more})
 
     async def early_end(serial: int, speech_ms: int, seq: int) -> None:
-        """Semantic endpointing: a short pause after what reads as a finished
-        sentence ends the turn now, reusing this transcript (saves the rest
-        of the silence wait and a second transcription)."""
+        """At a short pause, is the turn over? Smart Turn (how it sounds)
+        decides first: clearly mid-thought -> allow a longer pause; clearly
+        done -> transcribe now and end the turn if the words agree (a fast
+        reply). Unsure, or no model -> the words decide, else the normal wait."""
+        from backend.voice import smart_turn
+
         t0 = time.perf_counter()
+        p = await asyncio.to_thread(smart_turn.probability, endpointer.audio_at_pause())
+        if not endpointer.paused_since(serial):
+            return
+        if p is not None and p < 0.35:
+            endpointer.extend(serial, settings.voice_thinking_pause_ms)
+            logger.info("[VOICE] pause: sounds unfinished (p=%.2f), waiting longer", p)
+            return
+        if p is not None and p < 0.65:
+            logger.info("[VOICE] pause: unsure (p=%.2f)", p)
+            return  # unsure: the normal pause length decides
         async with stt_lock:
             if not endpointer.paused_since(serial):
                 return

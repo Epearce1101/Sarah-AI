@@ -153,7 +153,7 @@ def test_turns_wait_longer_before_ending():
     from backend.voice.endpointer import EndpointConfig
 
     cfg = EndpointConfig()
-    assert cfg.end_silence_ms >= 800 and cfg.pause_ms >= 400
+    assert cfg.end_silence_ms >= 800 and cfg.pause_ms >= 200
 
 
 def test_a_sentence_with_a_pause_is_marked_as_one_thought(monkeypatch):
@@ -204,3 +204,57 @@ def test_a_sentence_with_a_pause_is_marked_as_one_thought(monkeypatch):
                 finals.append(msg)
         assert finals[0]["more_coming"] is True and finals[0]["finished"] is False
         assert finals[1]["more_coming"] is False
+
+
+def test_a_turn_that_sounds_unfinished_gets_a_longer_pause():
+    ep = Endpointer(energy_vad)
+    events = run(ep, tone(800), silence(350))
+    pause = [e for e in events if e.type == "pause"][-1]
+    assert ep.extend(pause.info["serial"], 2000)
+    assert [e.type for e in run(ep, silence(1200)) if e.type != "partial_due"] == []  # past 0.8 s: still theirs
+    assert [e.type for e in run(ep, tone(600), silence(1000))][-1] == "utterance"  # the normal end is back
+    assert not ep.extend(pause.info["serial"], 2000)                # an old pause can't be extended
+
+
+@pytest.mark.parametrize("p, expect_early", [(0.9, True), (0.1, False)])
+def test_smart_turn_decides_at_the_pause(monkeypatch, p, expect_early):
+    """Sounds done + reads done -> early end; sounds unfinished -> keep listening."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import backend.api.voice_live as voice_live
+    import backend.whisper_stt as whisper_stt
+    from backend.voice import smart_turn
+
+    class FakeSTT:
+        device, model_size = "cpu", "fake"
+
+        def transcribe_array(self, audio, prompt=None):
+            return "What's for dinner tonight?"
+
+    monkeypatch.setattr(whisper_stt, "get_whisper_stt", lambda: FakeSTT())
+    monkeypatch.setattr(smart_turn, "probability", lambda audio: p)
+
+    class FakeVAD:
+        def __call__(self, chunk):
+            return energy_vad(chunk)
+
+        def reset(self):
+            pass
+
+    monkeypatch.setattr(voice_live, "StreamingVAD", FakeVAD)
+    monkeypatch.setattr(voice_live.settings.__class__, "api_token", property(lambda self: ""), raising=False)
+    monkeypatch.setattr(voice_live.settings.__class__, "voice_thinking_pause_ms", property(lambda self: 1500), raising=False)
+    app = FastAPI()
+    app.include_router(voice_live.router)
+    to_pcm = lambda a: (a * 32767).astype(np.int16).tobytes()
+    with TestClient(app).websocket_connect("/ws/voice") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_text(json.dumps({"type": "tts", "speaking": False}))
+        for piece in (silence(300), tone(1200), silence(1800)):
+            for i in range(0, len(piece), 1024):
+                ws.send_bytes(to_pcm(piece[i:i + 1024]))
+        msg = ws.receive_json()
+        while msg["type"] != "final":
+            msg = ws.receive_json()
+        assert bool(msg.get("early")) is expect_early

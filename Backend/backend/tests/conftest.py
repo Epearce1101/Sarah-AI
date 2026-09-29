@@ -92,6 +92,14 @@ def fake_embed(texts):
 
 
 @pytest.fixture(autouse=True)
+def _no_smart_turn_model(monkeypatch):
+    """Tests use the silence/words rules unless they fake Smart Turn themselves."""
+    from backend.voice import smart_turn
+
+    monkeypatch.setattr(smart_turn, "probability", lambda audio: None)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_episodic(monkeypatch):
     """Episodic memory writes inline with a fake embedder (no model, no thread)."""
     from backend.memory import episodic
