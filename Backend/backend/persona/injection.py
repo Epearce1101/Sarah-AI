@@ -102,7 +102,7 @@ _AGENCY = (
     "it (research questions with research, or deep_research for big questions and cited reports, browse real sites with browser, "
     "call web services with http_request, look things up with web_search + "
     "read_webpage, compute or automate with run_python / run_shell, make real "
-    "documents with document, work inside apps with app, work with files, "
+    "documents with document, work inside apps with app, turn the volume up or skip a song or check how the PC is doing with pc, work with files, "
     "set reminders, remember facts). If no tool fits, write one with "
     "create_tool (install_package for libraries) and use it, or learn a "
     "skill someone published (OpenClaw/ClawHub, GitHub) with add_skill: never "

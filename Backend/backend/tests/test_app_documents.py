@@ -133,3 +133,41 @@ def test_close_and_save_on_a_new_file_says_not_saved(monkeypatch):
     monkeypatch.setattr(pyautogui, "press", lambda k: None)
     with pytest.raises(desktop.DesktopError, match="NOT saved"):
         desktop.close("notepad", save=True, wait=0.3)
+
+
+def test_pc_volume_media_and_clipboard(monkeypatch):
+    from backend.agency import pc
+
+    class FakeVolume:
+        level, muted = 0.5, 0
+
+        def GetMasterVolumeLevelScalar(self):
+            return self.level
+
+        def SetMasterVolumeLevelScalar(self, v, ctx):
+            self.level = v
+
+        def GetMute(self):
+            return self.muted
+
+        def SetMute(self, m, ctx):
+            self.muted = m
+
+    fake = FakeVolume()
+    monkeypatch.setattr(pc, "_volume_iface", lambda: fake)
+    assert pc.volume(level=30) == {"volume": 30, "muted": False}
+    assert pc.volume(change=-40) == {"volume": 0, "muted": False}        # clamped
+    assert pc.volume(change=15, mute=True) == {"volume": 15, "muted": True}
+
+    pressed = []
+    monkeypatch.setattr(pc.ctypes.windll.user32, "keybd_event", lambda vk, scan, flags, extra: pressed.append((vk, flags)))
+    assert pc.media("next") == "pressed next" and pressed == [(0xB0, 0), (0xB0, 2)]
+    with pytest.raises(ValueError):
+        pc.media("rewind")
+
+    import pyperclip
+    board = {"v": ""}
+    monkeypatch.setattr(pyperclip, "copy", lambda t: board.update(v=t))
+    monkeypatch.setattr(pyperclip, "paste", lambda: board["v"])
+    assert "checked: ok" in pc.clipboard_write("hello")
+    assert pc.clipboard_read() == "hello"

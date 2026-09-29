@@ -532,6 +532,36 @@ async def deep_research(question: str, depth: int = 2, save_to: str = ""):
     return result
 
 
+@tool("pc", "Everyday PC controls: volume (level 0-100, or change like +10/-10, or mute true/false; returns "
+      "the level after), media (key: play_pause, next, previous, stop: for Spotify/YouTube/any player), "
+      "clipboard_read, clipboard_write (text), screenshot (path, default Pictures/Sarah screenshots), stats "
+      "(CPU, RAM, GPU load/temperature, free disk space, battery, uptime, the biggest programs running).",
+      {"action": {"type": "string", "enum": ["volume", "media", "clipboard_read", "clipboard_write", "screenshot", "stats"]},
+       "level": {"type": "number"}, "change": {"type": "number"}, "mute": {"type": "boolean"},
+       "key": {"type": "string", "enum": ["play_pause", "next", "previous", "stop"]},
+       "text": {"type": "string"}, "path": {"type": "string"}},
+      ["action"], timeout=30)
+def pc(action: str, level: Optional[float] = None, change: Optional[float] = None, mute: Optional[bool] = None,
+       key: str = "", text: str = "", path: str = ""):
+    from . import pc as pc_mod
+
+    if action == "volume":
+        return pc_mod.volume(level, change, mute)
+    if action == "media":
+        return pc_mod.media(key)
+    if action == "clipboard_read":
+        return pc_mod.clipboard_read()[:20000] or "(the clipboard is empty)"
+    if action == "clipboard_write":
+        return pc_mod.clipboard_write(text)
+    if action == "screenshot":
+        target = _resolve(path or f"Pictures/Sarah screenshots/{datetime.now():%Y-%m-%d %H-%M-%S}.png")
+        guard.check_write(target)
+        return pc_mod.screenshot(target)
+    if action == "stats":
+        return pc_mod.stats()
+    raise ValueError(f"unknown pc action {action!r}")
+
+
 @tool("http_request", "Call a web service or API directly (web bridging): GET/POST/PUT/PATCH/DELETE "
       "with optional headers, query params and a JSON or text body. Returns status and the response "
       "(JSON parsed when possible). Ask Zero before posting anything on their behalf.",
