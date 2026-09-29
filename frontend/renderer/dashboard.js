@@ -30,6 +30,7 @@ import { LiveVoice, isEcho, wakeWord } from "./scripts/core/live-voice.js";
 import { SarahEyes } from "./scripts/core/eyes.js";
 import { SarahSenses } from "./scripts/core/senses.js";
 import { SarahGestures } from "./scripts/core/gestures.js";
+import { SarahFaceWatch } from "./scripts/core/face-watch.js";
 
 // -----------------------------------------------------------------------------
 // UI Controller
@@ -290,9 +291,14 @@ class SarahUI {
         if (cam) previewVideo.play().catch(() => {});
       }
       preview?.classList.toggle("sarah-hidden", !cam);
-      // Hand gestures only while the camera is on (and gestures are).
-      if (cam && this._gesturesOn) this.gestures?.start(); else this.gestures?.stop();
+      // Hand gestures and face reactions only while the camera is on (and they are).
+      if (cam && this._gesturesOn) { this.gestures?.start(); this.faceWatch?.start(); }
+      else { this.gestures?.stop(); this.faceWatch?.stop(); }
     };
+    this.faceWatch = new SarahFaceWatch({
+      getVideo: () => this.eyes?.sources?.camera?.video || null,
+      onEvent: (name, detail) => this._onFaceEvent(name, detail),
+    });
     this._gesturesOn = pref("sarah.gestures", "on") === "on";
     this.gestures = new SarahGestures({
       getVideo: () => this.eyes?.sources?.camera?.video || null,
@@ -453,7 +459,8 @@ class SarahUI {
         on: () => this.tts?.isEnabled(), toggle: click("voice-toggle") },
       { label: "Initiative", hint: "She speaks up and does things on her own.",
         on: () => !this._initiativeQuiet, toggle: click("initiative-toggle") },
-      { label: "Hand gestures", hint: "Wave, thumbs up, peace sign… she reacts (camera on).",
+      { label: "Gestures & face reactions", hint: "Wave, thumbs up, peace sign, a smile, a nod, a head tilt… "
+          + "she reacts (camera on).",
         on: () => this._gesturesOn, toggle: () => this._setGestures(!this._gesturesOn) },
       { label: "Keep running when closed", hint: "Closing the window sends her to the tray, where she keeps "
           + "working on her own time. Camera, screen and mic switch off while she's there.",
@@ -631,6 +638,27 @@ class SarahUI {
     }
     window.SARAH_PRESENCE?.sense?.("gesture", { name });
     console.info("[Gestures]", name);
+  }
+
+  // Their face through the camera: she mirrors it the way people do, by
+  // reflex (a smile back, a nod along, the same head tilt, a concerned look).
+  _onFaceEvent(name, detail = {}) {
+    const d = window.SARAH_AVATAR_DIRECTOR;
+    if (!d) return;
+    const body = d.avatar.body;
+    const react = {
+      smiling: () => { d.avatar.face.express("happy", 0.8, 2.5); d.lookAt("user", 2, "face"); },
+      surprised: () => d.avatar.face.express("surprised", 0.7, 1.6),
+      frowning: () => { d.avatar.face.express("worried", 0.6, 3); d.gesture("curious_lean", 0.6); },
+      nod: () => d.gesture("nod_small"),
+      shake: () => d.gesture("tilt"),
+      tilt: () => {
+        body.tiltTarget = (detail.side || 1) * 0.18;  // her head tips the same way, like a mirror
+        d._later?.(2500, () => { body.tiltTarget = 0; });
+      },
+    }[name];
+    react?.();
+    console.info("[FaceWatch]", name);
   }
 
   // Initiative: ON (she speaks up / acts on her own) or QUIET (she still

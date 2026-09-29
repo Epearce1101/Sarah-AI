@@ -15,6 +15,7 @@ import {
   VRMLookAtQuaternionProxy,
   createVRMAnimationClip,
 } from "@pixiv/three-vrm-animation";
+import { describeFile, loadMixamoClip } from "./mixamo.js";
 
 const { damp, clamp, degToRad } = THREE.MathUtils;
 const tmpV1 = new THREE.Vector3();
@@ -68,6 +69,26 @@ class Animator {
     } catch (err) {
       console.warn("[SarahVRM] animation catalog unavailable:", err);
     }
+    await this._loadExtras();
+  }
+
+  // Moves Zero dropped into animations/mixamo/ (Mixamo .fbx or .vrma): each
+  // becomes a gesture named after its file ("Hip Hop Dancing.fbx" ->
+  // <gesture>hip hop dancing</gesture>, also found by "dancing").
+  async _loadExtras() {
+    let files = [];
+    try { files = (await window.sarahApp?.listExtraAnimations?.()) || []; } catch {}
+    for (const file of files) {
+      const d = describeFile(file);
+      if (this.catalog.has(d.id)) continue;
+      this.catalog.set(d.id, { id: d.id, file: `mixamo/${file}`, category: "extra", loop: d.loop, tags: [d.slug, ...d.words] });
+      for (const tag of ["extra", d.slug, ...d.words]) {
+        if (!this.byTag.has(tag)) this.byTag.set(tag, []);
+        this.byTag.get(tag).push(d.id);
+      }
+    }
+    this.extras = files.map((f) => describeFile(f).slug);
+    if (files.length) console.info(`[SarahVRM] ${files.length} extra animation(s) from the mixamo folder`);
   }
 
   has(id) {
@@ -83,7 +104,7 @@ class Animator {
       const entry = this.catalog.get(id);
       const file = entry?.file || `${id}.vrma`;
       const promise = this.loader
-        .loadAsync(`${this.baseUrl}${encodeURIComponent(file)}`)
+        .loadAsync(`${this.baseUrl}${file.split("/").map(encodeURIComponent).join("/")}`)
         .then((gltf) => gltf.userData.vrmAnimations?.[0] || null);
       this.vrmaCache.set(id, promise);
       promise.catch(() => this.vrmaCache.delete(id));
@@ -93,9 +114,15 @@ class Animator {
 
   async clip(id) {
     if (this.clipCache.has(id)) return this.clipCache.get(id);
-    const vrma = await this._vrma(id);
-    if (!vrma) throw new Error(`animation ${id} has no VRM animation`);
-    const clip = createVRMAnimationClip(vrma, this.vrm);
+    const file = this.catalog.get(id)?.file || "";
+    let clip;
+    if (/\.fbx$/i.test(file)) {
+      clip = await loadMixamoClip(`${this.baseUrl}${file.split("/").map(encodeURIComponent).join("/")}`, this.vrm);
+    } else {
+      const vrma = await this._vrma(id);
+      if (!vrma) throw new Error(`animation ${id} has no VRM animation`);
+      clip = createVRMAnimationClip(vrma, this.vrm);
+    }
     clip.name = id;
     // Keep her on her spot: clips are authored at arbitrary floor positions,
     // so re-centre hips X/Z on the first frame (relative motion survives).

@@ -198,6 +198,30 @@ ipcMain.handle("app-prefs-set", (_event, patch = {}) => {
   return { ...appPrefs, background: backgroundEnabled() };
 });
 
+// Extra moves: Mixamo .fbx / .vrma files dropped into the avatar's
+// animations/mixamo folder (listed for the renderer, which can't read folders).
+const EXTRA_ANIMATIONS = path.join(__dirname, "renderer", "assets", "vrm", "animations", "mixamo");
+ipcMain.handle("list-extra-animations", () => {
+  try {
+    fs.mkdirSync(EXTRA_ANIMATIONS, { recursive: true });
+    const readme = path.join(EXTRA_ANIMATIONS, "README.txt");
+    if (!fs.existsSync(readme)) {
+      fs.writeFileSync(readme, [
+        "Drop animations here and restart Sarah: each file becomes a move she can do.",
+        "",
+        "From mixamo.com: pick an animation, Download with Format: FBX Binary (.fbx),",
+        "Skin: Without Skin, Frames per second: 30, and tick \"In Place\" if it's offered.",
+        "The file name is the move's name (\"Hip Hop Dancing.fbx\" -> she can do \"hip hop dancing\").",
+        ".vrma files (VRM animations) work too.",
+      ].join("\r\n"));
+    }
+    return fs.readdirSync(EXTRA_ANIMATIONS).filter((f) => /\.(fbx|vrma)$/i.test(f)).sort();
+  } catch (err) {
+    console.warn("[Animations] can't list extras:", err.message);
+    return [];
+  }
+});
+
 // Browser Bridge setup: open Chrome's extensions page and the extension
 // folder, so loading it is "Developer mode -> Load unpacked -> this folder".
 ipcMain.handle("setup-chrome-bridge", async () => {

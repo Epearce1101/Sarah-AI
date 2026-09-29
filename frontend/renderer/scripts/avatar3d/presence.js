@@ -59,7 +59,10 @@ export class SarahPresence {
 
   async report(force = false) {
     const view = window.SARAH_UI?.eyes?.view?.() || {};
+    const face = window.SARAH_UI?.faceWatch;
     const state = { ...this.director.describe(), conversation_id: this.getConversationId(),
+                    user_expression: face?.timer && face.present ? face.expression : null,
+                    extra_moves: (this.director.avatar.animator.extras || []).map((s) => s.replace(/_/g, " ")).join(", ").slice(0, 118) || null,
                     eyes_screen: view.screen || "off", eyes_camera: view.camera || "off",
                     ears: !window.SARAH_UI?.liveVoice?.active ? "off"
                       : window.SARAH_UI?._micMode === "wake" ? "wake word" : "on" };

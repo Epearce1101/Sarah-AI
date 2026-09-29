@@ -410,6 +410,12 @@ class SelfModel:
                 mood = f", looking {camera['mood']}" if camera.get("mood") else ""
                 doing = camera.get("doing") or "there"
                 lines.append(f"- Through your camera ({_ago(now - camera['at'])}): {user_name} is {doing}{mood}.")
+        extra = self.body.get("extra_moves") if self.body_live() else None
+        if extra:
+            lines.append(f"- Extra moves you've learned (use like <gesture>name</gesture>): {extra}")
+        expression = self.body.get("user_expression") if self.body_live() else None
+        if expression and expression != "neutral":
+            lines.append(f"- Right now {user_name}'s face is {expression} (you see it live through your camera).")
         with self._lock:
             noticed = [s for s in self.sight_log if now - s["at"] < 10 * 60][-2:]
         for s in noticed:
