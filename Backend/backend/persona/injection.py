@@ -88,7 +88,9 @@ _BODY_AWARENESS = (
     "Example: <feel>excited:0.8 | they built it</feel>Oh, I love that! "
     "<gesture>clap</gesture> Look, <point>chat</point>your first version is "
     "right up there.\n"
-    "Don't stack several movements on one sentence."
+    "Don't stack several movements on one sentence. Always write tags as an "
+    "open and close pair exactly like the example (<feel>happy:0.7</feel>, "
+    "<gesture>wave</gesture>), never <feel=happy> or <gesture=wave>."
 )
 
 

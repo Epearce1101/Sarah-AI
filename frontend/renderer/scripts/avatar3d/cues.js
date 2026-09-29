@@ -22,7 +22,19 @@ const SELF_CLOSING = /<(face|look|point|gesture|motion)\s+(?:name|value|to|at)\s
 const SILENT = /<silent\s*\/?>|<agenda\b[^>]*\/?>/gi;
 // A cue still being streamed in: "<fa", "<face>hap", "<face>happy</fa",
 // "<gesture name=\"wa".
-const PARTIAL_TAIL = /<(?:(?:feel|face|look|point|gesture|motion)\b[^>]*>[^<]*(?:<\/?[a-z]*)?|\/?[a-z]*(?:\s[^>]*)?)$/i;
+const PARTIAL_TAIL = /<(?:(?:feel|face|look|point|gesture|motion)\b[^>]*>[^<]*(?:<\/?[a-z]*)?|\/?[a-z]*(?:[\s=:][^>]*)?)$/i;
+
+// Slips she sometimes makes, rewritten to the real form first:
+//   <feel=happy:0.7 | why</feel>   <feel=curious:0.6>   <gesture=wave>   <face:smile/>
+const SLIP_UNCLOSED = /<(feel|face|look|point|gesture|motion)\s*[=:]\s*([^<>]*?)\s*<\/\1\s*>/gi;
+const SLIP_INLINE = /<(feel|face|look|point|gesture|motion)\s*[=:]\s*["']?([^<>"']*?)["']?\s*\/?>/gi;
+const STRAY_CLOSE = /<\/(feel|face|look|point|gesture|motion)\s*>/gi;
+
+export function normalizeCueTags(raw) {
+  return String(raw || "")
+    .replace(SLIP_UNCLOSED, "<$1>$2</$1>")
+    .replace(SLIP_INLINE, "<$1>$2</$1>");
+}
 
 function splitValue(raw, kind) {
   let text = String(raw).trim();
@@ -45,7 +57,7 @@ function splitValue(raw, kind) {
  * `bareGestures` (Set of names) turns legacy tags like <wave/> into cues.
  */
 export function parseCues(raw, { bareGestures = null, streaming = false } = {}) {
-  let source = String(raw || "");
+  let source = normalizeCueTags(raw);
   if (streaming) source = source.replace(PARTIAL_TAIL, "");
 
   const matches = [];
@@ -91,6 +103,8 @@ export function parseCues(raw, { bareGestures = null, streaming = false } = {}) 
     cues.push(cue);
   }
   append(source.slice(last));
+  // A closing tag with nothing to close (e.g. "<gesture=wave>Hi</gesture>").
+  text = text.replace(STRAY_CLOSE, "");
   return { text, cues };
 }
 

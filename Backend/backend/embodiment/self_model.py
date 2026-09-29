@@ -64,9 +64,22 @@ class Feeling:
         return {"label": self.label, "intensity": round(self.intensity, 2), "reason": self.reason, "at": self.at}
 
 
+# Slips the model sometimes makes, rewritten to the real form:
+#   <feel=happy:0.7 | why</feel>   <feel=curious:0.6>   <gesture=wave>
+_TAG_NAMES = r"(feel|face|look|point|gesture|motion)"
+_SLIP_UNCLOSED = re.compile(r"<" + _TAG_NAMES + r"\s*[=:]\s*([^<>]*?)\s*</\1\s*>", re.IGNORECASE)
+_SLIP_INLINE = re.compile(r"<" + _TAG_NAMES + r"\s*[=:]\s*[\"']?([^<>\"']*?)[\"']?\s*/?>", re.IGNORECASE)
+_STRAY_CLOSE = re.compile(r"</" + _TAG_NAMES + r"\s*>", re.IGNORECASE)
+
+
+def normalize_body_tags(text: str) -> str:
+    text = _SLIP_UNCLOSED.sub(r"<\1>\2</\1>", text or "")
+    return _SLIP_INLINE.sub(r"<\1>\2</\1>", text)
+
+
 def parse_feel(text: str) -> Optional[Feeling]:
     """First ``<feel>`` in a reply: ``label[:0.7| 0.7] [| reason]``."""
-    m = _FEEL_RE.search(text or "")
+    m = _FEEL_RE.search(normalize_body_tags(text))
     if not m:
         return None
     body, _, reason = m.group(1).partition("|")
@@ -107,7 +120,8 @@ def mood_emotion_for(label: str) -> str:
 
 def strip_body_tags(text: str) -> str:
     """Reply text without body tags (for summaries and memory)."""
-    return re.sub(r"[ \t]{2,}", " ", _BODY_TAG_RE.sub("", text or "")).strip()
+    cleaned = _STRAY_CLOSE.sub("", _BODY_TAG_RE.sub("", normalize_body_tags(text)))
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
 
 _FILLER_RE = re.compile(

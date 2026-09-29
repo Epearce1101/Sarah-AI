@@ -70,4 +70,18 @@ const view = (r) => r.cues.map((c) => [c.type, c.value, c.at, c.amount]);
   assert.equal(stripCues("<look>user</look>Hey"), "Hey");
 }
 
+// Slips she makes: <feel=...>, <gesture=wave>, an unclosed <feel=... </feel>.
+{
+  const a = parseCues("<feel=curious:0.6>That sounds like game dialogue.\n\nWhat's playing?");
+  assert.equal(a.text, "That sounds like game dialogue.\n\nWhat's playing?");
+  assert.deepEqual([a.cues[0].type, a.cues[0].value, a.cues[0].amount], ["feel", "curious", 0.6]);
+  const b = parseCues("<feel=happy:0.7 | they're back after 13 minutes away</feel><gesture=wave>Welcome back.");
+  assert.equal(b.text, "Welcome back.");
+  assert.deepEqual(b.cues.map((c) => c.type + ":" + c.value), ["feel:happy", "gesture:wave"]);
+  assert.equal(b.cues[0].reason, "they're back after 13 minutes away");
+  assert.equal(parseCues("<gesture=wave>Hi</gesture> there").text, "Hi there");
+  assert.equal(parseCues("<feel=happy:0.7 | they're b", { streaming: true }).text, "");
+  assert.equal(parseCues("<face:smile/>Yes").text, "Yes");
+}
+
 console.log(JSON.stringify({ ok: true, checked: "cues" }));

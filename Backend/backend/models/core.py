@@ -351,6 +351,12 @@ def add_message(conversation_id: int, role: str, content: str, meta_json: str = 
     Add a message to a conversation.
     Returns the ID of the inserted message.
     """
+    if role == "assistant":
+        try:  # her body tags in their real form (she sometimes writes <feel=...>)
+            from backend.embodiment.self_model import normalize_body_tags
+            content = normalize_body_tags(content)
+        except Exception:
+            pass
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
