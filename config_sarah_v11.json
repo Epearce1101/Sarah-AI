@@ -1,5 +1,5 @@
 {
-  "core_version": "InfinityCore-V9",
+  "core_version": "InfinityCore-V11",
   "mode": "dev",
   "paths": {
     "sarah_drive": "/mnt/data/SARAH_AI_V8_Backend_Full/SARAH_DRIVE"
