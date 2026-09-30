@@ -137,6 +137,7 @@ contextBridge.exposeInMainWorld("sarahApp", {
   listExtraAnimations: () => ipcRenderer.invoke("list-extra-animations"),
   setPetMode: (on) => ipcRenderer.invoke("pet-mode", Boolean(on)),
   petDrag: (phase, x, y) => ipcRenderer.send("pet-drag", { phase, x, y }),
+  quit: () => ipcRenderer.invoke("quit-app"),
 });
 
 contextBridge.exposeInMainWorld("electron", {

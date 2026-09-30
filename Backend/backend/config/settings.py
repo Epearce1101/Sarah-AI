@@ -93,6 +93,10 @@ class Settings:
     # test image correctly in a 2026-09-27 probe given enough output tokens.
     openrouter_vision_model: str = field(default_factory=lambda: _str("SARAH_OPENROUTER_VISION_MODEL", "dots-studio/dots-3-note-preview:free"))
     openrouter_reasoning_effort: str = field(default_factory=lambda: _str("SARAH_OPENROUTER_REASONING_EFFORT", "high"))
+    # Spoken turns: less hidden thinking so she answers in seconds, not a minute.
+    voice_reasoning_effort: str = field(default_factory=lambda: _str("SARAH_VOICE_REASONING_EFFORT", "low"))
+    # No word from the model for this long: drop it and ask a fallback model.
+    llm_stall_seconds: float = field(default_factory=lambda: _float("SARAH_LLM_STALL_SECONDS", 25.0))
     llm_max_completion_tokens: int = field(default_factory=lambda: _int("SARAH_LLM_MAX_COMPLETION_TOKENS", 4096))
     llm_temperature: float = field(default_factory=lambda: _float("SARAH_LLM_TEMPERATURE", 0.7))
 

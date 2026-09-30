@@ -69,20 +69,25 @@ def request_models() -> List[str]:
     return [current_online_model(), *fallback_models()]
 
 
-def completion_kwargs(*, reasoning: bool = True, model: Optional[str] = None) -> Dict[str, Any]:
+def completion_kwargs(*, reasoning: bool = True, model: Optional[str] = None,
+                      effort: Optional[str] = None, fallback_first: bool = False) -> Dict[str, Any]:
     """`model` + `extra_body` for an OpenAI-SDK call to OpenRouter.
 
     Passing `model` pins a specific one (e.g. the vision model) with no
-    fallbacks; otherwise the chat model and its fallbacks are sent.
+    fallbacks; otherwise the chat model and its fallbacks are sent
+    (`fallback_first` puts the chat model last, for when it has stalled).
+    `effort` overrides the configured reasoning effort.
     """
     extra: Dict[str, Any] = {}
     if model is None:
-        model = current_online_model()
-        fallbacks = fallback_models()
-        if fallbacks:
-            extra["models"] = [model, *fallbacks]
+        order = request_models()
+        if fallback_first and len(order) > 1:
+            order = [*order[1:], order[0]]
+        model = order[0]
+        if len(order) > 1:
+            extra["models"] = order
     if reasoning:
-        effort = (settings.openrouter_reasoning_effort or "").strip().lower()
+        effort = (effort or settings.openrouter_reasoning_effort or "").strip().lower()
         if effort and effort != "none":
             extra["reasoning"] = {"effort": effort, "exclude": True}
     return {"model": model, "extra_body": extra or None}

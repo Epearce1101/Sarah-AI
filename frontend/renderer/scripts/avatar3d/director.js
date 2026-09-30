@@ -65,7 +65,8 @@ const IDLE_SETS = {
   happy: ["dm_24", "dm_46", "dm_59", "dm_101"],
   cool: ["dm_23", "dm_33"],
   sad: ["142_Sad Idle", "dm_17"],
-  sleepy: ["dm_110", "dm_111", "dm_22"],
+  // (not dm_111 or the dm_22 yawn as loops: a hand held at her mouth reads as "shh")
+  sleepy: ["dm_110", "dm_17"],
 };
 const TALKING = ["dm_5", "dm_6", "dm_7", "dm_13", "dm_14", "dm_15", "86_Talking"];
 const IDLE_ACTIONS = {
@@ -589,6 +590,7 @@ export class SarahDirector {
     });
     this.avatar.canvas.addEventListener("dblclick", () => {
       clearTimeout(this._touchTimer);
+      if (document.documentElement.classList.contains("pet-mode")) return; // there it opens the chat
       const order = ["full", "upper", "face"];
       this.userFrame = order[(order.indexOf(this.avatar.frame) + 1) % order.length];
       this.avatar.setFrame(this.userFrame);

@@ -192,7 +192,7 @@ def test_executor_extends_the_budget_while_a_plan_is_open(monkeypatch):
     packet = SimpleNamespace(messages=[{"role": "user", "content": "do the big job"}], estimated_tokens=10, debug_info={})
     client._prepare_turn = lambda *a, **k: (packet, 1)
     client._finish_turn = lambda **kw: SimpleNamespace(content=kw["raw_content"])
-    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda: {"model": "fake:free", "extra_body": None})
+    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda **k: {"model": "fake:free", "extra_body": None})
     monkeypatch.setattr(tools, "_custom_tools", lambda: {})
 
     async def collect():
@@ -233,7 +233,7 @@ def test_she_cant_wrap_up_with_plan_steps_left(monkeypatch):
     packet = SimpleNamespace(messages=[{"role": "user", "content": "play lofi"}], estimated_tokens=10, debug_info={})
     client._prepare_turn = lambda *a, **k: (packet, 1)
     client._finish_turn = lambda **kw: SimpleNamespace(content=kw["raw_content"])
-    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda: {"model": "fake:free", "extra_body": None})
+    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda **k: {"model": "fake:free", "extra_body": None})
     monkeypatch.setattr(tools, "_custom_tools", lambda: {})
 
     async def collect():

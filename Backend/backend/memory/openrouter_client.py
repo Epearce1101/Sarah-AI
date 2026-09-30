@@ -506,7 +506,14 @@ class OpenRouterClient:
             save_messages, save_user_message, project_context,
         )
         loop = asyncio.get_running_loop()
-        kwargs = None if use_local else llm_models.completion_kwargs()
+        try:
+            from backend.usage import _category
+            voice = _category.get() == "voice"
+        except Exception:
+            voice = False
+        effort = _settings.voice_reasoning_effort if voice else None
+        kwargs = None if use_local else llm_models.completion_kwargs(effort=effort)
+        stall_retried = use_local  # one swap to a fallback model per turn if the model goes silent
         tool_specs = self._tool_specs(use_local)
         messages = list(packet.messages)
         usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
@@ -523,13 +530,17 @@ class OpenRouterClient:
                 stream=True,
                 stream_options={"include_usage": True},
                 **extra,
-                **kwargs,
+                **(step_meta.get("kwargs") or kwargs),
             )
+            step_meta["stream"] = stream
             calls: Dict[int, Dict[str, str]] = {}
             try:
                 for chunk in stream:
                     if stop.is_set():
                         break
+                    if not step_meta.get("alive"):
+                        step_meta["alive"] = True
+                        emit(("alive", None))  # the model answered: no stall
                     step_meta["model"] = getattr(chunk, "model", None) or step_meta.get("model")
                     if getattr(chunk, "usage", None):
                         step_meta["usage"] = self._usage_dict(chunk.usage)
@@ -602,45 +613,71 @@ class OpenRouterClient:
             final_round = bool(tool_specs) and step >= budget
             if final_round:
                 messages.append({"role": "system", "content": self._out_of_steps_note(turn_started)})
-            queue: asyncio.Queue = asyncio.Queue()
-            stop = threading.Event()
-            step_meta: Dict[str, Any] = {"finish_reason": "stop", "usage": None, "model": None, "tool_calls": [],
-                                         "final": final_round}
-            step_parts: List[str] = []
+            attempt_kwargs = kwargs
+            while True:  # one round; retried once on a fallback model if the model stalls
+                queue: asyncio.Queue = asyncio.Queue()
+                stop = threading.Event()
+                step_meta: Dict[str, Any] = {"finish_reason": "stop", "usage": None, "model": None, "tool_calls": [],
+                                             "final": final_round, "kwargs": attempt_kwargs}
+                step_parts: List[str] = []
+                stalled = False
 
-            def emit(item):
-                loop.call_soon_threadsafe(queue.put_nowait, item)
+                def emit(item, q=queue):
+                    loop.call_soon_threadsafe(q.put_nowait, item)
 
-            def _run(msgs=list(messages), sm=step_meta, st=stop):
+                def _run(msgs=list(messages), sm=step_meta, st=stop, em=emit):
+                    try:
+                        (_produce_local if use_local else _produce_openrouter)(msgs, em, st, sm)
+                        em(("end", None))
+                    except Exception as exc:  # surfaced to the consumer below
+                        em(("error", exc))
+
+                worker = loop.run_in_executor(None, contextvars.copy_context().run, _run)
+                heard = False
                 try:
-                    (_produce_local if use_local else _produce_openrouter)(msgs, emit, st, sm)
-                    emit(("end", None))
-                except Exception as exc:  # surfaced to the consumer below
-                    emit(("error", exc))
-
-            worker = loop.run_in_executor(None, contextvars.copy_context().run, _run)
-            try:
-                while True:
-                    kind, value = await queue.get()
-                    if kind == "delta":
-                        if not step_parts and text_parts and not "".join(text_parts).endswith(("\n", " ")):
-                            # A new round after tools: keep it a new paragraph.
-                            text_parts.append("\n\n")
-                            yield {"type": "delta", "text": "\n\n"}
-                        step_parts.append(value)
-                        text_parts.append(value)
-                        yield {"type": "delta", "text": value}
-                    elif kind == "error":
-                        if text_parts:
-                            logger.warning("LLM error after partial reply: %s", value)
+                    while True:
+                        wait = None if heard or stall_retried else _settings.llm_stall_seconds
+                        try:
+                            kind, value = await asyncio.wait_for(queue.get(), wait)
+                        except asyncio.TimeoutError:
+                            stalled = True
                             break
-                        yield {"type": "done", "response": self._error_response(value, user_message_id)}
-                        return
-                    else:
-                        break
-            finally:
-                stop.set()  # client went away mid-stream: let the worker close up
-            await worker
+                        heard = True
+                        if kind == "alive":
+                            continue
+                        if kind == "delta":
+                            if not step_parts and text_parts and not "".join(text_parts).endswith(("\n", " ")):
+                                # A new round after tools: keep it a new paragraph.
+                                text_parts.append("\n\n")
+                                yield {"type": "delta", "text": "\n\n"}
+                            step_parts.append(value)
+                            text_parts.append(value)
+                            yield {"type": "delta", "text": value}
+                        elif kind == "error":
+                            if text_parts:
+                                logger.warning("LLM error after partial reply: %s", value)
+                                break
+                            yield {"type": "done", "response": self._error_response(value, user_message_id)}
+                            return
+                        else:
+                            break
+                finally:
+                    stop.set()  # client went away mid-stream: let the worker close up
+                    if stalled:
+                        try:
+                            step_meta["stream"].close()  # unblocks the worker's read
+                        except Exception:
+                            pass
+                if stalled:
+                    # Free models sometimes sit silent for a minute: ask the
+                    # fallbacks instead (the silent worker is left to wind down).
+                    stall_retried = True
+                    logger.warning("LLM silent for %.0fs (%s); retrying on a fallback model",
+                                   _settings.llm_stall_seconds, (attempt_kwargs or {}).get("model"))
+                    attempt_kwargs = llm_models.completion_kwargs(effort=effort, fallback_first=True)
+                    continue
+                await worker
+                break
 
             for key in usage_total:
                 usage_total[key] += int((step_meta.get("usage") or {}).get(key, 0) or 0)

@@ -259,6 +259,9 @@ ipcMain.on("pet-drag", (_event, { phase, x, y } = {}) => {
   }
 });
 
+// Right-click on the pet: close Sarah completely (same as "Quit Sarah").
+ipcMain.handle("quit-app", () => quitSarah());
+
 ipcMain.handle("pet-mode", (_event, on) => {
   if (on) enterPetMode(); else leavePetMode();
   return { pet: Boolean(on) };

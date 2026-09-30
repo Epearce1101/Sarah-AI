@@ -164,7 +164,7 @@ def test_a_turn_that_uses_every_step_still_answers(monkeypatch):
     packet = SimpleNamespace(messages=[{"role": "user", "content": "dig into this"}], estimated_tokens=10, debug_info={})
     client._prepare_turn = lambda *a, **k: (packet, 1)
     client._finish_turn = lambda **kw: SimpleNamespace(content=kw["raw_content"])
-    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda: {"model": "fake:free", "extra_body": None})
+    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda **k: {"model": "fake:free", "extra_body": None})
     monkeypatch.setattr(tools, "_custom_tools", lambda: {})
 
     async def collect():
@@ -173,6 +173,52 @@ def test_a_turn_that_uses_every_step_still_answers(monkeypatch):
     events = run(collect())
     assert offered == [True] * client.MAX_TOOL_STEPS + [False]
     assert events[-1]["response"].content == "Here's what I found so far."
+
+
+def test_a_silent_model_is_swapped_for_a_fallback(monkeypatch):
+    import threading
+    from backend.memory import openrouter_client as oc
+    from backend.usage import _category
+
+    asked = []
+    release = threading.Event()
+
+    class Silent(FakeStream):
+        def __iter__(self):
+            release.wait(5)  # says nothing until closed
+            return iter([])
+
+        def close(self):
+            release.set()
+
+    class Completions:
+        def create(self, **kw):
+            asked.append((kw["model"], (kw.get("extra_body") or {}).get("reasoning")))
+            if len(asked) == 1:
+                return Silent()
+            return FakeStream([_chunk("It's 2:17.", finish="stop")])
+
+    client = oc.OpenRouterClient.__new__(oc.OpenRouterClient)
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    client.config = SimpleNamespace(llm_max_completion_tokens=100, llm_temperature=0.5, chars_per_token=4)
+    client._is_local_mode = lambda: False
+    packet = SimpleNamespace(messages=[{"role": "user", "content": "what time is it?"}], estimated_tokens=10, debug_info={})
+    client._prepare_turn = lambda *a, **k: (packet, 1)
+    client._finish_turn = lambda **kw: SimpleNamespace(content=kw["raw_content"])
+    monkeypatch.setattr(oc, "_settings", SimpleNamespace(**{**vars(oc._settings), "llm_stall_seconds": 0.3}))
+    monkeypatch.setattr(oc.llm_models, "request_models", lambda: ["primary:free", "backup:free"])
+    monkeypatch.setattr(oc.llm_models, "settings", SimpleNamespace(openrouter_reasoning_effort="high"))
+    monkeypatch.setattr(tools, "_custom_tools", lambda: {})
+
+    async def collect():
+        _category.set("voice")
+        return [e async for e in client.chat_stream(1, "what time is it?")]
+
+    events = run(collect())
+    assert events[-1]["response"].content == "It's 2:17."
+    # Spoken turn: low reasoning; the silent primary was replaced by the backup.
+    assert asked == [("primary:free", {"effort": "low", "exclude": True}),
+                     ("backup:free", {"effort": "low", "exclude": True})]
 
 
 def test_relative_paths_live_in_her_workspace():
@@ -208,7 +254,7 @@ def test_streamed_turn_calls_a_tool_then_answers(monkeypatch):
     client._prepare_turn = lambda *a, **k: (packet, 1)
     finished = {}
     client._finish_turn = lambda **kw: finished.update(kw) or SimpleNamespace(content=kw["raw_content"])
-    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda: {"model": "fake:free", "extra_body": None})
+    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda **k: {"model": "fake:free", "extra_body": None})
     monkeypatch.setattr(tools, "_custom_tools", lambda: {})
 
     async def collect():

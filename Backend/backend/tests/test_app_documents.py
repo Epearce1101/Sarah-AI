@@ -103,7 +103,7 @@ def test_she_must_look_before_claiming_it_worked(monkeypatch):
     packet = SimpleNamespace(messages=[{"role": "user", "content": "type hi"}], estimated_tokens=10, debug_info={})
     client._prepare_turn = lambda *a, **k: (packet, 1)
     client._finish_turn = lambda **kw: SimpleNamespace(content=kw["raw_content"])
-    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda: {"model": "fake:free", "extra_body": None})
+    monkeypatch.setattr(oc.llm_models, "completion_kwargs", lambda **k: {"model": "fake:free", "extra_body": None})
     monkeypatch.setattr(tools, "_custom_tools", lambda: {})
     monkeypatch.setattr(tools, "unverified_action", lambda name, args, ok, result: "used the keyboard (type)"
                         if name == "control_input" else None)

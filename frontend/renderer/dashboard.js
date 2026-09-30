@@ -613,10 +613,20 @@ class SarahUI {
   }
 
   // Pet window: press on her and drag to move her anywhere on screen (a
-  // click without moving is still a touch; double-click still changes view).
+  // click without moving is still a touch). Double-click opens the chat
+  // again; right-click closes Sarah.
   _initPetDrag() {
     const area = document.getElementById("avatar-container");
     if (!area) return;
+    area.addEventListener("dblclick", (ev) => {
+      ev.stopPropagation();
+      clearTimeout(window.SARAH_AVATAR_DIRECTOR?._touchTimer);
+      window.sarahApp.setPetMode(false);
+    }, true);
+    area.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      window.sarahApp.quit?.();
+    });
     let drag = null;
     area.addEventListener("pointerdown", (ev) => {
       if (ev.button !== 0) return;
