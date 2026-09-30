@@ -138,6 +138,7 @@ def init_db():
             title TEXT NOT NULL,
             description TEXT,
             status TEXT DEFAULT 'pending', -- pending | in_progress | done | blocked
+                                           -- (V11 durable tasks also use: waiting_approval | failed | cancelled)
             priority INTEGER DEFAULT 0,
             context_json TEXT,
             result_summary TEXT

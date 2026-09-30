@@ -58,16 +58,16 @@ class TaskEngine:
         conn.commit()
         conn.close()
 
-    def set_result(self, task_id: int, result_summary: str):
+    def set_result(self, task_id: int, result_summary: str, status: str = "done"):
         conn = get_connection()
         cur = conn.cursor()
         cur.execute(
             """
             UPDATE tasks
-            SET result_summary = ?, status = 'done', updated_at = CURRENT_TIMESTAMP
+            SET result_summary = ?, status = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (result_summary, task_id),
+            (result_summary, status, task_id),
         )
         conn.commit()
         conn.close()

@@ -16,3 +16,48 @@ GROQ KEY (GOES INSIDE SARAH_CORE.PY SINCE IT'S HARD CODED)
 NODE MODUELS
 CUBSIM
 PIXI + LIVEPIXI
+
+---
+
+## WHAT'S NEW IN V11
+
+All new features live in their own files and switch themselves off if a library is missing.
+Check `GET /api/v11/status` to see what's running.
+
+| Feature | File | Needs |
+|---|---|---|
+| Background tasks that survive crashes/restarts, can wait, or wait for your OK | `durable_tasks.py` | `pip install dbos` |
+| Procedure memory: remembers HOW she finished tasks and reuses/retires recipes | `procedure_memory.py` | nothing extra |
+| Proactive suggestions that learn from accepted / rejected / ignored offers | `proactive_engine.py` | nothing extra |
+| Screen timeline + "what's happened so far" summaries | `screen_timeline.py` | nothing extra |
+| Read PDFs, Word, PowerPoint, Excel and scanned documents | `document_reader.py` | `pip install docling` (large) |
+
+### New API endpoints (backend on port 8907)
+
+**Background tasks** ("handle this and get back to me")
+- `POST /api/durable_tasks` `{"title": "...", "instructions": "...", "delay_seconds": 0, "wait_for_approval": false}`
+- `GET /api/durable_tasks` / `GET /api/durable_tasks/{workflow_id}`
+- `POST /api/durable_tasks/{workflow_id}/approve` `{"approve": true}`
+- `POST /api/durable_tasks/{workflow_id}/feedback` `{"good": true}` (teaches procedure memory)
+- `GET /api/notifications` then `POST /api/notifications/{id}/read` (poll this like `/api/wake`)
+- A task's `state` is one of: `waiting_for_approval`, `scheduled`, `working`, `done`, `failed`, `cancelled`
+- Waiting never blocks anything: closing Sarah is instant, and scheduled / waiting tasks pick back up next time she starts
+
+**Procedure memory**: `GET /api/procedures`, `GET /api/procedures/search?task=...`, `POST /api/procedures/{id}/feedback`
+
+**Proactive suggestions**
+- `/api/screen/analyze_last` now also returns `proactive_offer` + `suggestion_id`. Only speak the suggestion when `proactive_offer` is true.
+- Report the reaction: `POST /api/proactive/{suggestion_id}/feedback` `{"outcome": "accepted" | "rejected" | "ignored"}`
+- `POST /api/proactive/check` `{"category": "...", "text": "..."}`, `GET /api/proactive/stats`
+
+**Screen timeline**: `GET /api/screen/timeline`, `POST /api/screen/timeline/summary`, `DELETE /api/screen/timeline`
+
+**Documents**: `POST /api/documents/read` `{"source": "C:/path/file.pdf"}`, `POST /api/documents/ask` `{"source": "...", "question": "..."}`
+(The first Docling read downloads its models and takes a while, after that it works offline.)
+
+### Tests
+```
+pip install pytest httpx dbos
+python -m pytest tests
+```
+Includes crash tests that kill the backend mid-task and check the task picks back up.

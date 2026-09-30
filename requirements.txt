@@ -2,3 +2,6 @@ fastapi
 uvicorn
 pydantic
 requests
+dbos>=3.2       # V11 durable background tasks (uses SQLite, no server needed)
+# docling       # V11 document reading (PDF/Word/scans). Optional, large download (~1-2 GB):
+#               #   pip install docling

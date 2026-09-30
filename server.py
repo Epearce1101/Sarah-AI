@@ -156,6 +156,10 @@ class ScreenshotAnalysisResponse(BaseModel):
     error: Optional[str] = None
     description: Optional[str] = None
     suggestions: Optional[str] = None
+    # V11: True when Sarah should speak up with `suggestions` right now.
+    # Report the Creator's reaction to /api/proactive/{suggestion_id}/feedback
+    proactive_offer: bool = False
+    suggestion_id: Optional[int] = None
 
 
 # ⭐ SQL models
@@ -254,6 +258,19 @@ async def startup_event():
     print("[INIT] Booting SQL database...")
     init_db()
     print("[INIT] SQL ready.")
+
+
+# -------------------------------------------------------------------
+# ⭐ V11 FEATURES (durable tasks, procedure memory, proactive
+#    suggestions, screen timeline, document reading)
+#    Registered after startup_event so the SQL tables exist first.
+# -------------------------------------------------------------------
+try:
+    from backend import v11_features
+    v11_features.setup(app, get_sarah)
+except Exception as e:
+    v11_features = None
+    print("[V11] Features disabled:", e)
 
 
 # -------------------------------------------------------------------
@@ -683,10 +700,17 @@ def api_screen_analyze_last():
         )
 
     try:
+        extra = {}
+        if v11_features is not None:
+            extra = v11_features.on_screen_analysis(
+                info.get("description"), info.get("suggestions"),
+                frame=info.get("image_b64"),
+            )
         return ScreenshotAnalysisResponse(
             ok=True,
             description=info.get("description"),
             suggestions=info.get("suggestions"),
+            **extra,
         )
     except Exception as e:
         return ScreenshotAnalysisResponse(ok=False, error=str(e))
