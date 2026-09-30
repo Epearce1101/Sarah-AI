@@ -1648,7 +1648,8 @@ html.pet-mode .avatar-column {
   border: none !important;
   box-shadow: none !important;
 }
-html.pet-mode .avatar-container { height: 100vh; background: transparent !important; border: none !important; box-shadow: none !important; }
+html.pet-mode .avatar-container { height: 100vh; background: transparent !important; border: none !important; box-shadow: none !important; cursor: grab; }
+html.pet-mode .avatar-container.pet-dragging { cursor: grabbing; }
 html.pet-mode .pet-controls {
   display: flex;
   position: fixed;

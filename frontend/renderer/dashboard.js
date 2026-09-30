@@ -32,6 +32,11 @@ import { SarahSenses } from "./scripts/core/senses.js";
 import { SarahGestures } from "./scripts/core/gestures.js";
 import { SarahFaceWatch } from "./scripts/core/face-watch.js";
 
+// Wake-word mode: after she answers you, how long you have to start a
+// follow-up without her name, and how many follow-ups before it's needed again.
+const WAKE_FOLLOW_UP_MS = 7000;
+const WAKE_MAX_FOLLOW_UPS = 3;
+
 // -----------------------------------------------------------------------------
 // UI Controller
 // -----------------------------------------------------------------------------
@@ -236,15 +241,19 @@ class SarahUI {
     });
     this.micToggleBtn?.addEventListener("click", () => this._toggleLiveVoice());
     // Keep the listener told whether she's talking (echo guard, barge-in);
-    // in wake-word mode, a reply keeps the conversation open a little longer.
-    let wasTalking = false;
+    // in wake-word mode, her answer to you opens a short window for a
+    // follow-up without her name (only answers to you, not her own remarks).
+    let quietSince = 0;
     this._speakingSync = setInterval(() => {
       const talking = Boolean(this.tts?._ttsPlaying);
       this.liveVoice?.setSpeaking(talking);
-      if (wasTalking && !talking && this._micMode === "wake" && performance.now() < (this._wakeArmedUntil || 0) + 60000) {
-        this._wakeArmedUntil = Math.max(this._wakeArmedUntil || 0, performance.now() + 15000);
+      const now = performance.now();
+      if (talking || this._chatBusy) quietSince = 0;
+      else if (!quietSince) quietSince = now;
+      if (this._wakeAwaitingReply && quietSince && now - quietSince > 600) {
+        this._wakeAwaitingReply = false;
+        if (this._micMode === "wake" && this._wakeFollowUps > 0) this._armWake(WAKE_FOLLOW_UP_MS);
       }
-      wasTalking = talking;
     }, 100);
     if (enabled) this.liveVoice.start();
     else this._onLiveVoiceStatus("off");
@@ -594,12 +603,48 @@ class SarahUI {
     document.getElementById("pet-expand")?.addEventListener("click", () => window.sarahApp?.setPetMode?.(false));
     document.getElementById("pet-close")?.addEventListener("click", () => window.sarahApp?.setPetMode?.(false));
     if (!window.sarahApp) return;
+    if (this.isPet) this._initPetDrag();
     window.sarahApp.onWindowState((state) => this._onWindowState(Boolean(state?.tray), state || {}));
     try { this._backgroundOn = Boolean((await window.sarahApp.getPrefs())?.background); } catch {}
   }
 
   async _setBackgroundMode(on) {
     try { this._backgroundOn = Boolean((await window.sarahApp?.setPrefs({ background: Boolean(on) }))?.background); } catch {}
+  }
+
+  // Pet window: press on her and drag to move her anywhere on screen (a
+  // click without moving is still a touch; double-click still changes view).
+  _initPetDrag() {
+    const area = document.getElementById("avatar-container");
+    if (!area) return;
+    let drag = null;
+    area.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0) return;
+      drag = { x: ev.screenX, y: ev.screenY, moving: false, id: ev.pointerId };
+    });
+    area.addEventListener("pointermove", (ev) => {
+      if (!drag || ev.pointerId !== drag.id) return;
+      if (!drag.moving) {
+        if (Math.hypot(ev.screenX - drag.x, ev.screenY - drag.y) < 4) return;
+        drag.moving = true;
+        try { area.setPointerCapture(ev.pointerId); } catch {}
+        area.classList.add("pet-dragging");
+        clearTimeout(window.SARAH_AVATAR_DIRECTOR?._touchTimer); // a drag isn't a touch
+        window.sarahApp.petDrag("start", drag.x, drag.y);
+      }
+      window.sarahApp.petDrag("move", ev.screenX, ev.screenY);
+    });
+    const end = () => {
+      if (drag?.moving) {
+        clearTimeout(window.SARAH_AVATAR_DIRECTOR?._touchTimer);
+        window.sarahApp.petDrag("end");
+      }
+      area.classList.remove("pet-dragging");
+      drag = null;
+    };
+    area.addEventListener("pointerup", end);
+    area.addEventListener("pointercancel", end);
+    area.addEventListener("lostpointercapture", end);
   }
 
   _onWindowState(inTray, state = {}) {
@@ -726,7 +771,8 @@ class SarahUI {
     if (!lv || !["on", "wake", "off"].includes(mode)) return;
     this._micMode = mode;
     this._micOn = mode !== "off";
-    this._wakeArmedUntil = 0;
+    this._armWake(0);
+    this._wakeAwaitingReply = false;
     this._heldVoice = [];
     try { localStorage.setItem("sarah.mic", mode); } catch {}
     if (mode === "off") {
@@ -741,7 +787,15 @@ class SarahUI {
 
   // Wake-word mode: is she waiting for her name right now (vs. mid-conversation)?
   _needsWakeWord() {
-    return this._micMode === "wake" && performance.now() > (this._wakeArmedUntil || 0);
+    return this._micMode === "wake" && !this._turnForHer && performance.now() > (this._wakeArmedUntil || 0);
+  }
+
+  // Open (ms > 0) or close the no-name window; the mic button shows which.
+  _armWake(ms) {
+    clearTimeout(this._wakeTimer);
+    this._wakeArmedUntil = ms ? performance.now() + ms : 0;
+    if (ms) this._wakeTimer = setTimeout(() => this._armWake(0), ms);
+    if (this._liveVoiceStatus) this._onLiveVoiceStatus(this._liveVoiceStatus);
   }
 
   _releaseCachedMic() {
@@ -752,7 +806,7 @@ class SarahUI {
   _onLiveVoiceStatus(status, detail = "") {
     this._liveVoiceStatus = status;
     const labels = {
-      listening: this._micMode === "wake" ? "Mic: WAKE WORD" : "Mic: ON", muted: "Mic: OFF", connecting: "Mic: …", off: "Mic: OFF",
+      listening: this._micMode !== "wake" ? "Mic: ON" : performance.now() < (this._wakeArmedUntil || 0) ? "Mic: LISTENING" : "Mic: WAKE WORD", muted: "Mic: OFF", connecting: "Mic: …", off: "Mic: OFF",
       "no-mic": "Mic: NO DEVICE", error: "Mic: ERROR",
     };
     if (this.micToggleBtn) {
@@ -777,6 +831,12 @@ class SarahUI {
       // They went on talking: whatever we're holding waits for the rest.
       clearTimeout(this._voiceHoldTimer);
       this._voiceTurnStarted = performance.now();
+      // A turn that starts inside the no-name window counts as for her, even
+      // if the window closes while they're still talking.
+      if (!this._heldVoice?.length) {
+        this._turnForHer = false;  // (so _needsWakeWord judges the window alone)
+        this._turnForHer = this._micMode === "wake" && !this._needsWakeWord();
+      }
       if (this._needsWakeWord()) return; // just talk in the room (until her name comes up)
       // Talking over her: she stops and listens, like a person would.
       if (msg.barge_in || this.tts?._ttsPlaying) this.tts.stop();
@@ -833,24 +893,28 @@ class SarahUI {
     setTimeout(() => this._setVoiceCaption(""), 1500);
     let text = parts.join(" ").replace(/\s+/g, " ").trim();
     if (this._micMode === "wake") {
-      if (this._needsWakeWord()) {
-        const wake = wakeWord(text);
-        if (!wake.heard) {                 // talk that wasn't for her: dropped
-          this._setVoiceCaption("");
-          window.SARAH_AVATAR_DIRECTOR?.onUserStoppedSpeaking?.();
-          return;
-        }
-        if (!wake.rest) {                  // just "Hey Sarah": she's listening now
-          this._wakeArmedUntil = performance.now() + 8000;
-          this._setVoiceCaption("Listening…", "hearing");
-          window.SARAH_AVATAR_DIRECTOR?.onUserSpeaking?.();
-          this.tts?.playFiller?.("ack");
-          return;
-        }
-        text = wake.rest;
+      const needed = this._needsWakeWord();
+      this._turnForHer = false;
+      const wake = wakeWord(text);
+      if (needed && !wake.heard) {         // talk that wasn't for her: dropped
+        this._setVoiceCaption("");
+        window.SARAH_AVATAR_DIRECTOR?.onUserStoppedSpeaking?.();
+        return;
       }
-      // A conversation: follow-ups don't need her name for a while.
-      this._wakeArmedUntil = performance.now() + 20000;
+      if (wake.heard && !wake.rest) {      // just "Hey Sarah": she's listening now
+        this._armWake(8000);
+        this._wakeFollowUps = WAKE_MAX_FOLLOW_UPS + 1; // the next turn is the request itself
+        this._setVoiceCaption("Listening…", "hearing");
+        window.SARAH_AVATAR_DIRECTOR?.onUserSpeaking?.();
+        this.tts?.playFiller?.("ack");
+        return;
+      }
+      if (wake.heard) text = wake.rest;
+      // Her name starts a fresh conversation; each follow-up without it uses
+      // one up, so the mic always goes back to waiting for her name.
+      this._wakeFollowUps = wake.heard ? WAKE_MAX_FOLLOW_UPS : (this._wakeFollowUps || 1) - 1;
+      this._armWake(0);
+      this._wakeAwaitingReply = true;
     }
     this._submitVoiceTurn(text);
   }

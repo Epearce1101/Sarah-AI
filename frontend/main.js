@@ -243,6 +243,22 @@ function leavePetMode() {
   else showWindow();
 }
 
+// Dragging her body moves the pet window (the renderer sends screen points).
+let petDrag = null;
+ipcMain.on("pet-drag", (_event, { phase, x, y } = {}) => {
+  if (!petWindow) return;
+  if (phase === "start") {
+    petDrag = { from: petWindow.getBounds(), x, y };
+  } else if (phase === "move" && petDrag) {
+    const { from } = petDrag;
+    // setBounds with the size kept: setPosition alone lets a transparent
+    // window creep in size on scaled displays.
+    petWindow.setBounds({ x: Math.round(from.x + x - petDrag.x), y: Math.round(from.y + y - petDrag.y), width: from.width, height: from.height });
+  } else {
+    petDrag = null;
+  }
+});
+
 ipcMain.handle("pet-mode", (_event, on) => {
   if (on) enterPetMode(); else leavePetMode();
   return { pet: Boolean(on) };

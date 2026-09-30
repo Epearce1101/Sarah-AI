@@ -16,7 +16,8 @@ import { affectCues } from "./affect.js";
 export const GESTURES = {
   wave: "161_Waving", hello: "79_Standing Greeting", greet: "79_Standing Greeting", hi: "dm_4",
   nod: "118_Head Nod Yes", yes: "118_Head Nod Yes", agree: "dm_12",
-  shake_head: "144_Shaking Head No", no: "144_Shaking Head No", refuse: "dm_27", tease: "56_No", annoyed: "95_Annoyed Head Shake",
+  shake_head: "144_Shaking Head No", shake: "144_Shaking Head No", head_shake: "144_Shaking Head No",
+  shaking_head: "144_Shaking Head No", shake_no: "144_Shaking Head No", no: "144_Shaking Head No", refuse: "dm_27", tease: "56_No", annoyed: "95_Annoyed Head Shake",
   sit: "75_Sitting",
   shrug: "145_Shrugging", whatever: "93_Whatever Gesture",
   think: "88_Thinking", thinking: "88_Thinking", thinking_pose: "88_Thinking", idea: "dm_108", point_up: "dm_108",

@@ -88,6 +88,7 @@ async function boot() {
     // Never leave her invisible if the idle clip is slow or missing.
     setTimeout(() => { avatar.vrm.scene.visible = true; }, 4000);
     document.getElementById("sarah-canvas")?.classList.add("sarah-hidden");
+    document.getElementById("avatar-fallback")?.classList.add("sarah-hidden"); // the "^_^" placeholder
     container.classList.add("avatar-3d");
     routeFacade(director);
     const input = document.getElementById("chat-input");
