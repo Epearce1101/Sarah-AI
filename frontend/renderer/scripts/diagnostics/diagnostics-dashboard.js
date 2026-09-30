@@ -332,8 +332,10 @@ export class SarahDiagnosticsDashboard {
     if (action === "debug") return this.root.querySelector(".diagnostics-window")?.classList.toggle("debug-mode");
     if (action === "save-layout") return saveDiagnosticsLayout(this.store.getSnapshot().layout);
     if (action === "reset-layout") { this.store.patchLayout({ preset: "full_telemetry", order: getPresetOrder("full_telemetry"), collapsed: {}, floating: {} }); this.renderPanels(); return this.applySnapshot(this.store.getSnapshot(), { full: true }); }
-    if (action === "screenshot" && window.html2canvas) {
-      const canvas = await window.html2canvas(this.root.querySelector(".diagnostics-window"));
+    if (action === "screenshot") {
+      const html2canvas = await window.loadHtml2canvas?.().catch(() => null);
+      if (!html2canvas) return;
+      const canvas = await html2canvas(this.root.querySelector(".diagnostics-window"));
       return canvas.toBlob((blob) => { const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "sarah-diagnostics.png"; link.click(); URL.revokeObjectURL(url); });
     }
   }

@@ -44,8 +44,18 @@
     }
   </script>
 
-  <!-- HTML2CANVAS for Screenshot Capture -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- HTML2CANVAS for Screenshot Capture: fetched only when a screenshot needs it.
+       (Loaded up front it blocked startup: ~5 s on a fresh launch.) -->
+  <script>
+    window.loadHtml2canvas = () => (window._html2canvasLoading ||= new Promise((resolve, reject) => {
+      if (window.html2canvas) return resolve(window.html2canvas);
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      s.onload = () => resolve(window.html2canvas);
+      s.onerror = () => { window._html2canvasLoading = null; reject(new Error("html2canvas failed to load")); };
+      document.head.appendChild(s);
+    }));
+  </script>
 
   <!-- LIVE2D CONTROLLER -->
   <script src="scripts/live2d/avatar-config.js"></script>

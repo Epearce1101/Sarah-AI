@@ -87,6 +87,13 @@ async function boot() {
     avatar.start();
     // Never leave her invisible if the idle clip is slow or missing.
     setTimeout(() => { avatar.vrm.scene.visible = true; }, 4000);
+    // Pet window: tell the app once she's drawn, so it swaps windows then.
+    if (document.documentElement.classList.contains("pet-mode")) {
+      const ready = () => (avatar.vrm.scene.visible
+        ? setTimeout(() => { window.SARAH_PET_READY_AT = performance.now(); window.sarahApp?.petReady?.(); }, 60)  // a frame or two drawn
+        : setTimeout(ready, 30));
+      ready();
+    }
     document.getElementById("sarah-canvas")?.classList.add("sarah-hidden");
     document.getElementById("avatar-fallback")?.classList.add("sarah-hidden"); // the "^_^" placeholder
     container.classList.add("avatar-3d");

@@ -1,4 +1,4 @@
-﻿// ===========================================================
+// ===========================================================
 // SARAH V10 — FULL MULTIMODAL MAIN PROCESS
 // Screenshot + OCR + Describe + Video Recording + Multi-frame Summary
 // ===========================================================
@@ -206,7 +206,9 @@ function enterPetMode() {
     frame: false, transparent: true, backgroundColor: "#00000000", hasShadow: false,
     alwaysOnTop: true, skipTaskbar: true, resizable: true, minWidth: 120, minHeight: 200,
     icon: path.join(__dirname, "renderer", "assets", "sarah.ico"),
-    webPreferences: webPreferences(),
+    // Keeps her render loop running before the window is first shown.
+    webPreferences: { ...webPreferences(), backgroundThrottling: false },
+    show: false, // shown once she's drawn in it (see revealPet), so there's no empty gap
   });
   petWindow.setAlwaysOnTop(true, "floating");
   let saveTimer = null;
@@ -225,11 +227,21 @@ function enterPetMode() {
     petWindow = null;
     if (!quitting) showMainAfterPet();
   });
-  if (mainWindow) {
-    mainWindow.hide();
-    mainWindow.webContents.send("sarah:window-state", { tray: true, pet: true });
-  }
+  // The main window hands over her senses now but stays on screen until the
+  // pet window has her loaded.
+  if (mainWindow) mainWindow.webContents.send("sarah:window-state", { tray: true, pet: true });
+  setTimeout(revealPet, 6000); // in case "pet-ready" never comes
 }
+
+function revealPet() {
+  if (!petWindow || petWindow.isVisible()) return;
+  petWindow.show();
+  if (mainWindow) mainWindow.hide();
+}
+
+ipcMain.on("pet-ready", (event) => {
+  if (petWindow && event.sender === petWindow.webContents) revealPet();
+});
 
 function showMainAfterPet() {
   if (!mainWindow) { createWindow(); return; }

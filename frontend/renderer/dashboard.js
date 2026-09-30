@@ -6711,7 +6711,19 @@ class SarahUI {
 // BOOTSTRAP — Initialize Backend, TTS, UI
 // ============================================================================
 
-document.addEventListener("DOMContentLoaded", () => {
+// The window opens while her backend is still booting (her avatar loads
+// meanwhile): wait for it before anything talks to it.
+async function backendUp(timeoutMs = 90000) {
+  const until = performance.now() + timeoutMs;
+  while (performance.now() < until) {
+    try { if ((await fetch(`${API_BASE}/api/health`, { cache: "no-store" })).ok) return true; } catch {}
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  if (!(await backendUp())) console.warn("[SARAH] backend not answering; starting anyway");
   try {
     const backend = new SarahBackend();
     const tts = new SarahTTS(backend);

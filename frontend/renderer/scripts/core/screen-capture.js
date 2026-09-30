@@ -442,6 +442,7 @@ async function performSmartAnalysis() {
 
     try {
       // Capture current screen
+      const html2canvas = await window.loadHtml2canvas();
       const canvas = await html2canvas(document.body);
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
 

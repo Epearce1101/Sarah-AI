@@ -82,6 +82,15 @@ def _resolve_npm_start_command() -> list[str]:
     return [npm_bin, "start"]
 
 
+def _resolve_ui_command() -> list[str]:
+    """Electron itself when installed (npm's cmd -> node -> electron chain
+    costs about a second); `npm start` otherwise."""
+    electron_exe = ELECTRON_DIR / "node_modules" / "electron" / "dist" / "electron.exe"
+    if os.name == "nt" and electron_exe.exists():
+        return [str(electron_exe), "."]
+    return _resolve_npm_start_command()
+
+
 # ---------------------------------------------------------------------
 # Backend helpers
 # ---------------------------------------------------------------------
@@ -306,7 +315,7 @@ def show_running_instance() -> int:
     """Sarah is already running (maybe in the tray): a second Electron start
     just tells the first one to show its window, then exits."""
     print("[Sarah Launcher] Sarah is already running; bringing her window up.")
-    subprocess.run(_resolve_npm_start_command(), cwd=str(ELECTRON_DIR), capture_output=True,
+    subprocess.run(_resolve_ui_command(), cwd=str(ELECTRON_DIR), capture_output=True,
                    creationflags=CHILD_FLAGS, timeout=120)
     return 0
 
@@ -324,12 +333,8 @@ def main() -> int:
 
     _procs["backend"] = start_backend_process(backend_log_path)
 
-    if not wait_for_backend():
-        show_console()
-        set_status("backend failed to start")
-        shutdown_all("Backend did not come online.")
-        return 1
-
+    # The window opens right away, alongside the backend's boot (~5 s): her
+    # avatar loads meanwhile and the UI waits for the backend itself.
     print("[Sarah Launcher] Launching Sarah's desktop UI...")
     set_status("opening UI")
     # Inject backend port into the Electron process so main.js / preload.js
@@ -337,10 +342,10 @@ def main() -> int:
     electron_env = os.environ.copy()
     electron_env["SARAH_PY_PORT"] = str(settings.backend_port)
     electron_env["SARAH_API_TOKEN"] = API_TOKEN
-    npm_start_cmd = _resolve_npm_start_command()
-    print("[Launcher] Electron start command:", " ".join(npm_start_cmd))
+    ui_cmd = _resolve_ui_command()
+    print("[Launcher] Electron start command:", " ".join(ui_cmd))
     _procs["ui"] = subprocess.Popen(
-        npm_start_cmd,
+        ui_cmd,
         cwd=str(ELECTRON_DIR),
         env=electron_env,
         stdout=subprocess.PIPE,
@@ -352,6 +357,12 @@ def main() -> int:
         creationflags=CHILD_FLAGS,
     )
     threading.Thread(target=stream_ui_output, args=(_procs["ui"],), daemon=True).start()
+
+    if not wait_for_backend():
+        show_console()
+        set_status("backend failed to start")
+        shutdown_all("Backend did not come online.")
+        return 1
 
     print("[Sarah Launcher] Sarah AI is now running!")
     print("[Sarah Launcher] Close the Sarah window or this console to shut everything down.")
