@@ -10,6 +10,7 @@ Sarah V11 features, wired into the FastAPI app with one call:
   - Proactive suggestions that learn from feedback       /api/proactive
   - Screen timeline + "what happened so far" summaries   /api/screen/timeline
   - Document reading / Q&A (Docling)                     /api/documents
+  - 3D avatar page (renderer/avatar3d)                   /avatar/
 
 Each feature is optional: if a library is missing, only that feature is
 switched off and /api/v11/status says why.
@@ -20,9 +21,11 @@ import asyncio
 import hashlib
 import logging
 import threading
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend import db
@@ -36,6 +39,7 @@ except Exception as e:  # dbos not installed, etc.
     DURABLE_IMPORT_ERROR = str(e)
 
 log = logging.getLogger("sarah.v11")
+AVATAR_DIR = Path(__file__).resolve().parent / "renderer" / "avatar3d"
 router = APIRouter()
 
 _get_sarah: Optional[Callable[[], Any]] = None
@@ -109,6 +113,9 @@ def api_v11_status():
         "procedure_memory": True,
         "proactive": True,
         "screen_timeline": True,
+        "avatar_page": AVATAR_DIR.is_dir(),
+        # False until a model is added (models/sarah.vrm or the sample download)
+        "avatar_model": any((AVATAR_DIR / "models").glob("*.vrm")),
     }
 
 
@@ -349,5 +356,9 @@ def setup(app: FastAPI, get_sarah: Callable[[], Any]) -> None:
     # Same mechanism server.py uses (add_event_handler is gone in new FastAPI)
     app.on_event("startup")(_on_startup)
     app.on_event("shutdown")(_on_shutdown)
+    # The 3D avatar page, served from the same address as the API (no CORS setup):
+    # open http://127.0.0.1:8907/avatar/ in Electron or a browser
+    if AVATAR_DIR.is_dir():
+        app.mount("/avatar", StaticFiles(directory=str(AVATAR_DIR), html=True), name="avatar")
     # Routes last: if anything above fails, no half-set-up endpoints are exposed
     app.include_router(router)

@@ -55,6 +55,11 @@ Check `GET /api/v11/status` to see what's running.
 **Documents**: `POST /api/documents/read` `{"source": "C:/path/file.pdf"}`, `POST /api/documents/ask` `{"source": "...", "question": "..."}`
 (The first Docling read downloads its models and takes a while, after that it works offline.)
 
+### 3D avatar (VRM + Mixamo)
+A 3D anime Sarah with facial expressions, lip sync and full-body animations, served at
+**http://127.0.0.1:8907/avatar/**. Setup, the list of Mixamo animations to download, and
+Electron instructions are in [`renderer/avatar3d/README.md`](renderer/avatar3d/README.md).
+
 ### Tests
 ```
 pip install pytest httpx dbos

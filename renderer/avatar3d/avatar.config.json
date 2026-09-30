@@ -1,0 +1,9 @@
+{
+  "model": "models/sarah.vrm",
+  "fallbackModel": "models/AvatarSample_F.vrm",
+  "animations": "animations/animations.json",
+  "framing": "upper",
+  "api": "",
+  "pollNotifications": true,
+  "pollWake": false
+}

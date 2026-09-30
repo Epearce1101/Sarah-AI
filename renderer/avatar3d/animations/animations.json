@@ -1,0 +1,229 @@
+{
+  "_readme": "Sarah's animations. Download each from mixamo.com (search the 'mixamo' text), save it in this folder under 'file', and it loads automatically. Missing files are skipped. 'group' is what code asks for (e.g. play('wave') picks any animation in the wave group); 'loop': false = plays once then returns to idle.",
+  "animations": [
+    {
+      "name": "idle",
+      "file": "idle.fbx",
+      "group": "idle",
+      "loop": true,
+      "mixamo": "Idle"
+    },
+    {
+      "name": "breathing_idle",
+      "file": "breathing_idle.fbx",
+      "group": "idle",
+      "loop": true,
+      "mixamo": "Breathing Idle"
+    },
+    {
+      "name": "happy_idle",
+      "file": "happy_idle.fbx",
+      "group": "idle_happy",
+      "loop": true,
+      "mixamo": "Happy Idle"
+    },
+    {
+      "name": "sad_idle",
+      "file": "sad_idle.fbx",
+      "group": "idle_sad",
+      "loop": true,
+      "mixamo": "Sad Idle"
+    },
+    {
+      "name": "angry_idle",
+      "file": "angry_idle.fbx",
+      "group": "idle_angry",
+      "loop": true,
+      "mixamo": "Angry"
+    },
+    {
+      "name": "talking_1",
+      "file": "talking_1.fbx",
+      "group": "talk",
+      "loop": true,
+      "mixamo": "Talking"
+    },
+    {
+      "name": "talking_2",
+      "file": "talking_2.fbx",
+      "group": "talk",
+      "loop": true,
+      "mixamo": "Talking (a different one)"
+    },
+    {
+      "name": "talking_3",
+      "file": "talking_3.fbx",
+      "group": "talk",
+      "loop": true,
+      "mixamo": "Talking (a third one)"
+    },
+    {
+      "name": "think",
+      "file": "thinking.fbx",
+      "group": "think",
+      "loop": true,
+      "mixamo": "Thinking"
+    },
+    {
+      "name": "wave",
+      "file": "waving.fbx",
+      "group": "wave",
+      "loop": false,
+      "mixamo": "Waving"
+    },
+    {
+      "name": "greeting",
+      "file": "greeting.fbx",
+      "group": "wave",
+      "loop": false,
+      "mixamo": "Standing Greeting"
+    },
+    {
+      "name": "nod",
+      "file": "head_nod_yes.fbx",
+      "group": "nod",
+      "loop": false,
+      "mixamo": "Head Nod Yes"
+    },
+    {
+      "name": "agree",
+      "file": "agreeing.fbx",
+      "group": "nod",
+      "loop": false,
+      "mixamo": "Agreeing"
+    },
+    {
+      "name": "shake",
+      "file": "shaking_head_no.fbx",
+      "group": "shake",
+      "loop": false,
+      "mixamo": "Shaking Head No"
+    },
+    {
+      "name": "excited",
+      "file": "excited.fbx",
+      "group": "celebrate",
+      "loop": false,
+      "mixamo": "Excited"
+    },
+    {
+      "name": "clap",
+      "file": "clapping.fbx",
+      "group": "celebrate",
+      "loop": false,
+      "mixamo": "Clapping"
+    },
+    {
+      "name": "laugh",
+      "file": "laughing.fbx",
+      "group": "laugh",
+      "loop": false,
+      "mixamo": "Laughing"
+    },
+    {
+      "name": "shrug",
+      "file": "shrugging.fbx",
+      "group": "shrug",
+      "loop": false,
+      "mixamo": "Shrugging"
+    },
+    {
+      "name": "surprised",
+      "file": "surprised.fbx",
+      "group": "surprised",
+      "loop": false,
+      "mixamo": "Surprised"
+    },
+    {
+      "name": "disappointed",
+      "file": "disappointed.fbx",
+      "group": "sad",
+      "loop": false,
+      "mixamo": "Disappointed"
+    },
+    {
+      "name": "bashful",
+      "file": "bashful.fbx",
+      "group": "shy",
+      "loop": false,
+      "mixamo": "Bashful"
+    },
+    {
+      "name": "blow_kiss",
+      "file": "blow_kiss.fbx",
+      "group": "affection",
+      "loop": false,
+      "mixamo": "Blow A Kiss"
+    },
+    {
+      "name": "bow",
+      "file": "bow.fbx",
+      "group": "bow",
+      "loop": false,
+      "mixamo": "Quick Formal Bow"
+    },
+    {
+      "name": "point",
+      "file": "pointing.fbx",
+      "group": "point",
+      "loop": false,
+      "mixamo": "Pointing"
+    },
+    {
+      "name": "look_around",
+      "file": "look_around.fbx",
+      "group": "look",
+      "loop": false,
+      "mixamo": "Look Around"
+    },
+    {
+      "name": "stretch",
+      "file": "stretching.fbx",
+      "group": "stretch",
+      "loop": false,
+      "mixamo": "Arm Stretching"
+    },
+    {
+      "name": "yawn",
+      "file": "yawn.fbx",
+      "group": "yawn",
+      "loop": false,
+      "mixamo": "Yawn"
+    },
+    {
+      "name": "dance_hiphop",
+      "file": "hip_hop_dancing.fbx",
+      "group": "dance",
+      "loop": true,
+      "mixamo": "Hip Hop Dancing"
+    },
+    {
+      "name": "dance_samba",
+      "file": "samba_dancing.fbx",
+      "group": "dance",
+      "loop": true,
+      "mixamo": "Samba Dancing"
+    },
+    {
+      "name": "dance_silly",
+      "file": "silly_dancing.fbx",
+      "group": "dance",
+      "loop": true,
+      "mixamo": "Silly Dancing"
+    },
+    {
+      "name": "sit",
+      "file": "sitting_idle.fbx",
+      "group": "sit",
+      "loop": true,
+      "mixamo": "Sitting Idle"
+    },
+    {
+      "name": "sit_talk",
+      "file": "sitting_talking.fbx",
+      "group": "sit",
+      "loop": true,
+      "mixamo": "Sitting Talking"
+    }
+  ]
+}

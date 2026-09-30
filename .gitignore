@@ -1,0 +1,7 @@
+node_modules/
+__pycache__/
+# Mixamo's license doesn't allow sharing the raw animation files, so keep them local
+renderer/avatar3d/animations/*.fbx
+renderer/avatar3d/animations/*.glb
+# The free sample model is downloaded by download_sample_model.py
+renderer/avatar3d/models/AvatarSample_*.vrm
