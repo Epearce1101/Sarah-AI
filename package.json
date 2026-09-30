@@ -1,6 +1,6 @@
 {
-  "name": "sarah_ai_v8_electron_full",
-  "version": "1.0.0",
+  "name": "sarah_ai_v11_electron_full",
+  "version": "11.0.0",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

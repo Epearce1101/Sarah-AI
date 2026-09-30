@@ -84,9 +84,9 @@ except Exception as e:
     start_recording = stop_recording = get_last_screenshot_info = None
 
 app = FastAPI(
-    title="Sarah AI V8 Backend",
-    description="Backend for Sarah AI V8 (chat, TTS, screen capture, Ultra Vision).",
-    version="0.1.0",
+    title="Sarah AI V11 Backend",
+    description="Backend for Sarah AI V11 (chat, TTS, screen capture, Ultra Vision).",
+    version="11.0.0",
 )
 
 # -------------------------------------------------------------------

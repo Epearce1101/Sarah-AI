@@ -2,10 +2,10 @@
 import sqlite3
 from pathlib import Path
 
-# SARAH_AI_V9_Backend_Full/backend/db.py
+# SARAH_AI_V11_Backend_Full/backend/db.py
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = BACKEND_ROOT / "data"
-DB_PATH = DATA_DIR / "sarah_ai_v9.db"
+DB_PATH = DATA_DIR / "sarah_ai_v9.db"  # filename kept from V9 so saved memory carries over
 
 
 def get_connection():

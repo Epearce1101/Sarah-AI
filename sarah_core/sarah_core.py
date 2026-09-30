@@ -1,5 +1,5 @@
 # ============================================================
-# SARAH CORE V8 -> V10 HYBRID
+# SARAH CORE V11 (V8 persona + V10 brain hybrid)
 # - Keeps V8 persona / emotion style
 # - Adds V10 intent routing, reflection, tasks, multi-agent brain
 # ============================================================
@@ -237,7 +237,7 @@ class SarahCore:
     """
 
     def __init__(self, drive: Optional[Path] = None):
-        self.core_version: str = "InfinityCore-V8"
+        self.core_version: str = "InfinityCore-V11"
         print(f"[SARAH INIT] SarahCore loaded (version={self.core_version})")
 
         self.drive = drive or Path.cwd()

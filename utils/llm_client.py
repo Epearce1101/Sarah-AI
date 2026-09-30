@@ -54,7 +54,10 @@ class LLMClient:
     # CONFIG LOADING
     # ---------------------------------------------------------------
     def _load_llm_config(self, backend_root: Path) -> Dict[str, Any]:
-        cfg_path = backend_root / "config_sarah_v8.json"
+        cfg_path = backend_root / "config_sarah_v11.json"
+        if not cfg_path.exists():
+            # fall back to the pre-V11 config name
+            cfg_path = backend_root / "config_sarah_v8.json"
         if not cfg_path.exists():
             return {}
 
