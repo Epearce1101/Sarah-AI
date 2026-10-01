@@ -30,9 +30,15 @@ blender --background --python blender\sarah_model.py
 blender --background --python blender\export_vrm.py
 ```
 
-You can also open the script in Blender's **Scripting** tab and press
-**Run Script**. A build takes under a minute, mostly for the preview renders.
-`--no-render` skips the renders and `--out <folder>` writes somewhere else.
+Or build her inside the Blender you have open: go to the **Scripting** tab,
+click **Open**, pick `blender\sarah_model.py` and press **Run Script** (▶).
+This clears the current scene, builds her (about 20 seconds, during which
+Blender may look frozen), switches the viewport to Material Preview and saves a
+copy to `blender\out\sarah.blend`. Your open file stays the one you're
+working in. Preview renders are skipped in this mode.
+
+From the command line, `--no-render` skips the renders, `--render` forces them
+and `--out <folder>` writes somewhere else.
 
 `export_vrm.py` needs the **VRM format** add-on
 (Edit > Preferences > Get Extensions, search "VRM"). Or pass its source folder:

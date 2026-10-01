@@ -41,15 +41,33 @@ random.seed(7)
 # Options
 # --------------------------------------------------------------------------
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-HERE = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+# Run from Blender's Scripting tab (not --background): build into the open
+# file, skip the slow preview renders and leave the viewport showing her.
+INTERACTIVE = not bpy.app.background or os.environ.get("SARAH_INTERACTIVE") == "1"
+
+
+def script_dir():
+    """Folder this script lives in, also when run from Blender's text editor."""
+    for text in bpy.data.texts:
+        if text.filepath and os.path.basename(text.filepath) == "sarah_model.py":
+            return os.path.dirname(bpy.path.abspath(text.filepath))
+    f = globals().get("__file__")
+    if f and os.path.isfile(f):
+        return os.path.dirname(os.path.abspath(f))
+    return os.path.join(bpy.app.tempdir or os.getcwd(), "sarah")
+
+
+HERE = script_dir()
 OUT_DIR = os.path.join(HERE, "out")
-RENDER = True
+RENDER = not INTERACTIVE
 SAMPLES = 48
 for i, a in enumerate(argv):
     if a == "--out":
         OUT_DIR = os.path.abspath(argv[i + 1])
     elif a == "--no-render":
         RENDER = False
+    elif a == "--render":
+        RENDER = True
     elif a == "--samples":
         SAMPLES = int(argv[i + 1])
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -86,7 +104,7 @@ def lin(c):
 # Scene
 # --------------------------------------------------------------------------
 def reset_scene():
-    if bpy.context.object and bpy.context.object.mode != "OBJECT":
+    if getattr(bpy.context, "object", None) and bpy.context.object.mode != "OBJECT":
         bpy.ops.object.mode_set(mode="OBJECT")
     for coll in (bpy.data.objects, bpy.data.meshes, bpy.data.metaballs, bpy.data.materials,
                  bpy.data.images, bpy.data.armatures, bpy.data.cameras, bpy.data.lights):
@@ -1270,9 +1288,31 @@ def main():
     cam.data.type = "ORTHO"
     cam.location = (0, -4, 0.86)
     cam.rotation_euler = (math.radians(90), 0, 0)
-    bpy.context.preferences.filepaths.save_version = 0   # no sarah.blend1 backups
-    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT_DIR, "sarah.blend"), compress=True)
+    if INTERACTIVE:
+        # keep working in the user's open file; just save a copy and show her
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT_DIR, "sarah.blend"),
+                                    compress=True, copy=True)
+        show_in_viewport()
+    else:
+        bpy.context.preferences.filepaths.save_version = 0   # no sarah.blend1 backups
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT_DIR, "sarah.blend"), compress=True)
     print("[sarah] done ->", OUT_DIR)
+
+
+def show_in_viewport():
+    """Material preview, framed on her, in every 3D view."""
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            for space in area.spaces:
+                if space.type == "VIEW_3D":
+                    space.shading.type = "MATERIAL"
+                    r3d = space.region_3d
+                    r3d.view_perspective = "PERSP"
+                    r3d.view_location = (0.0, 0.0, 0.85)
+                    r3d.view_distance = 3.2
+                    r3d.view_rotation = Vector((0.35, -1.0, 0.0)).to_track_quat("Z", "Y")
 
 
 main()
