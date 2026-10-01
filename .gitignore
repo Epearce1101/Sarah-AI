@@ -43,3 +43,6 @@ frontend/renderer/assets/vrm/animations/*.vrma
 # Downloaded models (Whisper etc.; fetched on first run into the project, not C:)
 Backend/models/
 
+
+# Blender build output (sarah.vrm is the same model)
+blender/out/sarah.glb
