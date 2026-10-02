@@ -7,7 +7,7 @@ from typing import Dict
 
 from fastapi import APIRouter, HTTPException
 
-from backend import llm_models, state
+from backend import llm_models, state, user_notes
 from backend.api.schemas import SettingUpdate
 from backend.config import settings
 from backend.models.core import get_all_settings, get_setting, set_setting
@@ -93,6 +93,22 @@ def api_get_setting(key: str):
 def api_set_setting(payload: SettingUpdate):
     set_setting(payload.key, payload.value)
     return {"ok": True, "key": payload.key, "value": payload.value}
+
+
+@router.get("/api/user_notes")
+def api_get_user_notes():
+    """Zero's standing notes for Sarah (Functions tab)."""
+    return {"ok": True, **user_notes.get_notes(), "max_chars": user_notes.MAX_CHARS}
+
+
+@router.post("/api/user_notes")
+def api_save_user_notes(payload: Dict[str, str]):
+    """Save the notes; they apply to every conversation from her next reply."""
+    try:
+        saved = user_notes.save_notes(payload.get("notes") or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, **saved, "max_chars": user_notes.MAX_CHARS}
 
 
 @router.get("/api/llm_mode")

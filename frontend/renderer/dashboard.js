@@ -257,8 +257,6 @@ class SarahUI {
     }, 100);
     if (enabled) this.liveVoice.start();
     else this._onLiveVoiceStatus("off");
-    // Pre-synthesize her acknowledgement sounds once the backend is up.
-    setTimeout(() => this.tts?.prepareFillers?.().catch(() => {}), 4000);
     this._initEyes();
   }
 
@@ -350,10 +348,7 @@ class SarahUI {
       volume.addEventListener("input", () => { this.tts?.setVolume(volume.value / 100); show(); });
     }
     voiceSel?.addEventListener("change", async () => {
-      if (await this._saveVoice({ voice: voiceSel.value })) {
-        this.tts?.preview();
-        this.tts?.prepareFillers?.().catch(() => {}); // her "Mm," in the new voice too
-      }
+      if (await this._saveVoice({ voice: voiceSel.value })) this.tts?.preview();
     });
     let speedTimer = null;
     speed?.addEventListener("input", () => {
@@ -369,6 +364,98 @@ class SarahUI {
         if (this._activeMoreView === "functions") this._renderFunctions();
       }).observe(bar, { subtree: true, childList: true, characterData: true });
     }
+    document.getElementById("fn-all-on")?.addEventListener("click", () => this._setAllFunctions(true));
+    document.getElementById("fn-all-off")?.addEventListener("click", () => this._setAllFunctions(false));
+    this._initUserNotes();
+  }
+
+  // "Everything": flip every switch (and the mic) to one state at once. Pet
+  // mode is an action rather than a setting, so it's left alone. All on
+  // brings the mic back in the mode you last used (always or wake word).
+  async _setAllFunctions(on) {
+    if (this._settingAll) return;
+    this._settingAll = true;
+    try {
+      for (const s of this._functionSwitches()) {
+        if (s.disabled || s.bulk === false) continue;
+        if (s.choices) {
+          const want = on ? (s.value() === "off" ? s.bulkOn() : s.value()) : "off";
+          if (s.value() !== want) await s.set(want);
+        } else if (Boolean(s.on()) !== on) {
+          await s.toggle();
+        }
+        await new Promise((r) => setTimeout(r, 60));
+      }
+    } finally {
+      this._settingAll = false;
+      setTimeout(() => this._renderFunctions(), 200);
+    }
+  }
+
+  // Your notes for Sarah (bottom of Functions): saved to the backend, which
+  // puts them in every conversation's instructions from her next reply on.
+  _initUserNotes() {
+    const box = document.getElementById("fn-notes");
+    const save = document.getElementById("fn-notes-save");
+    const revert = document.getElementById("fn-notes-revert");
+    const status = document.getElementById("fn-notes-status");
+    if (!box || !save || !revert || !status) return;
+    this._notesSaved = "";
+    const show = (text, kind = "") => {
+      status.textContent = text;
+      status.className = "fn-notes-status" + (kind ? ` ${kind}` : "");
+    };
+    const savedLabel = (iso) => {
+      if (!iso) return "Saved. She follows these in every chat.";
+      const when = new Date(iso);
+      const time = Number.isNaN(when.getTime()) ? "" : ` (${when.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })})`;
+      return `Saved${time}. She follows these in every chat.`;
+    };
+    const refreshState = () => {
+      const dirty = box.value.trim() !== this._notesSaved.trim();
+      save.disabled = !dirty;
+      revert.disabled = !dirty;
+      if (dirty) show(`Not saved yet · ${box.value.length}/${box.maxLength}`, "dirty");
+      return dirty;
+    };
+    this._loadUserNotes = async () => {
+      if (refreshState()) return; // don't overwrite unsaved typing
+      try {
+        const data = await (await fetch(`${API_BASE}/api/user_notes`)).json();
+        this._notesSaved = data.notes || "";
+        box.value = this._notesSaved;
+        refreshState();
+        show(this._notesSaved ? savedLabel(data.updated_at) : "No notes yet.");
+      } catch {
+        show("Couldn't load your notes (is the backend running?)", "error");
+      }
+    };
+    const doSave = async () => {
+      if (!refreshState()) return;
+      save.disabled = true;
+      show("Saving…");
+      try {
+        const res = await fetch(`${API_BASE}/api/user_notes`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes: box.value }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        this._notesSaved = data.notes || "";
+        box.value = this._notesSaved;
+        refreshState();
+        show(this._notesSaved ? savedLabel(data.updated_at) : "Notes cleared.", "saved");
+      } catch (err) {
+        refreshState();
+        show(`Not saved: ${err.message}`, "error");
+      }
+    };
+    box.addEventListener("input", refreshState);
+    box.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "Enter")) { e.preventDefault(); doSave(); }
+    });
+    save.addEventListener("click", doSave);
+    revert.addEventListener("click", () => { box.value = this._notesSaved; refreshState(); show(savedLabel(null)); });
+    this._loadUserNotes();
   }
 
   // A row of tabs you can drag (or wheel) sideways; the bar itself is hidden.
@@ -463,7 +550,8 @@ class SarahUI {
           ? "She only answers when you say “Sarah” (“Hey Sarah, …”); then follow-ups need no name for a bit."
           : this._micMode === "off" ? "Microphone fully off." : "She listens all the time; just talk.",
         choices: [["on", "Always"], ["wake", "Wake word"], ["off", "Off"]],
-        value: () => this._micMode, set: (mode) => this.setMicMode(mode) },
+        value: () => this._micMode, set: (mode) => this.setMicMode(mode),
+        bulkOn: () => { try { return localStorage.getItem("sarah.micOnMode") === "wake" ? "wake" : "on"; } catch { return "on"; } } },
       { label: "Spoken replies", hint: "She answers out loud.",
         on: () => this.tts?.isEnabled(), toggle: click("voice-toggle") },
       { label: "Initiative", hint: "She speaks up and does things on her own.",
@@ -473,7 +561,7 @@ class SarahUI {
         on: () => this._gesturesOn, toggle: () => this._setGestures(!this._gesturesOn) },
       { label: "Desktop pet mode", hint: "Just Sarah, in a small see-through window that stays on top of "
           + "your games and apps. Talk by voice; hover her for the controls to come back.",
-        on: () => false, toggle: () => window.sarahApp?.setPetMode?.(true), disabled: !window.sarahApp },
+        on: () => false, toggle: () => window.sarahApp?.setPetMode?.(true), disabled: !window.sarahApp, bulk: false },
       { label: "Keep running when closed", hint: "Closing the window sends her to the tray, where she keeps "
           + "working on her own time. Camera, screen and mic switch off while she's there.",
         on: () => this._backgroundOn, toggle: () => this._setBackgroundMode(!this._backgroundOn),
@@ -510,7 +598,12 @@ class SarahUI {
     if (reloadVoices) {
       this._loadVoices();
       this._renderChromeBridge();
+      this._loadUserNotes?.();
     }
+    const bulk = this._functionSwitches().filter((s) => !s.disabled && s.bulk !== false)
+      .map((s) => (s.choices ? s.value() !== "off" : Boolean(s.on())));
+    document.getElementById("fn-all-on")?.classList.toggle("on", bulk.length > 0 && bulk.every(Boolean));
+    document.getElementById("fn-all-off")?.classList.toggle("on", bulk.length > 0 && !bulk.some(Boolean));
     box.innerHTML = "";
     for (const s of this._functionSwitches()) {
       if (s.choices) {
@@ -603,13 +696,54 @@ class SarahUI {
     document.getElementById("pet-expand")?.addEventListener("click", () => window.sarahApp?.setPetMode?.(false));
     document.getElementById("pet-close")?.addEventListener("click", () => window.sarahApp?.setPetMode?.(false));
     if (!window.sarahApp) return;
-    if (this.isPet) this._initPetDrag();
+    if (this.isPet) {
+      this._initPetDrag();
+      this._initPetPointing();
+    }
     window.sarahApp.onWindowState((state) => this._onWindowState(Boolean(state?.tray), state || {}));
     try { this._backgroundOn = Boolean((await window.sarahApp.getPrefs())?.background); } catch {}
   }
 
   async _setBackgroundMode(on) {
     try { this._backgroundOn = Boolean((await window.sarahApp?.setPrefs({ background: Boolean(on) }))?.background); } catch {}
+  }
+
+  // Pet window: she points at the app, file or folder you're talking about,
+  // wherever it is on screen: when her <point> names one, and when one of
+  // her tools finishes with one (opening it, reading it, listing a folder).
+  _initPetPointing(tries = 0) {
+    const director = window.SARAH_AVATAR_DIRECTOR; // set once her 3D body is up
+    if (director) director.onPointAtThing = (target) => this._pointAtThing(target);
+    else if (tries < 120) setTimeout(() => this._initPetPointing(tries + 1), 500);
+  }
+
+  async _pointAtThing(target) {
+    const director = window.SARAH_AVATAR_DIRECTOR;
+    const name = String(target || "").trim();
+    if (!director || !name || !window.sarahApp?.screenPointToClient) return false;
+    try {
+      const res = await fetch(`${API_BASE}/api/agency/locate?target=${encodeURIComponent(name)}`);
+      const hit = await res.json();
+      if (!hit?.found) return false;
+      const at = await window.sarahApp.screenPointToClient(hit.x, hit.y);
+      if (!at) return false;
+      return director.pointAtScreen(at.x, at.y, { hold: 3.2, label: hit.label || name });
+    } catch {
+      return false;
+    }
+  }
+
+  // What a tool call was about, if it's something on Zero's screen.
+  _toolSubject(name, args) {
+    const a = args || {};
+    switch (name) {
+      case "open_item": return /^[a-z][a-z0-9+.-]*:\/\//i.test(a.target || "") ? null : a.target;
+      case "read_file": case "list_directory": case "write_file": case "document": return a.path;
+      case "move_path": return a.destination;
+      case "app": return a.action === "open" ? a.text || a.path : /^close/.test(a.action || "") ? null : a.window;
+      case "window": return ["focus", "restore", "maximize", "wait"].includes(a.action) ? a.title : null;
+      default: return null;
+    }
   }
 
   // Pet window: press on her and drag to move her anywhere on screen (a
@@ -784,7 +918,10 @@ class SarahUI {
     this._armWake(0);
     this._wakeAwaitingReply = false;
     this._heldVoice = [];
-    try { localStorage.setItem("sarah.mic", mode); } catch {}
+    try {
+      localStorage.setItem("sarah.mic", mode);
+      if (mode !== "off") localStorage.setItem("sarah.micOnMode", mode); // what "All on" brings back
+    } catch {}
     if (mode === "off") {
       lv.stop();
       this._releaseCachedMic();
@@ -916,7 +1053,6 @@ class SarahUI {
         this._wakeFollowUps = WAKE_MAX_FOLLOW_UPS + 1; // the next turn is the request itself
         this._setVoiceCaption("Listening…", "hearing");
         window.SARAH_AVATAR_DIRECTOR?.onUserSpeaking?.();
-        this.tts?.playFiller?.("ack");
         return;
       }
       if (wake.heard) text = wake.rest;
@@ -1594,6 +1730,7 @@ class SarahUI {
     const modality = this._nextModality || "text";
     this._nextModality = null;
     // What she's doing with her tools, shown live in her bubble.
+    let toolSubject = null;
     const onTool = (evt) => {
       if (!bubble) {
         this._hideLoadingIndicator(loadingEl);
@@ -1603,28 +1740,25 @@ class SarahUI {
       }
       this._showToolActivity(bubble, evt);
       if (evt.status === "start") director?.onWorking?.(evt.name);
+      if (this.isPet) {
+        if (evt.status === "start") toolSubject = this._toolSubject(evt.name, evt.args);
+        else if (evt.ok !== false && toolSubject) {
+          // Give a window she just opened a moment to appear.
+          const subject = toolSubject;
+          setTimeout(() => this._pointAtThing(subject), /open|app|window/.test(evt.name) ? 900 : 0);
+          toolSubject = null;
+        }
+      }
       this._scrollToBottom();
     };
-    // Spoken turns: if her words aren't ready in ~0.6 s, she acknowledges
-    // you out loud ("Mm," / "Oh!") the way people do while they think.
-    let fillerTimer = null;
-    if (speech && modality === "voice") {
-      const kind = /\?\s*$|^(what|how|why|when|where|who|can|could|would|should|do|does|is|are)\b/i.test(message)
-        ? "think" : /!\s*$/.test(message) ? "react" : "ack";
-      // Not once a first sentence is nearly ready to be spoken anyway.
-      fillerTimer = setTimeout(() => {
-        const said = this._parseReply(raw, { streaming: true }).text.trim();
-        if (said.length < 30 && !this.tts._ttsPlaying) this.tts.playFiller(kind);
-      }, 600);
-    }
+    // Spoken turns stay quiet until her actual answer is ready (no "Hmm," /
+    // "Let me see," while she thinks).
     try {
       const resp = await this.backend.chatStream(message, this.activeConversationId, { regenerate, onDelta, onTool, modality });
-      clearTimeout(fillerTimer);
       this._setActing(false);
       bubble?.classList.remove("is-streaming");
       return { resp, bubble, speech };
     } catch (err) {
-      clearTimeout(fillerTimer);
       this._setActing(false);
       speech?.cancel();
       bubble?.classList.remove("is-streaming");

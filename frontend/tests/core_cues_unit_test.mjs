@@ -84,4 +84,11 @@ const view = (r) => r.cues.map((c) => [c.type, c.value, c.at, c.amount]);
   assert.equal(parseCues("<face:smile/>Yes").text, "Yes");
 }
 
+// Pet mode points at things on the screen: names and paths stay as written.
+{
+  const r = parseCues("It's <point>Google Chrome</point>right there, and <point>C:\\Users\\Zero\\Desktop\\Trip plan.pdf</point>that one.");
+  assert.equal(r.text, "It's right there, and that one.");
+  assert.deepEqual(r.cues.map((c) => c.value), ["Google Chrome", "C:\\Users\\Zero\\Desktop\\Trip plan.pdf"]);
+}
+
 console.log(JSON.stringify({ ok: true, checked: "cues" }));

@@ -279,6 +279,17 @@ ipcMain.handle("pet-mode", (_event, on) => {
   return { pet: Boolean(on) };
 });
 
+// A point on the screen in physical pixels (from the backend's locate) ->
+// the asking window's own coordinates, so pet-mode Sarah can point at it.
+ipcMain.handle("screen-point-to-client", (event, { x, y } = {}) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const { screen } = require("electron");
+  const dip = process.platform === "win32" ? screen.screenToDipPoint({ x, y }) : { x, y };
+  const area = win.getContentBounds();
+  return { x: dip.x - area.x, y: dip.y - area.y };
+});
+
 function setupTray() {
   if (tray) return;
   tray = new Tray(path.join(__dirname, "renderer", "assets", "sarah.ico"));

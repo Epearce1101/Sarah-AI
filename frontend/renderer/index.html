@@ -363,7 +363,29 @@
           </div>
           <div class="fn-group">
             <h3 class="more-section-title">Senses &amp; behaviour</h3>
+            <div id="fn-all" class="fn-switch fn-all">
+              <div class="fn-switch-text">
+                <div class="fn-switch-label">Everything</div>
+                <div class="fn-switch-hint">Turn every switch below on or off at once (pet mode isn't touched).</div>
+              </div>
+              <div class="fn-choices" role="group" aria-label="Everything">
+                <button id="fn-all-on" class="fn-choice" type="button">All on</button>
+                <button id="fn-all-off" class="fn-choice" type="button">All off</button>
+              </div>
+            </div>
             <div id="fn-switches" class="fn-switches"></div>
+          </div>
+          <div class="fn-group fn-notes">
+            <h3 class="more-section-title">Your notes for Sarah</h3>
+            <div class="fn-switch-hint">How you want her to behave, and things she should always remember. She follows
+              them in every chat, typed or spoken, as soon as you save.</div>
+            <textarea id="fn-notes" class="fn-notes-input" rows="8" maxlength="8000" spellcheck="true"
+              placeholder="e.g. Keep answers short unless I ask for detail.&#10;Call me Zero.&#10;I'm learning Japanese; slip in a word now and then."></textarea>
+            <div class="fn-notes-bar">
+              <span id="fn-notes-status" class="fn-notes-status"></span>
+              <button id="fn-notes-revert" class="pill-btn pill-btn-small" type="button" disabled>Undo changes</button>
+              <button id="fn-notes-save" class="pill-btn pill-btn-small pill-btn-accent" type="button" disabled>Save</button>
+            </div>
           </div>
         </section>
 

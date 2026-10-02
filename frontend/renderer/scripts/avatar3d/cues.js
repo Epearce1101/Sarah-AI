@@ -38,6 +38,9 @@ export function normalizeCueTags(raw) {
 
 function splitValue(raw, kind) {
   let text = String(raw).trim();
+  // A point can name a thing on Zero's screen ("Google Chrome",
+  // "C:\Users\Zero\Desktop\report.pdf"): keep it as written.
+  if (kind === "point") return { value: text, amount: undefined };
   let reason;
   if (kind === "feel") {
     const bar = text.indexOf("|");

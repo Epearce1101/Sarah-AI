@@ -147,7 +147,18 @@ class MultiAgentBrain:
             "- If the request is simple, answer it directly."
         )
 
-        system_hint = "\n\n".join(p for p in [persona_block, creator_note, rules] if p)
+        try:
+            from backend.user_notes import build_notes_block
+            notes_block = build_notes_block()
+        except Exception:
+            notes_block = ""
+        try:
+            from backend.self_knowledge import build_self_block
+            self_block = build_self_block()
+        except Exception:
+            self_block = ""
+
+        system_hint = "\n\n".join(p for p in [persona_block, creator_note, rules, self_block, notes_block] if p)
 
         try:
             from backend.skills import build_skill_injection

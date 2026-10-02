@@ -60,9 +60,12 @@ const DANCES = ["47_Jazz Dancing", "70_Silly Dancing", "83_Swing Dancing", "45_H
 // Clips that use the whole body: frame the full figure while they play.
 const FULL_BODY = /jump|danc|bow|defeat|crying|kneel|sitting|cheer|tantrum|throw|macarena|dm_(19|32|38|45|53|58|9)$/i;
 
+// Base loops are plain standing idles only: the short posing clips (cute /
+// energetic standby, 6-10 s) restart so often on a loop that she seemed to
+// strike one pose after another. Those play now and then as idle actions.
 const IDLE_SETS = {
   calm: ["119_Idle", "dm_120", "dm_121", "dm_122"],
-  happy: ["dm_24", "dm_46", "dm_59", "dm_101"],
+  happy: ["dm_121", "dm_120", "dm_122"],
   cool: ["dm_23", "dm_33"],
   sad: ["142_Sad Idle", "dm_17"],
   // (not dm_111 or the dm_22 yawn as loops: a hand held at her mouth reads as "shh")
@@ -71,10 +74,18 @@ const IDLE_SETS = {
 const TALKING = ["dm_5", "dm_6", "dm_7", "dm_13", "dm_14", "dm_15", "86_Talking"];
 const IDLE_ACTIONS = {
   calm: ["131_Neck Stretching", "look_around", "tilt", "dm_101", "lean_toward", "curious_lean"],
-  happy: ["dm_26", "look_around", "dm_24", "116_Happy Hand Gesture", "cute_pose", "peek", "lean_toward"],
+  happy: ["dm_26", "look_around", "dm_24", "dm_46", "116_Happy Hand Gesture", "cute_pose", "peek", "lean_toward"],
   sad: ["65_Relieved Sigh", "look_around"],
   sleepy: ["dm_22", "131_Neck Stretching"],
 };
+// Desktop pet mode: she stands quietly on top of your apps. One gentle
+// breathing idle, and only a small head tilt or nod every few minutes.
+const PET_IDLE = "119_Idle";
+const PET_ACTIONS = ["tilt", "nod_small"];
+const PET_IDLE_GAP = [150000, 300000];
+const isPet = () => document.documentElement.classList.contains("pet-mode");
+// <point> words that are places around her, not things on Zero's screen.
+const POINT_WORDS = /^(chat|messages|conversation|input|keyboard|typing|user|you|viewer|camera|cursor|mouse|left|right|up|down|away|sky|floor|sidebar|menu|screen|top|self|me)$/i;
 const MOOD_FACE = {
   happy: "happy", excited: "excited", affectionate: "shy", shy: "shy", confused: "thinking",
   surprised: "surprised", angry: "annoyed", frustrated: "annoyed", sad: "sad", neutral: "neutral",
@@ -154,6 +165,16 @@ export class SarahDirector {
     return null;
   }
 
+  // Point at a spot given in this window's coordinates (it may be far
+  // outside it, e.g. a desktop icon across the screen) and look there.
+  pointAtScreen(x, y, { hold = 2.8, label = "something on the screen" } = {}) {
+    const where = () => this.avatar.screenToWorld(x, y);
+    this.avatar.body.pointAt(where(), { hold });
+    this.attention = { target: where, until: performance.now() + (hold + 0.4) * 1000, source: "point", name: label };
+    this.lastIdleAction = performance.now();
+    return true;
+  }
+
   lookAt(name, hold = 2.5, source = "cue") {
     const key = name;
     const fn = () => this.target(key) || this.avatar.camera.position.clone();
@@ -173,6 +194,13 @@ export class SarahDirector {
     if (type === "face") return this.avatar.face.express(value, amount ?? (cue.auto ? 0.6 : 1), cue.auto ? 3.5 : 4.5);
     if (type === "look") return this.lookAt(value, 2.8);
     if (type === "point") {
+      // On the desktop, anything that isn't a place around her is a thing on
+      // Zero's screen (an app, file or folder): the app finds it and calls
+      // pointAtScreen.
+      if (isPet() && value && !POINT_WORDS.test(String(value).trim()) && this.onPointAtThing) {
+        this.onPointAtThing(String(value).trim());
+        return true;
+      }
       const t = this.target(value);
       if (!t) return false;
       this.avatar.body.pointAt(t, { hold: 1.9 });
@@ -482,7 +510,7 @@ export class SarahDirector {
     const pose = this.avatar.body.pose;
     const gesture = pose && now < pose.until ? POSES[pose.name]?.words || "posing"
       : anim.oneShot?.id ? GESTURE_WORDS[anim.oneShot.id] || "moving" : null;
-    const stance = {
+    let stance = {
       speaking: "talking, gesturing along with your words",
       listening: "leaning in a little, listening",
       thinking: "thinking it over",
@@ -492,6 +520,8 @@ export class SarahDirector {
         sleepy: "standing beside the chat, drowsy",
       }[this._moodSet()],
     }[this.mode];
+    const pet = isPet();
+    if (pet && stance) stance = stance.replace("beside the chat", "on top of the desktop");
     const face = this.avatar.face;
     const active = face.override && now < face.override.until ? face.override.recipe : face.baseline.recipe;
     return {
@@ -505,6 +535,7 @@ export class SarahDirector {
       user_typing: now - this.lastTyping < 3000,
       user_idle_seconds: Math.round((now - this.lastActivity) / 1000),
       feeling: this.feeling?.label || null,
+      pet,
     };
   }
 
@@ -518,6 +549,7 @@ export class SarahDirector {
       if (away > 300000) this._setBaseForMode(); // wake up from the sleepy idle
       this.lookAt("user", 2.5, "greet");
       this.avatar.face.express("happy", 0.9, 3);
+      if (isPet()) return; // on the desktop just a look and a smile
       this.gesture("wave");
       this._later(2800, () => { if (this.mode === "idle") this.gesture("lean_toward"); });
     }
@@ -539,7 +571,7 @@ export class SarahDirector {
     } else if (mode === "thinking") {
       face.express("thinking", 1, 6);
       this.lookAt(Math.random() < 0.5 ? "up" : "away", 2.2, "thinking");
-      this._later(1200, () => { if (this.mode === "thinking" && !this.avatar.animator.busy) this.gesture("think"); });
+      if (!isPet()) this._later(1200, () => { if (this.mode === "thinking" && !this.avatar.animator.busy) this.gesture("think"); });
     } else if (mode === "idle") {
       this.lookAt("user", 2, "idle");
     }
@@ -558,14 +590,24 @@ export class SarahDirector {
     return "calm";
   }
 
-  _setBaseForMode() {
+  // Her stance sticks: coming back from talking, or a mood change within the
+  // same set, she returns to the idle she had rather than a new random one.
+  // `change` picks a different one (the occasional shift of weight).
+  _setBaseForMode(change = false) {
     const anim = this.avatar.animator;
     if (this.mode === "speaking") {
       anim.setBase(pick(TALKING), 0.5);
-    } else {
-      const set = IDLE_SETS[this._moodSet()] || IDLE_SETS.calm;
-      anim.setBase(pick(set.filter((id) => anim.has(id))) || "119_Idle", 0.8);
+      return;
     }
+    if (isPet()) {
+      anim.setBase(PET_IDLE, 1.2);
+      return;
+    }
+    const set = (IDLE_SETS[this._moodSet()] || IDLE_SETS.calm).filter((id) => anim.has(id));
+    let id = set.includes(this.idleBase) && !change ? this.idleBase : null;
+    if (!id) id = pick(change && set.length > 1 ? set.filter((s) => s !== this.idleBase) : set) || "119_Idle";
+    this.idleBase = id;
+    anim.setBase(id, 1.2);
   }
 
   _bindWindow() {
@@ -635,17 +677,25 @@ export class SarahDirector {
     }
 
     // Idle life: something now and then (every 1-2.5 min), a pose only
-    // sometimes; drift off when left alone.
-    if (this.mode === "idle" && !this.avatar.animator.busy && !body.pose) {
-      this.idleGap ??= rand(...IDLE_GAP);
+    // sometimes; drift off when left alone. The gap counts from when the
+    // last movement finished, so one never follows straight on another. In
+    // pet mode only a small tilt or nod every few minutes.
+    const pet = isPet();
+    if (this.mode === "idle" && (this.avatar.animator.busy || body.pose)) this.lastIdleAction = now;
+    else if (this.mode === "idle") {
+      this.idleGap ??= rand(...(pet ? PET_IDLE_GAP : IDLE_GAP));
       if (now - this.lastIdleAction > this.idleGap) {
-        const set = IDLE_ACTIONS[this._moodSet()] || IDLE_ACTIONS.calm;
-        const poses = set.filter((g) => POSES[g]);
-        const small = set.filter((g) => !POSES[g]);
-        this.gesture(poses.length && (!small.length || Math.random() < POSE_SHARE) ? pick(poses) : pick(small));
+        if (pet) {
+          this.gesture(pick(PET_ACTIONS));
+        } else {
+          const set = IDLE_ACTIONS[this._moodSet()] || IDLE_ACTIONS.calm;
+          const poses = set.filter((g) => POSES[g]);
+          const small = set.filter((g) => !POSES[g]);
+          this.gesture(poses.length && (!small.length || Math.random() < POSE_SHARE) ? pick(poses) : pick(small));
+          if (Math.random() < 0.25) this._later(4000, () => { if (this.mode === "idle") this._setBaseForMode(true); });
+        }
         this.lastIdleAction = now;
-        this.idleGap = rand(...IDLE_GAP);
-        if (Math.random() < 0.35) this._setBaseForMode(); // change stance now and then
+        this.idleGap = rand(...(pet ? PET_IDLE_GAP : IDLE_GAP));
       }
     }
   }

@@ -258,34 +258,6 @@ export class SarahTTS {
 
   // Start playing one synthesized clip. Resolves once playback has started
   // with a promise that settles when the clip ends (or is stopped/fails).
-  // Short spoken acknowledgements ("Mm,", "Oh!") synthesized once and kept,
-  // so she can respond the instant you finish talking while her real answer
-  // is still being thought of (cloud models take ~2 s to start).
-  async prepareFillers() {
-    const phrases = { think: ["Hmm,", "Mm,", "Let me see,"], react: ["Oh!", "Ooh,"], ack: ["Mhm.", "Mm-hm,"] };
-    this._fillers = {};
-    for (const [kind, list] of Object.entries(phrases)) {
-      this._fillers[kind] = [];
-      for (const text of list) {
-        try {
-          this._fillers[kind].push({ text, url: await this.backend.tts(text) });
-        } catch {
-          /* voice unavailable: no fillers */
-        }
-      }
-    }
-  }
-
-  // Play a filler now; the next clip of the reply waits for it to finish.
-  playFiller(kind = "think") {
-    const list = this._fillers?.[kind];
-    if (!this.voiceEnabled || !list?.length || this._ttsPlaying) return false;
-    const pick = list[Math.floor(Math.random() * list.length)];
-    this._fillerPromise = this._startClip(pick.url, pick.text).then((ended) => ended).catch(() => {});
-    this._fillerPromise.finally(() => { this._fillerPromise = null; });
-    return true;
-  }
-
   // What she said in the last `ms` (live voice drops echoes of it).
   spokenRecently(ms = 6000) {
     const cutoff = Date.now() - ms;
@@ -398,7 +370,6 @@ export class SarahTTS {
       while (queue.length && !stale()) {
         const item = queue.shift();
         const url = await item.urlPromise;
-        if (this._fillerPromise) await this._fillerPromise; // let "Mm," finish first
         if (stale()) continue;
         if (!url) {
           this._performNow(item.cues);

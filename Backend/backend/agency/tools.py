@@ -805,12 +805,48 @@ def delete_path(path: str):
     return f"Moved {p} to the Recycle Bin"
 
 
+def _app_path(name: str) -> Optional[str]:
+    """A program Windows knows by name (PATH or the App Paths registry, like `start chrome`)."""
+    import shutil
+
+    found = shutil.which(name)
+    if found or os.name != "nt" or not re.fullmatch(r"[\w .+-]{1,60}", name):
+        return found
+    import winreg
+
+    exe = name if name.lower().endswith(".exe") else name + ".exe"
+    for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(hive, rf"Software\Microsoft\Windows\CurrentVersion\App Paths\{exe}") as key:
+                value = winreg.QueryValue(key, None)
+                if value:
+                    return value.strip('"')
+        except OSError:
+            continue
+    return None
+
+
+@tool("find", "Find anything on Zero's PC by name: apps (Start menu, Store apps, games), files, folders "
+      "and Zero's projects. kind: any (default), app, file, folder, project. Returns the best matches with "
+      "their full paths, best first. Use it whenever Zero mentions something on the PC without its exact "
+      "path, then open it with open_item (give the path), read it or list it.",
+      {"query": {"type": "string", "description": "the name, or words from it (e.g. 'resume', 'tax 2025', 'steam')"},
+       "kind": {"type": "string", "enum": ["any", "app", "file", "folder", "project"]}},
+      ["query"], timeout=40)
+def find(query: str, kind: str = "any"):
+    from . import finder
+
+    return finder.describe(finder.find(query, kind, 10))
+
+
 @tool("open_item", "Open something for Zero: a website or YouTube (always opens in Google Chrome; "
-      "e.g. https://www.youtube.com/results?search_query=lofi or a video link), a file with its default "
-      "app, or an app by name or path (e.g. 'notepad', 'calc', 'spotify', 'C:/Games/game.exe').",
-      {"target": {"type": "string"}}, ["target"], timeout=20)
+      "e.g. https://www.youtube.com/results?search_query=lofi or a video link), or anything on the PC by "
+      "path or by name: an app ('spotify', 'steam', 'notepad'), a file ('my resume', 'Desktop/Trip plan.pdf'), "
+      "a folder ('Downloads', 'tax papers') or one of Zero's projects. Names are looked up across the PC; "
+      "if several things match it lists them instead of guessing.",
+      {"target": {"type": "string"}}, ["target"], timeout=45)
 async def open_item(target: str):
-    from . import desktop
+    from . import desktop, finder
     from .chrome_bridge import bridge
 
     target = (target or "").strip()
@@ -821,11 +857,29 @@ async def open_item(target: str):
             page = await bridge.call("open", {"url": target, "max_chars": 1500})
             return f"Opened {page.get('title') or target} in a new Chrome tab (tab_id {page.get('tab_id')})."
         return await asyncio.to_thread(desktop.open_in_chrome, target)  # websites: Chrome only
-    if re.match(r"^(mailto|spotify|steam|discord)://", target) or os.path.exists(os.path.expanduser(target)):
-        os.startfile(os.path.expanduser(target))
-    else:
-        subprocess.Popen(["cmd", "/c", "start", "", target], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    return f"Opened {target}"
+    if re.match(r"^[a-z][a-z0-9+.-]*:(//)?\S", target, re.I) and not re.match(r"^[a-z]:[\\/]", target, re.I):
+        os.startfile(target)  # spotify:, steam://, mailto:, ms-settings: ...
+        return f"Opened {target}"
+    # A path: as given, or relative to Zero's folders ("Desktop/Trip plan.pdf").
+    for path in (Path(os.path.expanduser(target)), _resolve(target)):
+        if path.is_absolute() and path.exists():
+            os.startfile(str(path))
+            return f"Opened {path}"
+    # A program Windows already knows by name ("notepad", "calc", "chrome").
+    exe = _app_path(target)
+    if exe:
+        os.startfile(exe)
+        return f"Opened {target} ({exe})"
+    # Anything else: look it up by name across apps, files, folders, projects.
+    items = await asyncio.to_thread(finder.find, target, "any", 6)
+    choice = finder.pick(items)
+    if choice:
+        await asyncio.to_thread(finder.start, choice)
+        return f"Opened {choice['name']} ({choice['kind']}: {choice['path']})"
+    if items:
+        return (f"Didn't open anything: several things match '{target}'. Ask Zero which one, or open the "
+                f"right one by its path:\n{finder.describe(items)}")
+    raise RuntimeError(f"Couldn't find anything called '{target}' on this PC (apps, files, folders, projects).")
 
 
 @tool("pause", "Wait a few seconds (e.g. to let Zero see something, or for an app to load).",

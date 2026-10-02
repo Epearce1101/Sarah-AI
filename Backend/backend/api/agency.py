@@ -146,3 +146,14 @@ def usage_today():
 def agency_tools():
     return {"tools": [{"name": t.name, "description": t.description, "custom": t.custom}
                       for t in tools.all_tools().values()]}
+
+
+@router.get("/api/agency/locate")
+def agency_locate(target: str = ""):
+    """Where an app, file or folder is on screen (physical pixels), so pet-mode
+    Sarah can point at it. ``found: false`` when it isn't visible."""
+    from backend.agency.locate import locate
+    try:
+        return locate(target[:400])
+    except Exception as exc:  # UI Automation hiccups must never break a reply
+        return {"found": False, "reason": str(exc)[:200]}

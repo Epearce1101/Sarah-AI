@@ -30,7 +30,7 @@ from .memory_store import (
     ChunkSummary,
 )
 from .intent_resolver import IntentResolver, ResolvedIntent
-from datetime import datetime
+from datetime import datetime, timezone
 
 from backend.config import settings as _settings
 from backend.identity import get_user_name
@@ -52,6 +52,44 @@ except ImportError:
     MOOD_SYSTEM_AVAILABLE = False
     MoodState = None
     MoodEngine = None
+
+
+# --- Time between messages ---------------------------------------------------
+# Messages are stored with a UTC timestamp (SQLite CURRENT_TIMESTAMP). The
+# history sent to the model used to carry no times at all, so a chat picked
+# up the next day read as if it were still the same evening.
+
+def _local_stamp(created_at: Any, tz) -> Optional[datetime]:
+    """A stored message time in the conversation's own time zone."""
+    if not created_at:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(created_at).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    try:
+        return dt.astimezone(tz) if tz is not None else dt
+    except Exception:
+        return dt
+
+
+def _day_marker(dt: datetime) -> str:
+    """'[Thu, Oct 2, 11:48 PM]': opens the first message of each day in the history."""
+    return f"[{dt.strftime('%a, %b')} {dt.day}, {dt.strftime('%I:%M %p').lstrip('0')}]"
+
+
+def _ago(seconds: float) -> str:
+    minutes = max(0, int(seconds // 60))
+    if minutes < 2:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes} minutes ago"
+    hours = minutes // 60
+    if hours < 36:
+        return f"about {hours} hour{'s' if hours != 1 else ''} ago"
+    return f"{hours // 24} days ago"
 
 
 @dataclass
@@ -222,13 +260,48 @@ Respond as if you naturally remember the conversation.
         local = datetime.now().astimezone()
         return local, local.tzname() or "local time"
 
-    def _build_time_context(self, conversation_id: int, now: Optional[Tuple[datetime, str]] = None) -> str:
-        """Build time context for system prompt (timezone + current time)."""
+    def _build_time_context(self, conversation_id: int, now: Optional[Tuple[datetime, str]] = None,
+                            last_at: Optional[datetime] = None) -> str:
+        """Build time context for system prompt (timezone + current time, and
+        how long ago this chat's last message was)."""
         current, label = now or self._resolve_now(conversation_id)
-        return f"""Current time context:
+        text = f"""Current time context:
 - Date: {current.strftime("%A, %B %d, %Y")}
 - Time: {current.strftime("%I:%M %p")} ({label})
 - ALWAYS tell the user the time/date when they ask."""
+        if last_at is not None:
+            text += (f"\n- This chat's last message before now: {last_at.strftime('%A, %B')} {last_at.day} at "
+                     f"{last_at.strftime('%I:%M %p').lstrip('0')} ({_ago((current - last_at).total_seconds())}).")
+            if last_at.date() != current.date():
+                text += ("\n- That was on an earlier day: the conversation below happened then, not today, so "
+                         "their 'tonight', 'tomorrow' or plans meant that day. Pick up the way you would after "
+                         "time apart, and treat today as a new day.")
+            text += ("\n- In the history, the first message of each day opens with a [day, date, time] marker "
+                     "the app adds; never write such markers yourself.")
+        return text
+
+    def _last_message_time(self, conversation_id: int, pending_user_message: Optional[str],
+                           now: datetime) -> Optional[datetime]:
+        """When the chat's last stored message was sent (not counting the
+        message being answered, if it was already saved)."""
+        try:
+            recent = self.store.get_recent_messages(conversation_id, limit=3)
+        except Exception:
+            return None
+        if recent and pending_user_message is not None and recent[-1].get("role") == "user" \
+                and (recent[-1].get("content") or "").strip() == pending_user_message.strip():
+            recent = recent[:-1]
+        return _local_stamp(recent[-1].get("created_at"), now.tzinfo) if recent else None
+
+    def _mark_days(self, messages: List[Dict[str, str]], source: List[Dict[str, Any]], now: datetime) -> None:
+        """Put a date marker on the first user message of each day that isn't
+        today (and on today's first, once earlier days are in view)."""
+        shown = now.date()
+        for msg, row in zip(messages, source):
+            dt = _local_stamp(row.get("created_at"), now.tzinfo)
+            if dt is not None and msg.get("role") == "user" and dt.date() != shown:
+                msg["content"] = f"{_day_marker(dt)} {msg.get('content', '')}"
+                shown = dt.date()
 
     LONG_TERM_MEMORY_CHAR_CAP = 1500
 
@@ -411,7 +484,10 @@ Respond as if you naturally remember the conversation.
         # 1. SYSTEM PROMPT (with time context)
         # ============================================================
         resolved_now = self._resolve_now(conversation_id)
-        time_context = self._build_time_context(conversation_id, resolved_now)
+        last_at = self._last_message_time(conversation_id, user_message if append_user_message else None,
+                                          resolved_now[0])
+        new_day = last_at is not None and last_at.date() != resolved_now[0].date()
+        time_context = self._build_time_context(conversation_id, resolved_now, last_at=last_at)
 
         if local_compact_mode:
             system_content = f"""You are Sarah AI, a warm, loyal, practical assistant for {get_user_name()}.
@@ -453,6 +529,22 @@ Rules:
                     system_content = f"{system_content}\n\n{skill_block}"
             except Exception:
                 pass
+
+            try:  # where her own files are, so questions about her are answered from them
+                from backend.self_knowledge import build_self_block
+                system_content = f"{system_content}\n\n{build_self_block()}"
+            except Exception:
+                pass
+
+        # Zero's standing notes (Functions tab): every mode, read per call so
+        # a save applies from the next reply on.
+        try:
+            from backend.user_notes import build_notes_block
+            notes_block = build_notes_block()
+            if notes_block:
+                system_content = f"{system_content}\n\n{notes_block}"
+        except Exception:
+            pass
 
         system_tokens = self._estimate_tokens(system_content)
 
@@ -696,6 +788,8 @@ Rules:
             # current user turn instead of letting it push the packet over budget.
             resolved = self.intent_resolver.resolve(user_message, conversation_id)
             final_user_message = resolved.expanded_message
+            if new_day:  # first message of a new day in this chat
+                final_user_message = f"{_day_marker(resolved_now[0])} {final_user_message}"
             current_user_tokens = self._estimate_messages_tokens([
                 {"role": "user", "content": final_user_message}
             ])
@@ -756,6 +850,8 @@ Rules:
             recent_message_budget,
             allow_below_minimum=True,
         )
+        # Dates on what's left (oldest messages may have been trimmed away).
+        self._mark_days(trimmed, recent[len(recent) - len(trimmed):] if trimmed else [], resolved_now[0])
         messages.extend(trimmed)
 
         debug_info["recent_messages_count"] = len(recent)

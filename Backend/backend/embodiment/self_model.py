@@ -371,6 +371,13 @@ class SelfModel:
             desc = "; ".join(x for x in bits if x)
             if desc:
                 lines.append(f"- Your body right now: {desc}.")
+            if b.get("pet"):
+                lines.append(
+                    f"- You're in desktop pet mode: a small figure standing on top of {user_name}'s apps on "
+                    "their desktop. When you talk about an app, file or folder on their PC, point at it "
+                    "on screen with its name or path, e.g. <point>Spotify</point> or "
+                    "<point>Desktop/report.pdf</point>."
+                )
             if b.get("visible") is False:
                 lines.append(f"- Your window is hidden or minimised, so {user_name} can't see you at the moment.")
             elif b.get("frame"):
@@ -429,7 +436,9 @@ class SelfModel:
                 lines.append(
                     f"- {user_name} is talking to you out loud, face to face. Answer the way you'd "
                     "speak: short and natural, a sentence or three, no markdown, lists or code "
-                    "unless they ask for it."
+                    "unless they ask for it. Don't open with fillers or announce what you're "
+                    "about to do (\"hmm\", \"let me check\", \"one sec\"): if you need a tool, "
+                    "use it without saying so and speak only the answer."
                 )
             if perceived:
                 lines.append(f"- Reading {user_name}'s last message, they seem {perceived}.")

@@ -39,6 +39,11 @@ _INTERNAL_HEADING_RE = re.compile(
 )
 
 
+# The "[Thu, Oct 2, 11:48 PM]" day markers the context builder puts on the
+# history; she must not echo one at the start of a reply.
+_DAY_MARKER_RE = re.compile(r"^\s*\[(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M\]\s*")
+
+
 def _strip_wrapping_quotes(text: str) -> str:
     stripped = text.strip()
     if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in ("'", '"'):
@@ -58,6 +63,7 @@ def sanitize_visible_reply(text: str) -> str:
 
     cleaned = str(text).replace("\r\n", "\n").replace("\r", "\n")
     cleaned = _THINK_BLOCK_RE.sub("", cleaned)
+    cleaned = _DAY_MARKER_RE.sub("", cleaned)
     cleaned = _INTERNAL_PLACEHOLDER_RE.sub("", cleaned)
     cleaned = _INTERNAL_INLINE_CUTOFF_RE.sub("", cleaned)
 

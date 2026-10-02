@@ -139,6 +139,7 @@ contextBridge.exposeInMainWorld("sarahApp", {
   petDrag: (phase, x, y) => ipcRenderer.send("pet-drag", { phase, x, y }),
   quit: () => ipcRenderer.invoke("quit-app"),
   petReady: () => ipcRenderer.send("pet-ready"),
+  screenPointToClient: (x, y) => ipcRenderer.invoke("screen-point-to-client", { x, y }),
 });
 
 contextBridge.exposeInMainWorld("electron", {
