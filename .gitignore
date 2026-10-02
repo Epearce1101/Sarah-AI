@@ -35,9 +35,9 @@ Backend/backend/wake/models/
 .obsidian/
 .vscode/
 
-# 3D avatar: personal VRM model + motion-capture clips (restore from source; see README)
+# 3D avatar: personal VRM model (restore from source; see README). The
+# motion-capture clips are tracked (Clawatar library, MIT; see animations/LICENSE-clawatar.txt).
 frontend/renderer/assets/vrm/sarah.vrm
-frontend/renderer/assets/vrm/animations/*.vrma
 tools/avatar/build/
 
 

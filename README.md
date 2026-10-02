@@ -71,9 +71,10 @@ project folder, not C:.
    | `Backend/backend/piper/models/en_GB-jenny_dioco-medium.onnx(.json)` | Piper voice |
    | `Backend/backend/wake/models/vosk-model-small-en-us-0.15/` | Vosk wake-word model |
    | `frontend/renderer/assets/vrm/sarah.vrm` | Sarah's VRM 1.0 model (personal, non-redistributable; rebuilt from `sarah_refined.blend` with `tools/avatar/build.py`) |
-   | `frontend/renderer/assets/vrm/animations/*.vrma` | Mocap clips listed in `catalog.json` (from the clawatar animation library) |
 
-   Without the VRM the app falls back to the Live2D avatar.
+   Without the VRM the app falls back to the Live2D avatar. Her 132 mocap clips
+   (`frontend/renderer/assets/vrm/animations/*.vrma`, listed in `catalog.json`) are in
+   the repo, from the [Clawatar](https://github.com/Dongping-Chen/Clawatar) library (MIT).
 
 5. Optional: **Ollama** for local mode and local vision (`SARAH_OLLAMA_EXE_PATH`).
    Without it, vision falls back to OpenRouter (`SARAH_OPENROUTER_VISION_MODEL`).
