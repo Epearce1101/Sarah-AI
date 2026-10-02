@@ -4,6 +4,10 @@ Tracking file for current/previous issues. Tick a box when fixed; leave a short 
 
 ---
 
+## 2026-10-02 — New body: Sarah from sarah_refined.blend (#130)
+
+- [x] **#130 Use the Blender model as her avatar** (requested) — `tools/avatar/` converts `sarah_refined.blend` + `textures/` into `sarah.vrm` (VRM 1.0, 4.4 MB): rig constraints/animation dropped and the arms re-rested in a T-pose (they rested 24° down, which would have pushed every clip's arms into her body); her face is bone-driven with no shape keys, so 13 expressions are posed with the eyelid/brow/jaw/lip bones and baked to shape keys (blink, blinkLeft/Right, happy, sad, angry, surprised, relaxed, aa/ih/ee/oh/ou); eye and hair shaders baked to textures, all materials unlit like the source; colour textures padded past their UV islands (the grey background showed as a seam at the crotch under browser mipmapping). Verified in headless Chromium with three-vrm 3.5.5: loads as VRM 1.0 with all 54 humanoid bones, 13 expressions and bone look-at; arms-down pose, faces and eye tracking checked on screenshots. No app code changes: VRoid-only raw morphs (`Fcl_*`) in `FACE_RECIPES` are skipped for this model. The VRM stays git-ignored — copy `tools/avatar/build/sarah.vrm` to `frontend/renderer/assets/vrm/`.
+
 ## 2026-09-28 — Memory of her days, usage meter, skills, web (#123–#129)
 
 - [x] **#123 She forgot each day** — `backend/memory/journal.py`: an experience log through the day (what she saw Zero doing, noticed, felt, did, sensed; repeats skipped), a first-person journal entry per finished day (one free request, catches up missed days), lasting facts into long-term memory (tag `journal`); her last two entries + "earlier today" in every prompt. `GET /api/journal`, `POST /api/journal/write?day=`.

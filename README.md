@@ -70,7 +70,7 @@ project folder, not C:.
    | `Backend/backend/piper/piper.exe` + `*.dll`, `libtashkeel_model.ort`, `espeak-ng-data/` | Piper TTS runtime (Windows release) |
    | `Backend/backend/piper/models/en_GB-jenny_dioco-medium.onnx(.json)` | Piper voice |
    | `Backend/backend/wake/models/vosk-model-small-en-us-0.15/` | Vosk wake-word model |
-   | `frontend/renderer/assets/vrm/sarah.vrm` | Sarah's VRM 1.0 model (personal, non-redistributable) |
+   | `frontend/renderer/assets/vrm/sarah.vrm` | Sarah's VRM 1.0 model (personal, non-redistributable; rebuilt from `sarah_refined.blend` with `tools/avatar/build.py`) |
    | `frontend/renderer/assets/vrm/animations/*.vrma` | Mocap clips listed in `catalog.json` (from the clawatar animation library) |
 
    Without the VRM the app falls back to the Live2D avatar.
@@ -94,6 +94,8 @@ project folder, not C:.
   `impulse.py`: things that happen to her body (touch, the user returning,
   the app opening) that she may answer in her own voice
   (`SARAH_PRESENCE_VOICE=0` keeps her quiet)
+- `tools/avatar/` — converts her Blender model into `sarah.vrm` (T-pose, baked face
+  expressions, unlit materials, VRM 1.0 extension)
 - `personalities/sarah/` — Sarah's persona (IDENTITY.md / SOUL.md)
 - `Issues found.md` — issue log with fixes and verification notes
 

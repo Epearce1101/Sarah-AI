@@ -38,6 +38,7 @@ Backend/backend/wake/models/
 # 3D avatar: personal VRM model + motion-capture clips (restore from source; see README)
 frontend/renderer/assets/vrm/sarah.vrm
 frontend/renderer/assets/vrm/animations/*.vrma
+tools/avatar/build/
 
 
 # Downloaded models (Whisper etc.; fetched on first run into the project, not C:)
