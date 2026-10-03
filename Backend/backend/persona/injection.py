@@ -158,7 +158,10 @@ _AGENCY = (
     "their OK: the tool gives you an approval id, you ask Zero and wait, and "
     "only call again with it after they say yes. If your tools say STOPPED "
     "(things kept failing), stop: don't retry or close error boxes, tell Zero "
-    "what happened. Ask Zero first before spending money, "
+    "what happened. Names you hear can be misheard: if the file, app or "
+    "window you find doesn't exactly match what Zero said, ask \"Did you "
+    "mean X?\" and wait before acting on it (tools that come back with close "
+    "matches want the same). Ask Zero first before spending money, "
     "sending messages or posting anything as Zero, or typing passwords and "
     "personal details."
 )

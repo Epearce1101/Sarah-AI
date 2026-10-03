@@ -285,3 +285,75 @@ def test_a_hung_app_call_doesnt_block_the_next(monkeypatch):
     started = time.time()
     assert uia.run(lambda: 42) == 42
     assert time.time() - started < 1
+
+
+# --- "did you mean...?" for near-matches ---------------------------------------------------
+
+def test_near_matches_contain_or_sound_alike():
+    names = ["Spotify", "Notepad", "Notepad++", "Steam", "Discord"]
+    assert safety.near_matches("note", names) == ["Notepad", "Notepad++"]
+    assert safety.near_matches("spotfy", names) == ["Spotify"]
+    assert safety.near_matches("photoshop", names) == []
+
+
+@pytest.fixture
+def apps(monkeypatch, tmp_path):
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: None)
+    lnks = [tmp_path / "Notepad++.lnk", tmp_path / "Spotify.lnk"]
+    monkeypatch.setattr(desktop, "_start_menu_shortcuts", lambda: lnks)
+    monkeypatch.setattr(desktop, "_store_apps", lambda: [])
+    return lnks
+
+
+def test_a_partial_app_name_is_asked_about_not_guessed(apps):
+    with pytest.raises(safety.AskZero, match=r"Did you mean Notepad\+\+\?"):
+        desktop.find_app("note")
+    # Her own pick from the offered matches waits for Zero.
+    with pytest.raises(safety.AskZero, match="hasn't confirmed"):
+        desktop.find_app("Notepad++")
+    safety.note_user_message("yes, notepad++")
+    assert desktop.find_app("Notepad++") == str(apps[0])
+
+
+def test_a_misheard_app_is_asked_about_and_isnt_a_failure(apps):
+    out = run(tools.call("open_item", {"target": "spotfy"}))
+    assert not out["ok"] and "Did you mean Spotify?" in out["result"]
+    assert not safety._failures  # a question for Zero, not a failure
+
+
+def test_an_exact_app_name_needs_no_question(apps):
+    assert desktop.find_app("spotify") == str(apps[1])
+
+
+def _win(hwnd, title, app):
+    return {"hwnd": hwnd, "title": title, "pid": hwnd, "app": app, "minimized": False}
+
+
+def test_windows_of_different_apps_are_asked_about(monkeypatch):
+    monkeypatch.setattr(desktop, "windows", lambda: [
+        _win(1, "notes.txt - Notepad", "notepad.exe"), _win(2, "todo.txt - Notepad++", "notepad++.exe")])
+    assert desktop.find("notepad")["hwnd"] == 1  # the app's exact name
+    with pytest.raises(safety.AskZero, match="notes.txt - Notepad, todo.txt - Notepad\\+\\+"):
+        desktop.find("note")
+
+
+def test_several_windows_of_one_app_are_not_a_question(monkeypatch):
+    monkeypatch.setattr(desktop, "windows", lambda: [
+        _win(1, "a.txt - Notepad", "notepad.exe"), _win(2, "b.txt - Notepad", "notepad.exe")])
+    assert desktop.find("txt")["hwnd"] == 1
+
+
+def test_a_file_that_isnt_quite_there_is_asked_about(tmp_path):
+    (tmp_path / "Resume 2026.docx").write_text("cv")
+    out = run(tools.call("read_file", {"path": str(tmp_path / "resume.docx")}))
+    assert not out["ok"] and "Did you mean Resume 2026.docx?" in out["result"]
+    assert not safety._failures
+    opened = run(tools.call("open_item", {"target": str(tmp_path / "resume.docx")}))
+    assert not opened["ok"] and "Did you mean" in opened["result"]
+
+
+def test_a_file_with_nothing_like_it_is_just_missing(tmp_path):
+    (tmp_path / "Resume 2026.docx").write_text("cv")
+    out = run(tools.call("read_file", {"path": str(tmp_path / "taxes.xlsx")}))
+    assert not out["ok"] and "doesn't exist" in out["result"]
+    assert len(safety._failures) == 1

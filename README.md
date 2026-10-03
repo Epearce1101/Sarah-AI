@@ -34,7 +34,9 @@ does the same.
   moving your files (the action runs only after you say yes), and after 5
   failed tool calls in 15 minutes she stops, saves a screenshot to
   `sarah_workspace/snapshots` and tells you why (`backend/agency/safety.py`;
-  talking to her or Resume lets her carry on).
+  talking to her or Resume lets her carry on). Names can be misheard, so a
+  file, app or window that only nearly matches gets a "Did you mean...?"
+  first.
 - **Web** — her own browser (Playwright Chromium in `Backend/models`, run
   `Backend\.venv\Scripts\python -m playwright install chromium` with
   `PLAYWRIGHT_BROWSERS_PATH=Backend\models\ms-playwright` on a fresh machine),

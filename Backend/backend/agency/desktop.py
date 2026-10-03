@@ -92,10 +92,18 @@ def find(title: str) -> Dict[str, object]:
     key = (title or "").strip().lower()
     if not key:
         raise DesktopError("give (part of) the window title or app name")
+    from . import safety
+    safety.check_not_guessing(title)
     matches = [w for w in windows() if key in str(w["title"]).lower() or key == str(w["app"]).removesuffix(".exe")]
     matches = [w for w in matches if not str(w["title"]).startswith("Sarah V10")]
     if not matches:
         raise DesktopError(f"No open window matches '{title}'.")
+    exact = [w for w in matches if key in (str(w["title"]).lower(), str(w["app"]).removesuffix(".exe"))]
+    if exact:
+        return exact[0]
+    if len({w["app"] for w in matches}) > 1:  # windows of different apps: ask, don't guess
+        from . import safety
+        raise safety.did_you_mean("window", title, [str(w["title"]) for w in matches][:4])
     return matches[0]
 
 
@@ -255,12 +263,8 @@ def _store_apps() -> List[Dict[str, str]]:
         return []
 
 
-def _best(items: List, name_of, key: str):
-    exact = [i for i in items if name_of(i).lower() == key]
-    if exact:
-        return exact[0]
-    partial = sorted((i for i in items if key in name_of(i).lower()), key=lambda i: len(name_of(i)))
-    return partial[0] if partial else None
+def _plain(name: str) -> str:
+    return " ".join(name.lower().removesuffix(".exe").split())
 
 
 def find_app(name: str) -> Optional[str]:
@@ -268,10 +272,14 @@ def find_app(name: str) -> Optional[str]:
     URI, or None if Windows wouldn't find it. Starting an unknown name with
     `start` pops up a "Windows cannot find..." box that stays on screen, so
     look first: an existing path, PATH, App Paths, Start menu shortcuts, then
-    Store apps."""
+    Store apps. Only an exact name is started; a near-match ("note",
+    "spotfy") raises safety.AskZero so she asks "did you mean...?"."""
+    from . import safety
+
     raw = (name or "").strip().strip('"')
     if not raw:
         return None
+    safety.check_not_guessing(raw)
     t = os.path.expandvars(os.path.expanduser(raw))
     if os.path.exists(t):
         return t
@@ -298,13 +306,18 @@ def find_app(name: str) -> Optional[str]:
                 pass
     except ImportError:
         pass
-    key = t.lower().removesuffix(".exe")
-    shortcut = _best(_start_menu_shortcuts(), lambda p: p.stem, key)
+    key = _plain(t)
+    shortcuts = _start_menu_shortcuts()
+    shortcut = next((p for p in shortcuts if _plain(p.stem) == key), None)
     if shortcut is not None:
         return str(shortcut)
-    app = _best([a for a in _store_apps() if a.get("Name") and a.get("AppID")], lambda a: a["Name"], key)
+    store = [a for a in _store_apps() if a.get("Name") and a.get("AppID")]
+    app = next((a for a in store if _plain(a["Name"]) == key), None)
     if app is not None:
         return "shell:AppsFolder\\" + app["AppID"]
+    near = safety.near_matches(key, [p.stem for p in shortcuts] + [a["Name"] for a in store])
+    if near:
+        raise safety.did_you_mean("app", raw, near)
     return None
 
 

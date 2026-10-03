@@ -113,11 +113,14 @@ def _isolate_episodic(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _fresh_tool_safety():
-    """Each test starts with no failures counted and nothing awaiting Zero's OK."""
+    """Each test starts with no failures counted and nothing awaiting Zero's answer."""
     from backend.agency import safety
 
-    safety.reset_failures()
-    safety._pending.clear()
+    def fresh():
+        safety.reset_failures()
+        safety._pending.clear()
+        safety._guesses.update(names=[], serial=-1)
+
+    fresh()
     yield
-    safety.reset_failures()
-    safety._pending.clear()
+    fresh()

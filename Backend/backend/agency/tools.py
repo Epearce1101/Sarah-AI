@@ -221,7 +221,7 @@ async def call(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         else:
             value = await asyncio.wait_for(asyncio.to_thread(t.fn, **args), timeout=t.timeout)
         ok, text = True, _as_text(value)
-    except safety.NeedsApproval as exc:  # waiting on Zero is not a failure
+    except safety.AskZero as exc:  # waiting on Zero (an OK, "did you mean...?") is not a failure
         ok, text, counts = False, str(exc), False
     except Blocked as exc:
         ok, text = False, str(exc)
@@ -382,6 +382,23 @@ def _resolve(path: str) -> Path:
                 if base is not None:
                     return base.joinpath(*parts[n:])
     return WORKSPACE / p
+
+
+def _existing(p: Path) -> Path:
+    """`p` if it's there. If not, but similar names are in that folder, she
+    asks Zero "did you mean...?" rather than picking one herself."""
+    safety.check_not_guessing(p.name)
+    if p.exists():
+        return p
+    folder = p.parent
+    try:
+        names = [c.name for c in folder.iterdir()][:3000] if folder.is_dir() else []
+    except OSError:
+        names = []
+    near = safety.near_matches(p.name, names) or safety.near_matches(p.stem, names)
+    if near:
+        raise safety.did_you_mean(f"file in {folder}", p.name, near)
+    raise FileNotFoundError(f"{p} doesn't exist")
 
 
 # ---------------------------------------------------------------------------
@@ -731,7 +748,7 @@ def run_shell(command: str, timeout: int = 60, cwd: Optional[str] = None, approv
 @tool("read_file", "Read a text file.", {"path": {"type": "string"},
       "max_chars": {"type": "integer", "description": "default 20000"}}, ["path"], timeout=20)
 def read_file(path: str, max_chars: int = 20000):
-    p = _resolve(path)
+    p = _existing(_resolve(path))
     data = p.read_text(encoding="utf-8", errors="replace")
     limit = max(200, min(100000, int(max_chars or 20000)))
     return data[:limit] + (f"\n...[{len(data)} chars total]" if len(data) > limit else "")
@@ -740,7 +757,7 @@ def read_file(path: str, max_chars: int = 20000):
 @tool("list_directory", "List a folder (names, sizes, modified times).",
       {"path": {"type": "string"}}, ["path"], timeout=20)
 def list_directory(path: str):
-    p = _resolve(path)
+    p = _existing(_resolve(path))
     items = []
     for child in sorted(p.iterdir(), key=lambda c: (not c.is_dir(), c.name.lower()))[:300]:
         try:
@@ -782,7 +799,7 @@ def document(action: str, path: str, content: str = "", title: str = "", rows: O
 
     p = _resolve(path)
     if action == "read":
-        return documents.read(p)
+        return documents.read(_existing(p))
     guard.check_write(p)
     result = documents.write(p, content=content, title=title, rows=rows, sheet=sheet, append=(action == "append"))
     if open:  # showing it is a bonus: never lose the save over it
@@ -833,8 +850,7 @@ def move_path(source: str, destination: str, approval_id: str = ""):
     src, dst = _resolve(source), _resolve(destination)
     guard.check_write(src)
     guard.check_write(dst)
-    if not src.exists():
-        raise FileNotFoundError(f"{src} doesn't exist")
+    _existing(src)
     if not _in_workspace(src, dst):
         safety.require_approval("move_path", {"source": str(src), "destination": str(dst)},
                                 f"move {src} to {dst}", approval_id)
@@ -850,8 +866,7 @@ def delete_path(path: str, approval_id: str = ""):
 
     p = str(_resolve(path))
     guard.check_write(p)
-    if not os.path.exists(p):
-        return f"{p} doesn't exist"
+    _existing(Path(p))
     if not _in_workspace(Path(p)):
         safety.require_approval("delete_path", {"path": p}, f"delete {p} (to the Recycle Bin)", approval_id)
     send2trash(p)
@@ -874,6 +889,9 @@ async def open_item(target: str):
             page = await bridge.call("open", {"url": target, "max_chars": 1500})
             return f"Opened {page.get('title') or target} in a new Chrome tab (tab_id {page.get('tab_id')})."
         return await asyncio.to_thread(desktop.open_in_chrome, target)  # websites: Chrome only
+    is_uri = re.match(r"^[a-z][a-z0-9+.\-]+:", target, re.I) and not re.match(r"^[a-z]:", target, re.I)
+    if not is_uri and ("/" in target or "\\" in target or re.match(r"^[a-z]:", target, re.I)):
+        target = str(_existing(_resolve(target)))  # a file or folder: "did you mean...?" if it's not quite right
     found = await asyncio.to_thread(desktop.launch, target)  # never `start` blindly: unknown names pop up an error box
     return f"Opened {target}" + (f" ({found})" if found != target else "")
 

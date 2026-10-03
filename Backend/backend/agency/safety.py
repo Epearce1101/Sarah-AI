@@ -15,6 +15,7 @@ she is told to stop and say why instead of trying again.
 """
 from __future__ import annotations
 
+import difflib
 import re
 import threading
 import time
@@ -32,8 +33,13 @@ APPROVAL_TTL = 10 * 60
 _lock = threading.Lock()
 
 
-class NeedsApproval(PermissionError):
-    """Not done: Zero has to OK this first. The message is shown to Sarah."""
+class AskZero(PermissionError):
+    """Not done: a question for Zero first. Not a failure (doesn't count
+    toward the breaker). The message is shown to Sarah."""
+
+
+class NeedsApproval(AskZero):
+    """Not done: Zero has to OK this first."""
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +120,54 @@ def require_approval(tool: str, args: Dict[str, Any], what: str, approval_id: st
 def pending_approvals() -> List[Dict[str, Any]]:
     with _lock:
         return [{"id": k, "tool": v["tool"], "what": v["what"]} for k, v in _pending.items()]
+
+
+# ---------------------------------------------------------------------------
+# "Did you mean...?" (names can be misheard: confirm near-matches)
+# ---------------------------------------------------------------------------
+
+_guesses: Dict[str, Any] = {"names": [], "serial": -1}
+
+
+def _plain(name: str) -> str:
+    return " ".join(str(name or "").lower().split())
+
+
+def near_matches(said: str, names: List[str], limit: int = 4) -> List[str]:
+    """Names that contain what was said, then ones that sound alike."""
+    key = _plain(said)
+    if not key:
+        return []
+    by_plain = {}
+    for n in sorted(set(names), key=len):
+        by_plain.setdefault(_plain(n), n)
+    found = [orig for plain, orig in by_plain.items() if key in plain]
+    found += [by_plain[p] for p in difflib.get_close_matches(key, list(by_plain), n=limit, cutoff=0.7)]
+    return list(dict.fromkeys(found))[:limit]
+
+
+def did_you_mean(kind: str, said: str, options: List[str]) -> AskZero:
+    """The question to raise when nothing matches exactly. Until Zero
+    answers, picking one of these herself is refused (check_not_guessing)."""
+    with _lock:
+        _guesses.update(names=[_plain(o) for o in options], serial=_user["serial"])
+    user = get_user_name()
+    question = (f"\"Did you mean {options[0]}?\"" if len(options) == 1
+                else "which one they meant: " + ", ".join(options))
+    return AskZero(f"NOT DONE: there's no {kind} called exactly '{said}' (it may have been misheard). "
+                   f"Close matches: {', '.join(options)}. Ask {user} {question} Then wait for their answer "
+                   "and use the exact name they confirm.")
+
+
+def check_not_guessing(name: str) -> None:
+    """Refuse acting on one of the offered near-matches before Zero answers."""
+    key = _plain(name)
+    with _lock:
+        waiting = _user["serial"] <= _guesses["serial"]
+        guessed = bool(key) and any(key == n or key in n for n in _guesses["names"])
+    if waiting and guessed:
+        raise AskZero(f"NOT DONE: you offered '{name}' as a possible match and {get_user_name()} hasn't "
+                      "confirmed it yet. Ask them, and wait for their answer.")
 
 
 # Shell commands that delete or move things (run_shell asks first).
