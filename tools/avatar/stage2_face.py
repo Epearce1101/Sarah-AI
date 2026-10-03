@@ -35,6 +35,11 @@ EXPR = {
     "ee":         {**JAW(4), **corners(0.007, 0, 0.002), "Mouth_Upper": (0, 0, 0.001)},
     "oh":         {**JAW(11), **corners(-0.005, 0, 0)},
     "ou":         {**JAW(6), **corners(-0.010, -0.003, 0), "Mouth_Upper": (0, -0.004, 0), "Mouth_Lower": (0, -0.004, 0)},
+    # Custom expressions (not VRM presets): a big open smile with teeth, and a pout.
+    "grin":       {**JAW(7), **corners(0.005, 0, 0.010, inner=0.6), "Mouth_Upper": (0, 0, 0.003),
+                   LIDS_LO: (0, 0, 0.006), **brows(0.004, 0.004, 0.003, 0.002)},
+    "pout":       {**corners(-0.008, -0.004, -0.002), "Mouth_Upper": (0, -0.005, -0.001),
+                   "Mouth_Lower": (0, -0.006, 0.003), **brows(-0.002, 0.0, 0.001, 0.0, in1=-0.001)},
 }
 
 def expand(spec):

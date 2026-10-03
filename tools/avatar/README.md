@@ -17,9 +17,10 @@ What each step does:
 | Script | Step |
 |---|---|
 | `stage1_tpose.py` | Drops the rig's constraints and animation, bakes mirror/solidify modifiers, and re-rests the arms and fingers in a T-pose (VRM's rest pose; her source rest pose had the arms 24° down, which would push every animation's arms into her body). |
-| `stage2_face.py` | Her face is driven by bones (eyelids, brows, jaw, lips) and has no shape keys, so each VRM expression is posed with those bones and baked into a shape key: `blink`, `blinkLeft`, `blinkRight`, `happy`, `sad`, `angry`, `surprised`, `relaxed`, and the mouth shapes `aa`, `ih`, `ee`, `oh`, `ou`. Tweak a face in the `EXPR` table (offsets in metres). |
-| `stage3_export.py` | Her shaders output colour directly (unlit look). The eye and hair shaders are baked to textures, colour textures get their UV islands padded (no grey seams in the browser), and the model is exported as glTF. |
-| `export_vrm.py` | Adds the `VRMC_vrm` extension: humanoid bone map, expressions, bone-based eye look-at, and unlit materials. |
+| `stage2_face.py` | Her face is driven by bones (eyelids, brows, jaw, lips) and has no shape keys, so each VRM expression is posed with those bones and baked into a shape key: `blink`, `blinkLeft`, `blinkRight`, `happy`, `sad`, `angry`, `surprised`, `relaxed`, the mouth shapes `aa`, `ih`, `ee`, `oh`, `ou`, and her own `grin` (open smile with teeth) and `pout`. Tweak a face in the `EXPR` table (offsets in metres). |
+| `stage2b_extras.py` | Adds two soft blush ovals on her cheeks (invisible until she blushes) and seven short hair bone chains (front locks, sides, back) with the hair below her temples weighted to them, so the hair can sway. |
+| `stage3_export.py` | Her shaders output colour directly. The eye and hair shaders are baked to textures, colour textures get their UV islands padded (no grey seams in the browser), and the model is exported as glTF. |
+| `export_vrm.py` | Adds the VRM extensions: humanoid bone map, expressions (plus custom `grin`, `pout` and `blush`), bone-based eye look-at, spring-bone hair physics with head/neck/chest/shoulder colliders (`VRMC_springBone`, tune with `HAIR`), and toon materials with thin outlines (`VRMC_materials_mtoon`, tune with `OUTLINE_WIDTH`). |
 
 ## Poses
 

@@ -40,7 +40,7 @@ bright = lum > 0.12
 px[bright, :3] = brown + (px[bright, :3] - brown) * 0.35
 hair.pixels[:] = px.ravel(); hair.update(); hair.save()
 
-def flat(mat_name, image=None, color=(1, 1, 1, 1), alpha=None):
+def flat(mat_name, image=None, color=(1, 1, 1, 1), alpha=None, image_alpha=False):
     m = bpy.data.materials[mat_name]; nt = m.node_tree
     for n in list(nt.nodes): nt.nodes.remove(n)
     out = nt.nodes.new("ShaderNodeOutputMaterial"); bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
@@ -50,8 +50,10 @@ def flat(mat_name, image=None, color=(1, 1, 1, 1), alpha=None):
     if image:
         t = nt.nodes.new("ShaderNodeTexImage"); t.image = image
         nt.links.new(t.outputs["Color"], bsdf.inputs["Base Color"])
-    if alpha is not None:
-        bsdf.inputs["Alpha"].default_value = alpha
+        if image_alpha:
+            nt.links.new(t.outputs["Alpha"], bsdf.inputs["Alpha"])
+    if alpha is not None or image_alpha:
+        if alpha is not None: bsdf.inputs["Alpha"].default_value = alpha
         m.surface_render_method = "BLENDED"
     else:
         m.surface_render_method = "DITHERED"
@@ -102,6 +104,8 @@ flat("MAT_Polly_EyeL", eyeL)
 flat("MAT_Polly_EyeR", eyeR)
 flat("MAT_Polly_Hair", hair)
 flat("MAT_Polly_Glass", None, (0.85, 0.92, 1.0, 1.0), alpha=0.12)
+if "MAT_Polly_Blush" in bpy.data.materials:  # from stage2b; export_vrm.py hides it until she blushes
+    flat("MAT_Polly_Blush", bpy.data.images["TEX_Sarah_blush"], image_alpha=True)
 
 # Rename to Sarah's own names for the VRM.
 for m in bpy.data.materials: m.name = m.name.replace("MAT_Polly_", "Sarah_")

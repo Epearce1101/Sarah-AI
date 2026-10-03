@@ -3,7 +3,8 @@
     python tools/avatar/build.py --blender "C:/Program Files/Blender Foundation/Blender 4.2/blender.exe" ^
         --source C:/Users/Zero/Desktop/sarah_refined.blend --textures C:/Users/Zero/Desktop/textures
 
-Runs the three Blender stages headless, then adds the VRM extension. The
+Runs the Blender stages headless (T-pose, face shapes, blush and hair
+bones, bake and export), then adds the VRM extension. The
 result lands in tools/avatar/build/sarah.vrm; copy it to
 frontend/renderer/assets/vrm/sarah.vrm (keep a backup of the old one).
 """
@@ -24,10 +25,11 @@ def main():
     ap.add_argument("--out", default=os.path.join(HERE, "build"))
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    s1, s2 = os.path.join(a.out, "stage1.blend"), os.path.join(a.out, "stage2.blend")
+    s1, s2, s2b = (os.path.join(a.out, f"stage{n}.blend") for n in ("1", "2", "2b"))
     run_stage(a.blender, "stage1_tpose.py", os.path.abspath(a.source), os.path.abspath(a.textures), s1)
     run_stage(a.blender, "stage2_face.py", s1, s2)
-    run_stage(a.blender, "stage3_export.py", s2, a.out)
+    run_stage(a.blender, "stage2b_extras.py", s2, s2b, a.out)
+    run_stage(a.blender, "stage3_export.py", s2b, a.out)
     subprocess.run([sys.executable, os.path.join(HERE, "export_vrm.py"),
                     os.path.join(a.out, "sarah_raw.glb"), os.path.join(a.out, "sarah.vrm")], check=True)
 

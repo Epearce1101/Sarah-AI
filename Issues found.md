@@ -4,6 +4,18 @@ Tracking file for current/previous issues. Tick a box when fixed; leave a short 
 
 ---
 
+## 2026-10-03 — Screen overlay, desktop pet, livelier body (#143–#151)
+
+- [x] **#143 She circles what she's talking about on screen** (requested) — new `show_on_screen` tool: finds the thing by its on-screen text (Windows UI Automation over the front three windows; exact label first), falling back to a vision model that boxes it (marked "approx"), then draws a hand-drawn circle / arrow / underline / box with an optional label on a click-through overlay window over that monitor. In pet mode she also points at it. Honest error when nothing matches.
+- [x] **#144 Pet: click through the empty space around her** — only her body catches the mouse (capsule hit test between her joints).
+- [x] **#145 Pet: speech bubble** — what she says shows in a bubble above her head, following her.
+- [x] **#146 Pet: GPU-friendly** — 30 fps while standing quietly, full rate when moving, talking or hovered.
+- [x] **#147 Pet: lives on the desktop** — naps after 10 min away, steps aside from a lingering mouse, can stand on the top edge of the window you're using (switches in Functions).
+- [x] **#148 Pet: resize with the mouse wheel**, feet staying put.
+- [x] **#149 Toon shading and outlines** — her materials are now MToon (gentle warm shade band, faint rim, thin screen-space outline on skin, clothes and hair) instead of unlit.
+- [x] **#150 Moving hair** — seven bone chains in her hair (front locks, sides, back) with VRM spring bones and head/neck/chest/shoulder colliders; checked through a jump (tips swing ~10 cm), a head shake and lying down, no tearing or clipping.
+- [x] **#151 Richer face and lip-sync** — new `grin` (open smile with teeth), `pout` and `blush` (soft cheek ovals that fade in slowly and out slower) expressions; `laugh`/`excited`/`playful` use the grin, `shy`/`embarrassed`/`blush`/`loving` blush, `thinking`/`sleepy` now move her face. On older models without them their weight goes to the nearest presets. Lip-sync now reads the vowel from her voice's formants (`avatar3d/visemes.js`) instead of loose frequency bands; unit-tested on synthetic vowels and checked with live Web Audio in the app.
+
 ## 2026-10-02 — New body: Sarah from sarah_refined.blend (#130)
 
 - [x] **#130 Use the Blender model as her avatar** (requested) — `tools/avatar/` converts `sarah_refined.blend` + `textures/` into `sarah.vrm` (VRM 1.0, 4.4 MB): rig constraints/animation dropped and the arms re-rested in a T-pose (they rested 24° down, which would have pushed every clip's arms into her body); her face is bone-driven with no shape keys, so 13 expressions are posed with the eyelid/brow/jaw/lip bones and baked to shape keys (blink, blinkLeft/Right, happy, sad, angry, surprised, relaxed, aa/ih/ee/oh/ou); eye and hair shaders baked to textures, all materials unlit like the source; colour textures padded past their UV islands (the grey background showed as a seam at the crotch under browser mipmapping). Verified in headless Chromium with three-vrm 3.5.5: loads as VRM 1.0 with all 54 humanoid bones, 13 expressions and bone look-at; arms-down pose, faces and eye tracking checked on screenshots. No app code changes: VRoid-only raw morphs (`Fcl_*`) in `FACE_RECIPES` are skipped for this model. The VRM stays git-ignored — copy `tools/avatar/build/sarah.vrm` to `frontend/renderer/assets/vrm/`.

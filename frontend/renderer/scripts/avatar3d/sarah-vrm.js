@@ -16,6 +16,7 @@ import {
   createVRMAnimationClip,
 } from "@pixiv/three-vrm-animation";
 import { describeFile, loadMixamoClip } from "./mixamo.js";
+import { visemesFromSpectrum } from "./visemes.js";
 
 const { damp, clamp, degToRad } = THREE.MathUtils;
 const tmpV1 = new THREE.Vector3();
@@ -427,28 +428,33 @@ export const FACE_RECIPES = {
   neutral: {},
   happy: { happy: 0.75 },
   smile: { happy: 0.4 },
-  laugh: { happy: 1.0, aa: 0.35 },
-  excited: { happy: 0.9, surprised: 0.25 },
-  playful: { happy: 0.6, raw: { Fcl_HA_Fung1: 0.7 } },
+  laugh: { grin: 0.9, happy: 0.25 },
+  grin: { grin: 1.0 },
+  excited: { grin: 0.6, happy: 0.35, surprised: 0.25 },
+  playful: { happy: 0.5, grin: 0.3 },
   sad: { sad: 0.8 },
   cry: { sad: 1.0, raw: { Fcl_EYE_Close: 0.25 } },
   angry: { angry: 0.8 },
   annoyed: { angry: 0.4 },
   surprised: { surprised: 0.9 },
   shocked: { surprised: 1.0, raw: { Fcl_EYE_Spread: 0.5 } },
-  shy: { happy: 0.35, relaxed: 0.3 },
+  shy: { happy: 0.3, relaxed: 0.3, blush: 0.8 },
+  embarrassed: { happy: 0.2, sad: 0.15, blush: 1.0 },
+  blush: { happy: 0.25, blush: 1.0 },
+  loving: { happy: 0.5, relaxed: 0.35, blush: 0.6 },
   smug: { relaxed: 0.55, happy: 0.2 },
   relaxed: { relaxed: 0.8 },
-  thinking: { raw: { Fcl_BRW_Sorrow: 0.35, Fcl_MTH_Close: 0.3 } },
+  thinking: { relaxed: 0.15, pout: 0.25, raw: { Fcl_BRW_Sorrow: 0.35, Fcl_MTH_Close: 0.3 } },
   worried: { sad: 0.45, raw: { Fcl_BRW_Surprised: 0.3 } },
-  sleepy: { relaxed: 0.5, raw: { Fcl_EYE_Close: 0.45 } },
-  pout: { angry: 0.25, raw: { Fcl_MTH_Up: 0.5 } },
+  sleepy: { relaxed: 0.8, raw: { Fcl_EYE_Close: 0.45 } },
+  pout: { pout: 0.9, angry: 0.15 },
 };
 
 export const FACE_ALIASES = {
-  joy: "happy", joyful: "happy", glad: "happy", grin: "happy", smiling: "smile",
-  laughing: "laugh", giggle: "laugh", affectionate: "shy", loving: "shy", love: "shy",
-  embarrassed: "shy", blush: "shy", flustered: "shy", confused: "thinking", curious: "thinking",
+  joy: "happy", joyful: "happy", glad: "happy", grinning: "grin", smiling: "smile",
+  laughing: "laugh", giggle: "laugh", affectionate: "loving", love: "loving", blushing: "blush",
+  flustered: "embarrassed", sulky: "pout", sulking: "pout", pouting: "pout",
+  confused: "thinking", curious: "thinking",
   pensive: "thinking", frustrated: "annoyed", irritated: "annoyed", mad: "angry",
   scared: "worried", nervous: "worried", anxious: "worried", concerned: "worried",
   tired: "sleepy", bored: "sleepy", calm: "relaxed", content: "relaxed", teasing: "playful",
@@ -459,7 +465,11 @@ export const FACE_ALIASES = {
 };
 
 const MOUTH = ["aa", "ih", "ou", "ee", "oh"];
-const PRESETS = ["happy", "angry", "sad", "relaxed", "surprised", ...MOUTH, "blink", "blinkLeft", "blinkRight"];
+const EMOTIONS = ["happy", "angry", "sad", "relaxed", "surprised", "grin", "pout", "blush"];
+const PRESETS = [...EMOTIONS, ...MOUTH, "blink", "blinkLeft", "blinkRight"];
+// Sarah's own expressions (not VRM presets). On a model without them, their
+// weight goes to the closest presets instead.
+const STAND_INS = { grin: { happy: 1.0 }, pout: { angry: 0.3, sad: 0.2 }, blush: { happy: 0.15 } };
 
 class Face {
   constructor(vrm) {
@@ -512,6 +522,7 @@ class Face {
   attachAnalyser(analyser) {
     this.analyser = analyser;
     this.freq = analyser ? new Uint8Array(analyser.frequencyBinCount) : null;
+    this.spectrum = analyser ? new Float32Array(analyser.frequencyBinCount) : null;
   }
 
   update(dt, now) {
@@ -521,10 +532,18 @@ class Face {
     const target = FACE_RECIPES[recipe] || {};
     const speaking = this._updateMouth(dt, now);
 
-    for (const name of ["happy", "angry", "sad", "relaxed", "surprised"]) {
-      let goal = (target[name] || 0) * amount;
-      if (speaking) goal *= 0.7; // leave room for visible lip shapes
-      this.weights[name] = damp(this.weights[name], goal, 6, dt);
+    const goals = Object.fromEntries(EMOTIONS.map((n) => [n, (target[n] || 0) * amount]));
+    for (const [name, stand] of Object.entries(STAND_INS)) {
+      if (!goals[name] || this.em?.getExpression(name)) continue;
+      for (const [k, w] of Object.entries(stand)) goals[k] = Math.min(1, goals[k] + goals[name] * w);
+      goals[name] = 0;
+    }
+    for (const name of EMOTIONS) {
+      let goal = goals[name];
+      if (speaking && name !== "blush") goal *= 0.7; // leave room for visible lip shapes
+      // A blush comes up slowly and fades slower still.
+      const rate = name === "blush" ? (goal > this.weights[name] ? 4 : 1.2) : 6;
+      this.weights[name] = damp(this.weights[name], goal, rate, dt);
     }
     const rawGoal = target.raw || {};
     for (const key of new Set([...Object.keys(this.raw), ...Object.keys(rawGoal)])) {
@@ -560,16 +579,14 @@ class Face {
       const low = band(0, 0.08);
       const midLow = band(0.08, 0.18);
       const mid = band(0.18, 0.35);
-      const high = band(0.35, 0.6);
       const volume = clamp((low + midLow + mid) / 1.6, 0, 1);
       this.energy = damp(this.energy, volume, 18, dt);
       if (volume > 0.04) {
         speaking = true;
-        targets.aa = clamp(volume * 1.8 * (0.4 + low), 0, 1);
-        targets.oh = clamp(midLow * volume * 1.4, 0, 0.8);
-        targets.ih = clamp(mid * volume * 1.3, 0, 0.7);
-        targets.ee = clamp(high * volume * 1.6, 0, 0.6);
-        targets.ou = clamp(midLow * volume * 0.8, 0, 0.5);
+        // Vowel shape from the formants of her voice (visemes.js).
+        this.analyser.getFloatFrequencyData(this.spectrum);
+        const binHz = (this.analyser.context?.sampleRate || 48000) / this.analyser.fftSize;
+        Object.assign(targets, visemesFromSpectrum(this.spectrum, binHz, volume));
       }
     } else if (this.speakingFallback > now) {
       speaking = true;
