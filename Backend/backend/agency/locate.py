@@ -77,9 +77,27 @@ def _dpi_aware() -> None:
         pass
 
 
-def _window_candidates() -> List[Tuple[str, str, Tuple[int, int, int, int], str]]:
+def window_rect(hwnd) -> Optional[Tuple[int, int, int, int]]:
+    """A window's visible bounds (x, y, w, h), physical pixels. GetWindowRect
+    includes Windows 10/11's invisible resize borders (~7 px each side); the
+    DWM frame bounds don't, so marks and perching line up with what you see."""
     from ctypes import wintypes
 
+    from . import desktop
+
+    r = wintypes.RECT()
+    try:
+        if ctypes.windll.dwmapi.DwmGetWindowAttribute(wintypes.HWND(hwnd), 9, ctypes.byref(r), ctypes.sizeof(r)) == 0 \
+                and r.right > r.left:
+            return (r.left, r.top, r.right - r.left, r.bottom - r.top)
+    except Exception:
+        pass
+    if not desktop.user32.GetWindowRect(hwnd, ctypes.byref(r)):
+        return None
+    return (r.left, r.top, r.right - r.left, r.bottom - r.top)
+
+
+def _window_candidates() -> List[Tuple[str, str, Tuple[int, int, int, int], str]]:
     from . import desktop
 
     out = []
@@ -87,11 +105,11 @@ def _window_candidates() -> List[Tuple[str, str, Tuple[int, int, int, int], str]
         title = str(w["title"])
         if w["minimized"] or title.startswith("Sarah"):
             continue
-        r = wintypes.RECT()
-        if not desktop.user32.GetWindowRect(w["hwnd"], ctypes.byref(r)):
+        rect = window_rect(w["hwnd"])
+        if not rect:
             continue
         kind = "folder window" if w["app"] == "explorer.exe" else "window"
-        out.append((title, kind, (r.left, r.top, r.right - r.left, r.bottom - r.top), str(w["app"])))
+        out.append((title, kind, rect, str(w["app"])))
     return out
 
 
@@ -282,8 +300,6 @@ def foreground() -> Dict[str, object]:
     rect in physical pixels; pet mode perches on top of it."""
     if os.name != "nt":
         return {"found": False}
-    from ctypes import wintypes
-
     from . import desktop
 
     _dpi_aware()
@@ -293,9 +309,29 @@ def foreground() -> Dict[str, object]:
     info = next((w for w in desktop.windows() if w["hwnd"] == int(hwnd)), None)
     if not info or info["minimized"] or str(info["title"]).startswith("Sarah") or info["app"] == "electron.exe":
         return {"found": False}
-    r = wintypes.RECT()
-    if not desktop.user32.GetWindowRect(hwnd, ctypes.byref(r)):
+    rect = window_rect(hwnd)
+    if not rect:
         return {"found": False}
     return {"found": True, "hwnd": int(hwnd), "title": info["title"], "app": info["app"],
-            "rect": [r.left, r.top, r.right - r.left, r.bottom - r.top],
-            "maximized": bool(desktop.user32.IsZoomed(hwnd))}
+            "rect": list(rect), "maximized": bool(desktop.user32.IsZoomed(hwnd)),
+            "fullscreen": _covers_monitor(hwnd, rect)}
+
+
+def _covers_monitor(hwnd, rect) -> bool:
+    """True for a borderless window filling its whole monitor (a game, a
+    full-screen video or presentation)."""
+    from ctypes import wintypes
+
+    class MONITORINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                    ("dwFlags", wintypes.DWORD)]
+    try:
+        mon = ctypes.windll.user32.MonitorFromWindow(wintypes.HWND(hwnd), 2)
+        mi = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+        if not ctypes.windll.user32.GetMonitorInfoW(mon, ctypes.byref(mi)):
+            return False
+        m = mi.rcMonitor
+        x, y, w, h = rect
+        return x <= m.left and y <= m.top and x + w >= m.right and y + h >= m.bottom
+    except Exception:
+        return False

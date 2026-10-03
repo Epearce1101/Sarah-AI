@@ -226,8 +226,10 @@ function enterPetMode() {
   const rememberBounds = () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      if (!petWindow || petPerched) return; // perching never moves her own spot
-      appPrefs.petBounds = petWindow.getBounds();
+      if (!petWindow) return;
+      const b = petWindow.getBounds();
+      // Perching never moves her own spot, but a new size is still hers.
+      appPrefs.petBounds = petPerched ? { ...(appPrefs.petBounds || {}), width: b.width, height: b.height } : b;
       saveAppPrefs();
     }, 500);
   };
@@ -331,14 +333,18 @@ ipcMain.handle("pet-perch", (_event, { rect = [], feetX = 0, feetY = 0 } = {}) =
   if (y < area.y || r.width < b.width) return { ok: false, reason: "no room on top of it" };
   // Toward the right, clear of the window's own buttons.
   const x = Math.max(area.x, Math.min(area.x + area.width - b.width, Math.round(r.x + r.width - 190 - feetX)));
-  if (!petPerched) petHome = { x: b.x, y: b.y };
+  // Her spot by where her feet were, so a resize while perched still lands right.
+  if (!petPerched) petHome = { cx: b.x + b.width / 2, bottom: b.y + b.height };
   petPerched = true;
   if (Math.abs(b.x - x) > 2 || Math.abs(b.y - y) > 2) glidePet(x, y);
   return { ok: true };
 });
 
 ipcMain.on("pet-home", () => {
-  if (petPerched && petHome) glidePet(petHome.x, petHome.y);
+  if (petPerched && petHome && petWindow && !petWindow.isDestroyed()) {
+    const b = petWindow.getBounds();
+    glidePet(Math.round(petHome.cx - b.width / 2), Math.round(petHome.bottom - b.height));
+  }
   petPerched = false;
 });
 

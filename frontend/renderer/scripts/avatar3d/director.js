@@ -711,7 +711,8 @@ export class SarahDirector {
     // rest); moving, talking or being hovered gets every frame.
     const calm = isPet() && this.mode === "idle" && !this.avatar.animator.busy && !body.pose && !body.point
       && now - this.cursor.at > 1500 && !this.napping;
-    this.avatar.maxFps = calm ? 30 : 0;
+    // Asleep she barely moves: 20 fps is plenty.
+    this.avatar.maxFps = this.napping ? 20 : calm ? 30 : 0;
 
     // Attention: explicit/temporary targets win; otherwise choose by mode.
     if (this.attention && now > this.attention.until) this.attention = null;

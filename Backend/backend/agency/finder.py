@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import time
+from collections import deque
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -63,20 +64,22 @@ def _item(name: str, kind: str, path: str, how: str = "path", modified: Optional
 # ---------------------------------------------------------------------------
 
 def _start_menu_dirs() -> List[Path]:
+    """(folder, recursive): the Start menu trees, and the desktops' top level
+    (their sub-folders are Zero's files, not shortcuts, and can be huge)."""
     dirs = []
     for env in ("ProgramData", "APPDATA"):
         base = os.environ.get(env)
         if base:
-            dirs.append(Path(base) / "Microsoft" / "Windows" / "Start Menu" / "Programs")
+            dirs.append((Path(base) / "Microsoft" / "Windows" / "Start Menu" / "Programs", True))
     from .desktop import known_folder
 
     desk = known_folder("desktop")
     if desk:
-        dirs.append(desk)
+        dirs.append((desk, False))
     public = os.environ.get("PUBLIC")
     if public:
-        dirs.append(Path(public) / "Desktop")
-    return [d for d in dirs if d.exists()]
+        dirs.append((Path(public) / "Desktop", False))
+    return [(d, r) for d, r in dirs if d.exists()]
 
 
 def apps(max_age: float = 600) -> List[Dict[str, object]]:
@@ -84,8 +87,8 @@ def apps(max_age: float = 600) -> List[Dict[str, object]]:
     if time.time() - float(_apps_cache["at"]) < max_age and _apps_cache["items"]:
         return list(_apps_cache["items"])  # type: ignore[arg-type]
     found: Dict[str, Dict[str, object]] = {}
-    for root in _start_menu_dirs():
-        for p in root.rglob("*"):
+    for root, recursive in _start_menu_dirs():
+        for p in (root.rglob("*") if recursive else root.glob("*")):
             if p.suffix.lower() in (".lnk", ".url", ".appref-ms") and not re.search(r"uninstall|readme|help|website", p.stem, re.I):
                 found.setdefault(p.stem.lower(), _item(p.stem, "app", str(p)))
     if os.name == "nt":
@@ -177,10 +180,10 @@ def _walk(words: List[str], kind: str, roots: Optional[Iterable[Path]] = None, b
           max_depth: int = 5) -> List[Dict[str, object]]:
     """Breadth-first over Zero's folders, stopping after `budget` seconds."""
     deadline = time.time() + budget
-    queue = [(Path(r), 0) for r in (roots if roots is not None else _walk_roots())]
+    queue = deque((Path(r), 0) for r in (roots if roots is not None else _walk_roots()))
     seen, hits = set(), []
     while queue and time.time() < deadline:
-        folder, depth = queue.pop(0)
+        folder, depth = queue.popleft()
         key = str(folder).lower()
         if key in seen:
             continue
@@ -223,7 +226,12 @@ def find(query: str, kind: str = "any", limit: int = 8) -> List[Dict[str, object
         pool += projects()
     if kind in ("any", "file", "folder"):
         indexed = _search_index(words, kind)
-        pool += indexed if indexed is not None else _walk(words, kind)
+        # The index only covers indexed places; when it has nothing that
+        # matches, look through Zero's own folders as well.
+        if indexed is None or not any(rank(str(it["name"]), query) > 0 for it in indexed):
+            pool += _walk(words, kind, budget=4.0 if indexed is None else 2.5)
+        if indexed:
+            pool += indexed
     scored = []
     seen = set()
     for it in pool:

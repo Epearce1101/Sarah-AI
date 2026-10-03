@@ -820,7 +820,8 @@ class SarahUI {
       setOver(Boolean(window.SARAH_VRM?.hitTest?.(ev.clientX, ev.clientY)));
       // Step aside: the mouse lingering right beside her (in her window but
       // not on her) means you want what's under there.
-      if (over || !this._petPref("stepAside")) return void (nearSince = 0);
+      // (Not while she's standing on a window: she's above it, not on it.)
+      if (over || this._perched || !this._petPref("stepAside")) return void (nearSince = 0);
       if (!nearSince || now - lastNear > 400) nearSince = now;
       lastNear = now;
       if (now - nearSince > 1500 && now - steppedAt > 8000) {
