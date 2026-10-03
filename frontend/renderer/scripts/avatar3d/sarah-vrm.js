@@ -776,6 +776,78 @@ export class SarahVRM {
     if (this.points) this.setFrame(this.frame);
   }
 
+  // Is this point (client px) on her body? Capsules between her joints,
+  // projected to the screen. Pet mode lets clicks through everywhere else.
+  hitTest(clientX, clientY) {
+    if (!this.vrm) return false;
+    const rect = this.canvas.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+    const h = this.vrm.humanoid;
+    const node = (n) => h.getNormalizedBoneNode(n);
+    const at = (n, offset) => {
+      const b = node(n);
+      if (!b) return null;
+      return offset ? b.localToWorld(new THREE.Vector3(...offset)) : b.getWorldPosition(new THREE.Vector3());
+    };
+    const toPx = (v) => {
+      const p = v.clone().project(this.camera);
+      return [((p.x + 1) / 2) * rect.width, ((1 - p.y) / 2) * rect.height];
+    };
+    const hips = at("hips");
+    if (!hips) return false;
+    // Pixels per metre at her depth.
+    const a = toPx(hips);
+    const b = toPx(hips.clone().add(new THREE.Vector3(0.1, 0, 0)));
+    const ppm = Math.hypot(b[0] - a[0], b[1] - a[1]) * 10;
+    const caps = [
+      ["hips", "spine", 0.15], ["spine", "upperChest", 0.16], ["upperChest", "neck", 0.12],
+      ["neck", "head", 0.07], ["head", ["head", [0, 0.16, 0]], 0.13],
+      ["leftUpperLeg", "rightUpperLeg", 0.11],
+    ];
+    for (const s of ["left", "right"]) {
+      caps.push([`${s}UpperArm`, `${s}LowerArm`, 0.055], [`${s}LowerArm`, `${s}Hand`, 0.05],
+        [`${s}Hand`, [`${s}Hand`, [s === "left" ? 0.09 : -0.09, 0, 0]], 0.05],
+        [`${s}UpperLeg`, `${s}LowerLeg`, 0.085], [`${s}LowerLeg`, `${s}Foot`, 0.065], [`${s}Foot`, `${s}Toes`, 0.06]);
+    }
+    for (const [from, to, radius] of caps) {
+      const p0 = Array.isArray(from) ? at(...from) : at(from);
+      const p1 = Array.isArray(to) ? at(...to) : at(to);
+      if (!p0 || !p1) continue;
+      const [x0, y0] = toPx(p0);
+      const [x1, y1] = toPx(p1);
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const t = Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / (dx * dx + dy * dy || 1)));
+      if (Math.hypot(px - (x0 + dx * t), py - (y0 + dy * t)) <= radius * ppm) return true;
+    }
+    return false;
+  }
+
+  // Where her head is on screen (client px), for the pet speech bubble.
+  headClientPoint(above = 0.22) {
+    const head = this.vrm?.humanoid.getNormalizedBoneNode("head");
+    if (!head) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    const p = head.localToWorld(new THREE.Vector3(0, above, 0)).project(this.camera);
+    return { x: rect.left + ((p.x + 1) / 2) * rect.width, y: rect.top + ((1 - p.y) / 2) * rect.height };
+  }
+
+  // Where her soles are on screen (client px): pet mode stands her on windows.
+  feetClientPoint() {
+    const h = this.vrm?.humanoid;
+    if (!h) return null;
+    const pts = ["leftFoot", "rightFoot", "leftToes", "rightToes"]
+      .map((n) => h.getNormalizedBoneNode(n)?.getWorldPosition(new THREE.Vector3()))
+      .filter(Boolean);
+    if (!pts.length) return null;
+    const sole = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(pts.length);
+    sole.y = Math.min(...pts.map((p) => p.y)) - 0.04;
+    const rect = this.canvas.getBoundingClientRect();
+    const p = sole.project(this.camera);
+    return { x: rect.left + ((p.x + 1) / 2) * rect.width, y: rect.top + ((1 - p.y) / 2) * rect.height };
+  }
+
   // Screen (client px) -> world point on a plane in front of the avatar.
   // Works for points outside the canvas too (e.g. the chat panel), so she
   // can look and point across the whole window.
@@ -796,10 +868,14 @@ export class SarahVRM {
     if (this.running) return;
     this.running = true;
     this.clock.getDelta();
-    const tick = () => {
+    const tick = (stamp) => {
       if (!this.running) return;
       this._raf = requestAnimationFrame(tick);
       if (document.hidden) return;
+      // maxFps (set by the director, e.g. 30 while she stands quietly in pet
+      // mode) leaves the GPU to your games; 0 = every display frame.
+      if (this.maxFps && stamp - (this._lastDraw || 0) < 1000 / this.maxFps - 2) return;
+      this._lastDraw = stamp;
       const dt = Math.min(this.clock.getDelta(), 1 / 20);
       const now = performance.now();
       this.onFrame?.(dt, now);

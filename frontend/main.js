@@ -185,6 +185,9 @@ function quitSarah() {
 // meanwhile (like the tray, but she isn't "away").
 // ---------------------------------------------------------------------------
 let petWindow = null;
+let petPerched = false;   // standing on the window you're using (not her own spot)
+let petHome = null;       // where she was before perching
+let petGlide = null;
 
 function enterPetMode() {
   if (petWindow) { petWindow.show(); return; }
@@ -211,11 +214,18 @@ function enterPetMode() {
     show: false, // shown once she's drawn in it (see revealPet), so there's no empty gap
   });
   petWindow.setAlwaysOnTop(true, "floating");
+  // Clicks pass through the see-through space around her; the renderer
+  // (which still gets mouse moves) says when the mouse is over her body.
+  // Forwarding exists on Windows and macOS only; elsewhere the whole window
+  // keeps taking the mouse as before.
+  if (process.platform === "win32" || process.platform === "darwin") {
+    petWindow.setIgnoreMouseEvents(true, { forward: true });
+  }
   let saveTimer = null;
   const rememberBounds = () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      if (!petWindow) return;
+      if (!petWindow || petPerched) return; // perching never moves her own spot
       appPrefs.petBounds = petWindow.getBounds();
       saveAppPrefs();
     }, 500);
@@ -260,6 +270,8 @@ let petDrag = null;
 ipcMain.on("pet-drag", (_event, { phase, x, y } = {}) => {
   if (!petWindow) return;
   if (phase === "start") {
+    clearInterval(petGlide);
+    petPerched = false; // where you put her is her spot
     petDrag = { from: petWindow.getBounds(), x, y };
   } else if (phase === "move" && petDrag) {
     const { from } = petDrag;
@@ -269,6 +281,78 @@ ipcMain.on("pet-drag", (_event, { phase, x, y } = {}) => {
   } else {
     petDrag = null;
   }
+});
+
+// Glide the pet window to (x, y) in DIPs (perching, stepping aside, home).
+function glidePet(x, y, ms = 380) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const from = petWindow.getBounds();
+  const started = Date.now();
+  clearInterval(petGlide);
+  petGlide = setInterval(() => {
+    if (!petWindow || petWindow.isDestroyed()) return clearInterval(petGlide);
+    const k = Math.min(1, (Date.now() - started) / ms);
+    const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+    petWindow.setBounds({ x: Math.round(from.x + (x - from.x) * e), y: Math.round(from.y + (y - from.y) * e), width: from.width, height: from.height });
+    if (k >= 1) clearInterval(petGlide);
+  }, 16);
+}
+
+// How long since any keyboard/mouse input on the whole PC (her naps).
+ipcMain.handle("system-idle", () => {
+  const { powerMonitor } = require("electron");
+  return powerMonitor.getSystemIdleTime();
+});
+
+// Your mouse lingers beside her: she steps out of the way (dir -1 left, 1 right).
+ipcMain.on("pet-step-aside", (_event, dir) => {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const { screen } = require("electron");
+  const b = petWindow.getBounds();
+  const area = screen.getDisplayMatching(b).workArea;
+  let x = b.x + Math.sign(dir || 1) * Math.round(b.width * 0.9);
+  if (x < area.x || x + b.width > area.x + area.width) x = b.x - Math.sign(dir || 1) * Math.round(b.width * 0.9);
+  glidePet(Math.max(area.x, Math.min(area.x + area.width - b.width, x)), b.y);
+});
+
+// Stand on top of the window you're using: rect in physical px; feetX/feetY
+// are where her feet are inside the pet window (DIPs).
+ipcMain.handle("pet-perch", (_event, { rect = [], feetX = 0, feetY = 0 } = {}) => {
+  if (!petWindow || petWindow.isDestroyed()) return { ok: false };
+  const { screen } = require("electron");
+  const [rx, ry, rw, rh] = rect;
+  if (![rx, ry, rw, rh, feetX, feetY].every(Number.isFinite)) return { ok: false };
+  const r = process.platform === "win32" ? screen.screenToDipRect(null, { x: rx, y: ry, width: rw, height: rh }) : { x: rx, y: ry, width: rw, height: rh };
+  const area = screen.getDisplayMatching(r).workArea;
+  const b = petWindow.getBounds();
+  const y = Math.round(r.y - feetY);
+  if (y < area.y || r.width < b.width) return { ok: false, reason: "no room on top of it" };
+  // Toward the right, clear of the window's own buttons.
+  const x = Math.max(area.x, Math.min(area.x + area.width - b.width, Math.round(r.x + r.width - 190 - feetX)));
+  if (!petPerched) petHome = { x: b.x, y: b.y };
+  petPerched = true;
+  if (Math.abs(b.x - x) > 2 || Math.abs(b.y - y) > 2) glidePet(x, y);
+  return { ok: true };
+});
+
+ipcMain.on("pet-home", () => {
+  if (petPerched && petHome) glidePet(petHome.x, petHome.y);
+  petPerched = false;
+});
+
+ipcMain.on("pet-hover", (_event, over) => {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  if (process.platform !== "win32" && process.platform !== "darwin") return;
+  petWindow.setIgnoreMouseEvents(!over, { forward: true });
+});
+
+// Mouse wheel over her: grow or shrink her, feet staying where they are.
+ipcMain.on("pet-scale", (_event, factor) => {
+  if (!petWindow || petWindow.isDestroyed() || !Number.isFinite(factor)) return;
+  const b = petWindow.getBounds();
+  const width = Math.round(Math.max(120, Math.min(900, b.width * factor)));
+  const height = Math.max(200, Math.round((b.height * width) / b.width));
+  petWindow.setBounds({ x: Math.round(b.x + (b.width - width) / 2), y: b.y + b.height - height, width, height });
 });
 
 // Right-click on the pet: close Sarah completely (same as "Quit Sarah").

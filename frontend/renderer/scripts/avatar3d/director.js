@@ -89,6 +89,16 @@ const PET_IDLE = "119_Idle";
 const PET_ACTIONS = ["tilt", "nod_small"];
 const PET_IDLE_GAP = [150000, 300000];
 const isPet = () => document.documentElement.classList.contains("pet-mode");
+// Pet behaviour switches (Functions tab), shared with the dashboard.
+export const petPref = (key, fallback = true) => {
+  try {
+    const v = localStorage.getItem(`sarah.pet.${key}`);
+    return v == null ? fallback : v === "on";
+  } catch {
+    return fallback;
+  }
+};
+const NAP_AFTER = 600; // seconds without keyboard or mouse anywhere on the PC
 // <point> words that are places around her, not things on Zero's screen.
 const POINT_WORDS = /^(chat|messages|conversation|input|keyboard|typing|user|you|viewer|camera|cursor|mouse|left|right|up|down|away|sky|floor|sidebar|menu|screen|top|self|me)$/i;
 const MOOD_FACE = {
@@ -361,6 +371,7 @@ export class SarahDirector {
     const seconds = duration && Number.isFinite(duration) ? duration : Math.max(1, text.length * 0.06);
     this.avatar.face.speakingFallback = analyser ? 0 : performance.now() + seconds * 1000;
     const plan = this._bodyLanguage(text, cues);
+    if (isPet()) this.onSpeech?.(text); // her words in a bubble above her head
     const len = Math.max(1, text.length);
     this.speechTimers ||= new Set();
     for (const cue of plan) {
@@ -416,6 +427,7 @@ export class SarahDirector {
   // Replies read without voice: act them out with the same auto body
   // language a spoken reply would get.
   performText(text, cues = []) {
+    if (isPet()) this.onSpeech?.(text);
     this.performSequence(this._bodyLanguage(text, cues));
   }
 
@@ -541,7 +553,7 @@ export class SarahDirector {
     return {
       renderer: "vrm",
       mode: this.mode,
-      activity: gesture ? `${gesture} (${stance})` : stance,
+      activity: this.napping ? "lying on your side, napping" : gesture ? `${gesture} (${stance})` : stance,
       expression: FACE_WORDS[active] || null,
       looking_at: this.attention?.name || "user",
       frame: { upper: "upper body", face: "face, close up", full: "whole body" }[this.avatar.frame] || null,
@@ -554,6 +566,7 @@ export class SarahDirector {
   }
 
   _activity() {
+    if (this.napping) this.wake();
     const now = performance.now();
     const away = now - this.lastActivity;
     this.lastActivity = now;
@@ -570,6 +583,7 @@ export class SarahDirector {
   }
 
   _setMode(mode) {
+    if (mode !== "idle" && this.napping) this.wake();
     if (this.mode === mode) return;
     this.mode = mode;
     const face = this.avatar.face;
@@ -609,6 +623,7 @@ export class SarahDirector {
   // `change` picks a different one (the occasional shift of weight).
   _setBaseForMode(change = false) {
     const anim = this.avatar.animator;
+    if (this.napping) return; // she stays curled up until she wakes
     if (this.mode === "speaking") {
       anim.setBase(pick(TALKING), 0.5);
       return;
@@ -659,9 +674,44 @@ export class SarahDirector {
     } catch {}
   }
 
+  // ----- naps (pet mode) -------------------------------------------------------
+  // After a while with no keyboard or mouse anywhere on the PC she lies down
+  // on her side for a nap; she's up again as soon as you're back.
+  async _checkNap() {
+    let idle;
+    try { idle = await window.sarahApp?.systemIdleSeconds?.(); } catch { return; }
+    if (!Number.isFinite(idle)) return;
+    if (!this.napping && idle >= NAP_AFTER && this.mode === "idle" && !this.avatar.animator.busy && petPref("nap")) this.nap();
+    else if (this.napping && idle < 3) this.wake();
+  }
+
+  nap() {
+    if (this.napping || !this.avatar.animator.has("pose_lie_side")) return false;
+    this.napping = true;
+    this.avatar.body.still = true;
+    this.avatar.animator.setBase("pose_lie_side", 1.4);
+    this.avatar.setFrame("floor");
+    this.avatar.face.setBaseline("sleepy", 0.8);
+    return true;
+  }
+
+  wake() {
+    if (!this.napping) return;
+    this.napping = false;
+    this.avatar.body.still = false;
+    this._setBaseForMode();
+    this._frameFor(null);
+    this.avatar.face.setBaseline(MOOD_FACE[this.mood.emotion] || this.mood.emotion, 0.2 + this.mood.intensity * 0.4);
+  }
+
   // ----- per frame -----------------------------------------------------------
   update(dt, now) {
     const body = this.avatar.body;
+    // GPU: standing quietly in pet mode she draws at 30 fps (games get the
+    // rest); moving, talking or being hovered gets every frame.
+    const calm = isPet() && this.mode === "idle" && !this.avatar.animator.busy && !body.pose && !body.point
+      && now - this.cursor.at > 1500 && !this.napping;
+    this.avatar.maxFps = calm ? 30 : 0;
 
     // Attention: explicit/temporary targets win; otherwise choose by mode.
     if (this.attention && now > this.attention.until) this.attention = null;
@@ -695,7 +745,11 @@ export class SarahDirector {
     // last movement finished, so one never follows straight on another. In
     // pet mode only a small tilt or nod every few minutes.
     const pet = isPet();
-    if (this.mode === "idle" && (this.avatar.animator.busy || body.pose)) this.lastIdleAction = now;
+    if (pet && now > (this._napCheckAt || 0)) {
+      this._napCheckAt = now + (this.napping ? 2000 : 15000);
+      this._checkNap();
+    }
+    if (this.mode === "idle" && (this.avatar.animator.busy || body.pose || this.napping)) this.lastIdleAction = now;
     else if (this.mode === "idle") {
       this.idleGap ??= rand(...(pet ? PET_IDLE_GAP : IDLE_GAP));
       if (now - this.lastIdleAction > this.idleGap) {

@@ -275,3 +275,27 @@ def find_on_screen(target: str) -> Dict[str, object]:
     if thing.get("found"):
         return thing
     return text_hit or {"found": False, "reason": f"couldn't find '{target}' on screen"}
+
+
+def foreground() -> Dict[str, object]:
+    """The window Zero is using right now (never Sarah's own), with its
+    rect in physical pixels; pet mode perches on top of it."""
+    if os.name != "nt":
+        return {"found": False}
+    from ctypes import wintypes
+
+    from . import desktop
+
+    _dpi_aware()
+    hwnd = desktop.user32.GetForegroundWindow()
+    if not hwnd:
+        return {"found": False}
+    info = next((w for w in desktop.windows() if w["hwnd"] == int(hwnd)), None)
+    if not info or info["minimized"] or str(info["title"]).startswith("Sarah") or info["app"] == "electron.exe":
+        return {"found": False}
+    r = wintypes.RECT()
+    if not desktop.user32.GetWindowRect(hwnd, ctypes.byref(r)):
+        return {"found": False}
+    return {"found": True, "hwnd": int(hwnd), "title": info["title"], "app": info["app"],
+            "rect": [r.left, r.top, r.right - r.left, r.bottom - r.top],
+            "maximized": bool(desktop.user32.IsZoomed(hwnd))}

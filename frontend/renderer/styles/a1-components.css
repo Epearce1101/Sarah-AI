@@ -1705,3 +1705,5 @@ html.pet-mode .pet-controls, html.pet-mode .voice-caption { display: none !impor
 .fn-notes-status.saved { color: var(--accent-green); }
 .fn-notes-status.error { color: var(--accent-rose); }
 .fn-notes-bar .pill-btn:disabled { opacity: 0.4; cursor: default; filter: saturate(0.4); }
+/* Pet mode: no background grid texture around her on the desktop. */
+html.pet-mode body::before { display: none !important; }

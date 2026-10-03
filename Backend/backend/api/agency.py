@@ -157,3 +157,13 @@ def agency_locate(target: str = ""):
         return locate(target[:400])
     except Exception as exc:  # UI Automation hiccups must never break a reply
         return {"found": False, "reason": str(exc)[:200]}
+
+
+@router.get("/api/agency/foreground")
+def agency_foreground():
+    """The window Zero is using (not Sarah's), for pet mode to stand on."""
+    from backend.agency.locate import foreground
+    try:
+        return foreground()
+    except Exception as exc:
+        return {"found": False, "reason": str(exc)[:200]}

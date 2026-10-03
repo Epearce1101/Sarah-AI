@@ -562,6 +562,13 @@ class SarahUI {
       { label: "Desktop pet mode", hint: "Just Sarah, in a small see-through window that stays on top of "
           + "your games and apps. Talk by voice; hover her for the controls to come back.",
         on: () => false, toggle: () => window.sarahApp?.setPetMode?.(true), disabled: !window.sarahApp, bulk: false },
+      { label: "Pet: stand on the window you're using", hint: "In pet mode she hops onto the top edge of the "
+          + "window you're working in and goes along with it. Drag her somewhere to keep her off that window.",
+        on: () => this._petPref("perch", false), toggle: () => this._setPetPref("perch", !this._petPref("perch", false)) },
+      { label: "Pet: step aside from your mouse", hint: "If your mouse lingers right beside her, she moves out "
+          + "of the way.", on: () => this._petPref("stepAside"), toggle: () => this._setPetPref("stepAside", !this._petPref("stepAside")) },
+      { label: "Pet: nap when you're away", hint: "After 10 minutes without keyboard or mouse she lies down "
+          + "for a nap, and gets up when you're back.", on: () => this._petPref("nap"), toggle: () => this._setPetPref("nap", !this._petPref("nap")) },
       { label: "Keep running when closed", hint: "Closing the window sends her to the tray, where she keeps "
           + "working on her own time. Camera, screen and mic switch off while she's there.",
         on: () => this._backgroundOn, toggle: () => this._setBackgroundMode(!this._backgroundOn),
@@ -713,7 +720,10 @@ class SarahUI {
   // her tools finishes with one (opening it, reading it, listing a folder).
   _initPetPointing(tries = 0) {
     const director = window.SARAH_AVATAR_DIRECTOR; // set once her 3D body is up
-    if (director) director.onPointAtThing = (target) => this._pointAtThing(target);
+    if (director) {
+      director.onPointAtThing = (target) => this._pointAtThing(target);
+      director.onSpeech = (text) => this._petBubble(text);
+    }
     else if (tries < 120) setTimeout(() => this._initPetPointing(tries + 1), 500);
   }
 
@@ -773,6 +783,7 @@ class SarahUI {
         drag.moving = true;
         try { area.setPointerCapture(ev.pointerId); } catch {}
         area.classList.add("pet-dragging");
+        this._perchPausedFor = this._foregroundHwnd; // you put her somewhere: stay off this window
         clearTimeout(window.SARAH_AVATAR_DIRECTOR?._touchTimer); // a drag isn't a touch
         window.sarahApp.petDrag("start", drag.x, drag.y);
       }
@@ -789,6 +800,91 @@ class SarahUI {
     area.addEventListener("pointerup", end);
     area.addEventListener("pointercancel", end);
     area.addEventListener("lostpointercapture", end);
+    // Click-through: only her body takes the mouse; the main process lets
+    // clicks through everywhere else and still forwards moves, so we can tell.
+    let over = null;
+    let lastCheck = 0;
+    let nearSince = 0;
+    let lastNear = 0;
+    let steppedAt = 0;
+    const setOver = (value) => {
+      if (value === over) return;
+      over = value;
+      window.sarahApp.petHover?.(value);
+    };
+    window.addEventListener("mousemove", (ev) => {
+      if (drag) return setOver(true);
+      const now = performance.now();
+      if (now - lastCheck < 33) return;
+      lastCheck = now;
+      setOver(Boolean(window.SARAH_VRM?.hitTest?.(ev.clientX, ev.clientY)));
+      // Step aside: the mouse lingering right beside her (in her window but
+      // not on her) means you want what's under there.
+      if (over || !this._petPref("stepAside")) return void (nearSince = 0);
+      if (!nearSince || now - lastNear > 400) nearSince = now;
+      lastNear = now;
+      if (now - nearSince > 1500 && now - steppedAt > 8000) {
+        steppedAt = now;
+        nearSince = 0;
+        window.sarahApp.petStepAside?.(ev.clientX < window.innerWidth / 2 ? 1 : -1);
+      }
+    });
+    setInterval(() => this._petPerchTick(), 1500);
+    document.documentElement.addEventListener("mouseleave", () => { if (!drag) setOver(false); });
+    // Mouse wheel over her: bigger or smaller (feet stay put; remembered).
+    area.addEventListener("wheel", (ev) => {
+      ev.preventDefault();
+      window.sarahApp.petScale?.(ev.deltaY < 0 ? 1.08 : 1 / 1.08);
+    }, { passive: false });
+  }
+
+  _petPref(key, fallback = true) {
+    try {
+      const v = localStorage.getItem(`sarah.pet.${key}`);
+      return v == null ? fallback : v === "on";
+    } catch {
+      return fallback;
+    }
+  }
+
+  _setPetPref(key, on) {
+    try { localStorage.setItem(`sarah.pet.${key}`, on ? "on" : "off"); } catch {}
+  }
+
+  // Pet mode: stand on top of the window you're using and go along with it
+  // (off by default). Back to her own spot when there's no room (maximized)
+  // or the option is off; dragging her keeps her off that window.
+  async _petPerchTick() {
+    const home = () => {
+      if (this._perched) window.sarahApp.petHome?.();
+      this._perched = false;
+    };
+    if (!this._petPref("perch", false) || window.SARAH_AVATAR_DIRECTOR?.napping) return home();
+    let fg = null;
+    try { fg = await (await fetch(`${API_BASE}/api/agency/foreground`)).json(); } catch { return; }
+    if (!fg?.found) return; // Sarah herself (or nothing) in front: stay where she is
+    this._foregroundHwnd = fg.hwnd;
+    if (fg.maximized || this._perchPausedFor === fg.hwnd) return home();
+    const feet = window.SARAH_VRM?.feetClientPoint?.();
+    if (!feet) return;
+    const res = await window.sarahApp.petPerch?.({ rect: fg.rect, feetX: feet.x, feetY: feet.y });
+    if (res?.ok) this._perched = true;
+    else home();
+  }
+
+  // Pet mode: her words in a bubble above her head (on the screen overlay),
+  // following her if she's moved while it shows.
+  _petBubble(text) {
+    const words = String(text || "").replace(/\s+/g, " ").trim();
+    if (!words || !window.sarahApp?.overlayBubble) return;
+    const place = () => {
+      const p = window.SARAH_VRM?.headClientPoint?.();
+      if (p) window.sarahApp.overlayBubble({ text: words, x: window.screenX + p.x, y: window.screenY + p.y });
+    };
+    place();
+    clearInterval(this._bubbleFollow);
+    const until = Date.now() + Math.min(12, 2.5 + words.length * 0.055) * 1000;
+    this._bubbleFollow = setInterval(() => (Date.now() > until ? clearInterval(this._bubbleFollow) : place()), 300);
   }
 
   _onWindowState(inTray, state = {}) {
