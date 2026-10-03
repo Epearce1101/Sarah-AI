@@ -194,7 +194,7 @@ class Animator {
     action.timeScale = speed;
     this._fadeTo(action, prev, fade);
     return new Promise((resolve) => {
-      this.oneShot = { id, action, resolve };
+      this.oneShot = { id, action, resolve, fade };
     });
   }
 
@@ -205,7 +205,7 @@ class Animator {
     const next = this.pendingBase || this.base;
     this.pendingBase = null;
     if (next) {
-      this._fadeTo(next.action, done.action, 0.5);
+      this._fadeTo(next.action, done.action, Math.max(0.5, done.fade || 0)); // as slow back as it went in
       this.base = next;
     }
     done.resolve(true);
@@ -268,10 +268,14 @@ class Body {
   }
 
   update(dt, now) {
-    this._applyGaze(dt);
-    this._applyLeanAndTilt(dt);
-    this._applyPose(dt, now);
-    this._applyPoint(dt, now);
+    // Lying on the floor the clip holds her whole body; turning the spine and
+    // head as if she were standing would twist her, so only her eyes follow.
+    if (!this.still) {
+      this._applyGaze(dt);
+      this._applyLeanAndTilt(dt);
+      this._applyPose(dt, now);
+      this._applyPoint(dt, now);
+    }
     // Coming closer: the whole figure moves toward the camera (she faces +Z).
     this.approach = damp(this.approach, this.approachTarget, 2.5, dt);
     this.vrm.scene.position.z = this.approach + this._poseApproach;
@@ -649,6 +653,8 @@ const FRAMES = {
   full: { height: null, width: 0.9, headroom: 0.1 },
   upper: { height: 0.95, width: 0.62, headroom: 0.07 },
   face: { height: 0.36, width: 0.34, headroom: 0.05 },
+  // Lying on the floor: the bottom ~0.8 m, wide enough for her whole length.
+  floor: { height: 0.8, width: 1.9, headroom: 0, floor: true },
 };
 
 export class SarahVRM {
@@ -747,9 +753,11 @@ export class SarahVRM {
     // Whole body: centred, head to toe with even room around her. Closer
     // views anchor the head near the top (extra room goes below).
     const visible = 2 * dist * tanHalf;
-    const centerY = spec.height == null
-      ? (p.top + spec.headroom + p.bottom) / 2
-      : p.top + spec.headroom - visible / 2;
+    const centerY = spec.floor
+      ? p.bottom + spec.height * 0.42
+      : spec.height == null
+        ? (p.top + spec.headroom + p.bottom) / 2
+        : p.top + spec.headroom - visible / 2;
     this.cameraGoal.pos.set(0, centerY + 0.02, dist);
     this.cameraGoal.look.set(0, centerY, 0);
     if (instant) {

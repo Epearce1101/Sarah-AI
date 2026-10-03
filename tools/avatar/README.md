@@ -20,3 +20,22 @@ What each step does:
 | `stage2_face.py` | Her face is driven by bones (eyelids, brows, jaw, lips) and has no shape keys, so each VRM expression is posed with those bones and baked into a shape key: `blink`, `blinkLeft`, `blinkRight`, `happy`, `sad`, `angry`, `surprised`, `relaxed`, and the mouth shapes `aa`, `ih`, `ee`, `oh`, `ou`. Tweak a face in the `EXPR` table (offsets in metres). |
 | `stage3_export.py` | Her shaders output colour directly (unlit look). The eye and hair shaders are baked to textures, colour textures get their UV islands padded (no grey seams in the browser), and the model is exported as glTF. |
 | `export_vrm.py` | Adds the `VRMC_vrm` extension: humanoid bone map, expressions, bone-based eye look-at, and unlit materials. |
+
+## Poses
+
+`make_pose_vrma.py` writes held poses as VRM animation files her body plays
+like any other clip. `poses/lying_poses.json` holds her rest skeleton and each
+pose's bone rotations (VRM normalized space); `poses/lying_poses_spec.json` is
+how they were shaped (limb directions relative to her body). Rebuild with:
+
+```
+python tools/avatar/make_pose_vrma.py tools/avatar/poses/lying_poses.json frontend/renderer/assets/vrm/animations
+```
+
+| File | Gesture | Pose |
+|---|---|---|
+| `pose_lie_front.vrma` | `lie_down` | On her stomach, chin in her hand, feet up and swaying |
+| `pose_lie_side.vrma` | `lie_side` | On her side, propped on an elbow, other hand on her hip |
+
+Each holds for 12 s with slow breathing; the camera switches to a low, wide
+"floor" framing while she's down and back when she gets up.

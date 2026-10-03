@@ -35,6 +35,9 @@ export const GESTURES = {
   cry: "22_Crying", sob: "23_Crying_2", defeat: "26_Defeat", facepalm: "26_Defeat",
   raise_hand: "dm_108", question: "dm_108", sing: "71_Singing",
   phone: "155_Talking On Phone", distant: "142_Sad Idle",
+  // Lying on the floor (held ~12 s, breathing): made for her in tools/avatar/make_pose_vrma.py.
+  lie_down: "pose_lie_front", lie_front: "pose_lie_front", lie_on_stomach: "pose_lie_front", lay_down: "pose_lie_front",
+  lie_side: "pose_lie_side", lie_on_side: "pose_lie_side", recline: "pose_lie_side",
 };
 // Held poses: she leans toward you (spine bends, eyes stay on you), tilts
 // her head and rocks a little, with a face and optionally a hand clip.
@@ -59,6 +62,8 @@ export const PROCEDURAL = ["lean_in", "step_back", "tilt", "nod_small", "look_ar
 const DANCES = ["47_Jazz Dancing", "70_Silly Dancing", "83_Swing Dancing", "45_House Dancing", "54_Macarena Dance", "dm_38", "41_Hip Hop Dancing", "67_Rumba Dancing"];
 // Clips that use the whole body: frame the full figure while they play.
 const FULL_BODY = /jump|danc|bow|defeat|crying|kneel|sitting|cheer|tantrum|throw|macarena|dm_(19|32|38|45|53|58|9)$/i;
+// Clips where she lies on the floor: a low, wide framing so all of her shows.
+const ON_FLOOR = /^pose_lie_/;
 
 // Base loops are plain standing idles only: the short posing clips (cute /
 // energetic standby, 6-10 s) restart so often on a loop that she seemed to
@@ -101,6 +106,8 @@ Object.assign(GESTURE_WORDS, {
   "156_Thankful": "hand on your chest", "131_Neck Stretching": "stretching your neck", "dm_22": "yawning",
   "65_Relieved Sigh": "sighing", "dm_51": "being shy", "dm_26": "making a peace sign", "dm_29": "making a heart",
   "dm_101": "swaying a little", "22_Crying": "crying",
+  "pose_lie_front": "lying on your stomach, chin in your hand, feet up",
+  "pose_lie_side": "lying on your side, propped on an elbow",
 });
 for (const id of ["47_Jazz Dancing", "70_Silly Dancing", "83_Swing Dancing", "45_House Dancing", "54_Macarena Dance", "dm_38", "41_Hip Hop Dancing", "67_Rumba Dancing"]) GESTURE_WORDS[id] = "dancing";
 const FACE_WORDS = {
@@ -291,9 +298,16 @@ export class SarahDirector {
 
   _playClip(id, { full = false, maxSeconds = null } = {}) {
     const anim = this.avatar.animator;
-    if (full) this._frameFor("full");
-    const playing = anim.playOnce(id);
-    playing.then(() => { if (full) this._frameFor(null); });
+    const floor = ON_FLOOR.test(id);
+    if (floor) this._frameFor("floor");
+    else if (full) this._frameFor("full");
+    // Getting down onto the floor (and up again) takes longer than a gesture.
+    const playing = anim.playOnce(id, floor ? { fade: 1.1 } : undefined);
+    if (floor) this.avatar.body.still = true;
+    playing.then(() => {
+      if (floor) this.avatar.body.still = false;
+      if (full || floor) this._frameFor(null);
+    });
     if (maxSeconds) this._later(maxSeconds * 1000, () => {
       if (anim.oneShot?.id === id) anim._onFinished({ action: anim.oneShot.action });
     });

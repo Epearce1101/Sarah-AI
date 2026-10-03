@@ -1800,6 +1800,40 @@
       ],
       "trigger": "Signature dance",
       "trim": null
+    },
+    {
+      "id": "pose_lie_front",
+      "file": "pose_lie_front.vrma",
+      "category": "pose",
+      "subcategory": "lying",
+      "loop": false,
+      "tags": [
+        "pose",
+        "lying",
+        "lie",
+        "lie_down",
+        "prone",
+        "floor"
+      ],
+      "trigger": "Lying on her stomach, chin in her hand, feet up",
+      "trim": null
+    },
+    {
+      "id": "pose_lie_side",
+      "file": "pose_lie_side.vrma",
+      "category": "pose",
+      "subcategory": "lying",
+      "loop": false,
+      "tags": [
+        "pose",
+        "lying",
+        "lie",
+        "lie_side",
+        "recline",
+        "floor"
+      ],
+      "trigger": "Lying on her side, propped on an elbow",
+      "trim": null
     }
   ]
 }
