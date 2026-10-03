@@ -172,3 +172,106 @@ def locate(target: str) -> Dict[str, object]:
         if hit:
             return hit
     return {"found": False, "reason": f"'{target}' isn't visible on screen"}
+
+
+# ---------------------------------------------------------------------------
+# Anything visible inside windows, for the screen overlay: buttons, links,
+# text, list items, tabs... (UI Automation exposes most apps and browser pages)
+# ---------------------------------------------------------------------------
+
+_TEXTY = {"TextControl", "HyperlinkControl", "ButtonControl", "ListItemControl", "MenuItemControl",
+          "TabItemControl", "TreeItemControl", "DataItemControl", "HeaderItemControl", "CheckBoxControl",
+          "RadioButtonControl", "SplitButtonControl", "EditControl", "ImageControl", "ComboBoxControl"}
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s'.-]", " ", (text or "").lower())).strip()
+
+
+def text_score(label: str, phrase: str) -> int:
+    """How well visible text matches what she means: 3 the same, 2 contains
+    the whole phrase, 1 has every one of its words, 0 none."""
+    a, b = _norm(label), _norm(phrase)
+    if not a or not b:
+        return 0
+    if a == b:
+        return 3
+    if len(b) >= 3 and re.search(rf"(^|\W){re.escape(b)}($|\W)", a):
+        return 2
+    words = re.findall(r"[a-z0-9']+", b)
+    if words and all(re.search(rf"(^|\W){re.escape(w)}($|\W)", a) for w in words):
+        return 1
+    return 0
+
+
+def best_text(candidates, phrase: str) -> Optional[Dict[str, object]]:
+    """Best match: highest score, then the shortest text (the thing itself
+    rather than a paragraph mentioning it), then front-most."""
+    scored = []
+    for order, (label, kind, rect, _app) in enumerate(candidates):
+        left, t, w, h = rect
+        if w <= 0 or h <= 0 or left < -10000 or t < -10000:
+            continue
+        s = text_score(label, phrase)
+        if s:
+            scored.append((-s, len(label), order, label, kind, rect))
+    if not scored:
+        return None
+    s, _, _, label, kind, (left, t, w, h) = min(scored)
+    return {"found": True, "kind": kind, "label": label, "score": -s,
+            "x": int(left + w / 2), "y": int(t + h / 2), "rect": [left, t, w, h]}
+
+
+def _ui_text_candidates(phrase: str, windows: int = 3, budget: float = 3.0):
+    """Matching controls in the front-most windows (UI Automation)."""
+    import time
+
+    from . import desktop, uia
+
+    def collect():
+        _dpi_aware()
+        auto = uia._auto()
+        deadline = time.time() + budget
+        out = []
+        wins = [w for w in desktop.windows() if not w["minimized"] and not str(w["title"]).startswith("Sarah")]
+        for w in wins[:windows]:
+            try:
+                top = auto.ControlFromHandle(w["hwnd"])
+                for ctrl, _depth in auto.WalkControl(top, maxDepth=40):
+                    if time.time() > deadline:
+                        return out
+                    if ctrl.ControlTypeName not in _TEXTY:
+                        continue
+                    name = ctrl.Name or ""
+                    if not name or len(name) > 500 or not text_score(name, phrase):
+                        continue
+                    if getattr(ctrl, "IsOffscreen", False):  # scrolled out of view
+                        continue
+                    kind = ctrl.ControlTypeName.replace("Control", "").lower()
+                    out.append((name, f"{kind} in {str(w['title'])[:60]}", _rect(ctrl), ""))
+            except Exception:
+                continue
+        return out
+
+    return uia.run(collect)
+
+
+def find_on_screen(target: str) -> Dict[str, object]:
+    """Exactly where `target` is on screen: visible text or a control in an
+    open window, or an app / file / folder (see locate). Physical pixels."""
+    phrase = (target or "").strip()
+    if not phrase:
+        return {"found": False, "reason": "nothing to find"}
+    if os.name != "nt":
+        return {"found": False, "reason": "only on Windows"}
+    _dpi_aware()
+    try:
+        text_hit = best_text(_ui_text_candidates(phrase), phrase)
+    except Exception:
+        text_hit = None
+    if text_hit and text_hit["score"] == 3:
+        return text_hit
+    thing = locate(phrase) if keys_for(phrase) else {"found": False}
+    if thing.get("found"):
+        return thing
+    return text_hit or {"found": False, "reason": f"couldn't find '{target}' on screen"}

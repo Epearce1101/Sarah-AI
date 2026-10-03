@@ -105,6 +105,8 @@ contextBridge.exposeInMainWorld("sarahVision", {
 
   // desktopCapturer id of the primary screen (continuous watching).
   screenSourceId: () => ipcRenderer.invoke("screen-source-id"),
+  // Where that screen is, in physical pixels.
+  screenSourceDisplay: () => ipcRenderer.invoke("screen-source-display"),
 
   // Save image to disk (optional)
   saveScreenshot: (buffer) => ipcRenderer.invoke("save-screenshot", buffer),
@@ -140,6 +142,9 @@ contextBridge.exposeInMainWorld("sarahApp", {
   quit: () => ipcRenderer.invoke("quit-app"),
   petReady: () => ipcRenderer.send("pet-ready"),
   screenPointToClient: (x, y) => ipcRenderer.invoke("screen-point-to-client", { x, y }),
+  // Screen overlay: marks (physical screen px) and the pet speech bubble (screen DIPs).
+  overlayMark: (payload) => ipcRenderer.invoke("overlay-mark", payload),
+  overlayBubble: (payload) => ipcRenderer.invoke("overlay-bubble", payload),
 });
 
 contextBridge.exposeInMainWorld("electron", {

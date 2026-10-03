@@ -177,6 +177,22 @@ export class SarahEyes {
   }
 
   // Send the current frames of `kinds` to be looked at. Also used on demand.
+  // A sharp still of the screen for her mind (show_on_screen's fallback when
+  // it has to find something by sight), with where that screen really is.
+  async grab(kind = "screen", maxWidth = 1920) {
+    const s = this.sources[kind];
+    const video = s?.video;
+    if (!video || s.blank || !video.videoWidth) return null;
+    const b64 = jpeg(video, maxWidth, 0.82);
+    const scale = Math.min(1, maxWidth / video.videoWidth);
+    const out = { b64, width: Math.round(video.videoWidth * scale), height: Math.round(video.videoHeight * scale) };
+    if (kind === "screen") {
+      const d = await window.sarahVision?.screenSourceDisplay?.().catch(() => null);
+      if (d) Object.assign(out, { screenLeft: d.x, screenTop: d.y, screenWidth: d.width, screenHeight: d.height });
+    }
+    return out;
+  }
+
   async look(kinds = Object.keys(this.sources), { reason = "request", question = null, urgent = false } = {}) {
     // A deliberate look (her mind asked) waits for a background one to finish.
     for (let i = 0; urgent && this.inFlight && i < 40; i++) await new Promise((r) => setTimeout(r, 200));

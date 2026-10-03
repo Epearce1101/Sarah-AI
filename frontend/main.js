@@ -425,7 +425,11 @@ function createWindow() {
       hideToTray();
     }
   });
-  mainWindow.on("closed", () => (mainWindow = null));
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+    // The see-through overlays must not keep the app alive on their own.
+    if (!petWindow) resetOverlays();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -564,6 +568,96 @@ ipcMain.handle("capture-screen", async () => {
 ipcMain.handle("screen-source-id", async () => {
   const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
   return sources[0]?.id || null;
+});
+
+// Where the screen her eyes watch is, in physical pixels (to map a spot in a
+// grabbed frame back onto the real screen).
+ipcMain.handle("screen-source-display", async () => {
+  const { screen } = require("electron");
+  const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } });
+  const id = String(sources[0]?.display_id || "");
+  const display = screen.getAllDisplays().find((d) => String(d.id) === id) || screen.getPrimaryDisplay();
+  const r = process.platform === "win32" ? screen.dipToScreenRect(null, display.bounds) : display.bounds;
+  return { x: r.x, y: r.y, width: r.width, height: r.height };
+});
+
+// ===========================================================================
+// SCREEN OVERLAY: one see-through, click-through window per display, on top
+// of everything, where she circles / underlines / points at what she's
+// talking about, and (pet mode) shows her speech bubble. Hidden from screen
+// capture so her own eyes never see her marks.
+// ===========================================================================
+const overlays = new Map(); // display id -> BrowserWindow
+
+function overlayFor(display) {
+  let win = overlays.get(display.id);
+  if (win && !win.isDestroyed()) return win;
+  win = new BrowserWindow({
+    ...display.bounds,
+    frame: false, transparent: true, backgroundColor: "#00000000", hasShadow: false,
+    alwaysOnTop: true, skipTaskbar: true, focusable: false, resizable: false, movable: false,
+    fullscreenable: false, show: false,
+    webPreferences: { preload: path.join(__dirname, "overlay-preload.js"), contextIsolation: true, nodeIntegration: false },
+  });
+  win.setIgnoreMouseEvents(true);
+  win.setAlwaysOnTop(true, "screen-saver");
+  win.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreen: true });
+  win.setContentProtection(true);
+  win.loadFile(path.join(__dirname, "renderer", "overlay.html"));
+  win.on("closed", () => overlays.delete(display.id));
+  overlays.set(display.id, win);
+  return win;
+}
+
+function sendToOverlay(win, channel, payload) {
+  const go = () => { win.showInactive(); win.webContents.send(channel, payload); };
+  if (win.webContents.isLoading()) win.webContents.once("did-finish-load", go); else go();
+}
+
+function resetOverlays() {
+  for (const win of overlays.values()) if (!win.isDestroyed()) win.destroy();
+  overlays.clear();
+}
+
+// Marks in physical screen pixels -> each display's overlay, in its own DIPs.
+ipcMain.handle("overlay-mark", (_event, { marks = [], seconds = 8, clear = false } = {}) => {
+  const { screen } = require("electron");
+  if (clear) {
+    for (const win of overlays.values()) if (!win.isDestroyed()) win.webContents.send("overlay:clear");
+    return { ok: true };
+  }
+  const perDisplay = new Map();
+  for (const m of marks) {
+    const [x, y, w, h] = m.rect || [];
+    if (![x, y, w, h].every(Number.isFinite)) continue;
+    const r = process.platform === "win32" ? screen.screenToDipRect(null, { x, y, width: w, height: h }) : { x, y, width: w, height: h };
+    const display = screen.getDisplayMatching(r);
+    const local = { ...m, rect: [r.x - display.bounds.x, r.y - display.bounds.y, r.width, r.height] };
+    if (!perDisplay.has(display.id)) perDisplay.set(display.id, { display, marks: [] });
+    perDisplay.get(display.id).marks.push(local);
+  }
+  for (const { display, marks: list } of perDisplay.values()) {
+    sendToOverlay(overlayFor(display), "overlay:marks", { marks: list, seconds });
+  }
+  return { ok: perDisplay.size > 0 };
+});
+
+// Pet mode speech bubble at a screen point (DIPs, from the pet window).
+ipcMain.handle("overlay-bubble", (_event, { text = "", x, y, seconds } = {}) => {
+  const { screen } = require("electron");
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false };
+  const display = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) });
+  const payload = { text, x: x - display.bounds.x, y: y - display.bounds.y, seconds };
+  for (const [id, win] of overlays) {
+    if (id !== display.id && !win.isDestroyed()) win.webContents.send("overlay:bubble", { text: "" });
+  }
+  sendToOverlay(overlayFor(display), "overlay:bubble", payload);
+  return { ok: true };
+});
+
+app.whenReady().then(() => {
+  const { screen } = require("electron");
+  for (const ev of ["display-added", "display-removed", "display-metrics-changed"]) screen.on(ev, resetOverlays);
 });
 
 // ===========================================================================

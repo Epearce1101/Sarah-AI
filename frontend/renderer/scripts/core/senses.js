@@ -3,6 +3,8 @@
 //   {"type": "look", id, kinds, question}  -> take a fresh look, answer
 //   {"type": "say", reply, conversation_id} -> show + speak a line she decided
 //                                              to say (reminders, initiative)
+//   {"type": "grab", id, kind}             -> a sharp still of the screen
+//   {"type": "mark", marks, seconds}       -> circle/arrow/... on the screen overlay
 import { API_PORT } from "./config.js";
 
 export class SarahSenses {
@@ -48,6 +50,19 @@ export class SarahSenses {
     } else if (msg.type === "activity") {
       // She's using a tool on her own initiative: show it under her feet.
       this.ui?._showOwnActivity?.(msg);
+    } else if (msg.type === "grab") {
+      // A sharp still of the screen, for finding something by sight.
+      const frame = this.eyes?.sources?.[msg.kind || "screen"] ? await this.eyes.grab(msg.kind || "screen") : null;
+      this._reply(msg.id, frame);
+    } else if (msg.type === "mark") {
+      // Draw on the screen overlay; in pet mode she also points at it.
+      await window.sarahApp?.overlayMark?.({ marks: msg.marks || [], seconds: msg.seconds || 8, clear: Boolean(msg.clear) });
+      const m = msg.marks?.[0];
+      if (m && document.documentElement.classList.contains("pet-mode") && window.sarahApp?.screenPointToClient) {
+        const [x, y, w, h] = m.rect;
+        const at = await window.sarahApp.screenPointToClient(x + w / 2, y + h / 2);
+        if (at) window.SARAH_AVATAR_DIRECTOR?.pointAtScreen?.(at.x, at.y, { hold: 3.2, label: m.label || "the screen" });
+      }
     }
   }
 }

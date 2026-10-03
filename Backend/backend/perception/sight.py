@@ -192,3 +192,39 @@ async def look(screen_b64: Optional[str] = None, camera_b64: Optional[str] = Non
     seen["_model"] = result["model"]
     seen["_ms"] = int((time.time() - started) * 1000)
     return seen
+
+
+async def ground(screen_b64: str, width: int, height: int, target: str) -> Optional[List[int]]:
+    """Where `target` is in a screenshot of `width` x `height` pixels, as
+    [x1, y1, x2, y2] in its pixels, or None. Caller holds the budget.
+
+    Vision models are good at finding things but not exact about edges, so
+    callers treat the box as approximate. Some answer in 0-1 or 0-1000
+    coordinates instead of pixels; both are converted.
+    """
+    prompt = (
+        f"This is a screenshot of a computer screen, {width} x {height} pixels. "
+        f"Find this on it: \"{target}\". Reply with JSON only: "
+        '{"found": true, "box": [x1, y1, x2, y2]} in pixels of this image (origin top-left), '
+        'tight around it, or {"found": false} if it is not visible.'
+    )
+    content = [{"type": "text", "text": prompt},
+               {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{screen_b64}"}}]
+    from backend.usage import using
+
+    with using("vision"):
+        result = await asyncio.to_thread(_call, content)
+    data = _parse(result["text"])
+    box = data.get("box") if data.get("found") else None
+    if not (isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) for v in box)):
+        return None
+    x1, y1, x2, y2 = (float(v) for v in box)
+    if max(x1, y1, x2, y2) <= 1.0:                       # 0-1
+        x1, x2, y1, y2 = x1 * width, x2 * width, y1 * height, y2 * height
+    elif x2 > width * 1.05 or y2 > height * 1.05:        # 0-1000
+        x1, x2, y1, y2 = x1 * width / 1000, x2 * width / 1000, y1 * height / 1000, y2 * height / 1000
+    x1, x2 = sorted((max(0.0, min(width, x1)), max(0.0, min(width, x2))))
+    y1, y2 = sorted((max(0.0, min(height, y1)), max(0.0, min(height, y2))))
+    if x2 - x1 < 2 or y2 - y1 < 2:
+        return None
+    return [int(x1), int(y1), int(x2), int(y2)]

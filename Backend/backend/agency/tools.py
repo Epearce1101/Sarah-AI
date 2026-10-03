@@ -882,6 +882,70 @@ async def open_item(target: str):
     raise RuntimeError(f"Couldn't find anything called '{target}' on this PC (apps, files, folders, projects).")
 
 
+async def _ground_on_screen(target: str) -> Dict[str, Any]:
+    """Last resort for show_on_screen: a fresh screenshot from her eyes and a
+    vision model's estimate of where `target` is (approximate)."""
+    from backend.perception import sight
+    from .senses import senses
+
+    frame = await senses.request("grab", {"kind": "screen"}, timeout=10)
+    if not isinstance(frame, dict) or not frame.get("b64"):
+        return {"found": False, "reason": "her screen view is off (Functions > Screen), so she can't search it by sight"}
+    blocked = sight.budget.check(urgent=True)
+    if blocked:
+        return {"found": False, "reason": f"can't look right now ({blocked})"}
+    ok = limited = False
+    try:
+        box = await sight.ground(frame["b64"], int(frame["width"]), int(frame["height"]), target)
+        ok = True
+    except sight.RateLimited:
+        limited = True
+        return {"found": False, "reason": "vision is rate limited right now"}
+    finally:
+        sight.budget.done(ok=ok, rate_limited=limited)
+    if not box:
+        return {"found": False, "reason": f"couldn't see '{target}' on screen"}
+    sx = float(frame.get("screenWidth") or frame["width"]) / float(frame["width"])
+    sy = float(frame.get("screenHeight") or frame["height"]) / float(frame["height"])
+    ox, oy = float(frame.get("screenLeft") or 0), float(frame.get("screenTop") or 0)
+    x1, y1, x2, y2 = box
+    rect = [int(ox + x1 * sx), int(oy + y1 * sy), int((x2 - x1) * sx), int((y2 - y1) * sy)]
+    return {"found": True, "kind": "seen in a screenshot", "label": target, "approx": True,
+            "x": rect[0] + rect[2] // 2, "y": rect[1] + rect[3] // 2, "rect": rect}
+
+
+@tool("show_on_screen", "Mark something on Zero's screen while you talk about it: a circle (default), "
+      "arrow, underline or box drawn on top of everything for a few seconds, with an optional short label. "
+      "target = the exact text shown on screen (a button, link, menu, line of text, error message), or an "
+      "app, file or folder name. Use it whenever Zero asks about their screen ('what's this', 'where do I "
+      "click', 'what are you looking at'), so they see exactly what you mean. Several calls show several "
+      "marks; style 'clear' removes them.",
+      {"target": {"type": "string"},
+       "style": {"type": "string", "enum": ["circle", "arrow", "underline", "box", "clear"]},
+       "label": {"type": "string", "description": "a few words shown next to the mark (optional)"},
+       "seconds": {"type": "number", "description": "how long it stays (default 8, max 30)"}},
+      ["target"], timeout=45)
+async def show_on_screen(target: str, style: str = "circle", label: str = "", seconds: float = 8):
+    from .locate import find_on_screen
+    from .senses import senses
+
+    if style == "clear":
+        await senses.push({"type": "mark", "clear": True})
+        return "Cleared the marks on screen."
+    hit = await asyncio.to_thread(find_on_screen, target)
+    if not hit.get("found"):
+        hit = await _ground_on_screen(target)
+    if not hit.get("found"):
+        raise RuntimeError(f"Couldn't mark '{target}': {hit.get('reason', 'not found')}.")
+    mark = {"rect": hit["rect"], "style": style if style in ("circle", "arrow", "underline", "box") else "circle",
+            "label": (label or "")[:60], "approx": bool(hit.get("approx"))}
+    if not await senses.push({"type": "mark", "marks": [mark], "seconds": max(2.0, min(30.0, float(seconds or 8)))}):
+        raise RuntimeError("Sarah's app isn't connected, so nothing could be drawn on screen.")
+    where = f"{hit.get('kind', 'on screen')}"
+    note = " (approximate, found by looking at a screenshot)" if hit.get("approx") else ""
+    return f"Marked '{hit.get('label', target)}' ({where}) with a {mark['style']}{note}."
+
+
 @tool("pause", "Wait a few seconds (e.g. to let Zero see something, or for an app to load).",
       {"seconds": {"type": "number", "description": "1-60"}}, ["seconds"], timeout=65)
 async def pause(seconds: float):
