@@ -45,6 +45,8 @@ PROMPT = (
     "check-in, something you found.\n"
     "- act first with your tools (look something up, prepare or fix something, check on something), "
     "then tell them briefly what you did.\n"
+    "If you bring up something on their screen, circle it with show_on_screen (target = its exact words "
+    "on screen, seconds 12) so they see what you mean.\n"
     "Don't repeat what you said recently, and never send filler like \"I'm here\" or \"let me know if "
     "you need anything\". Keep your agenda current with <agenda add=\"...\" in=\"30m\"/> "
     "and <agenda done=\"#id\"/>. Open with <feel>...</feel>. Don't mention this note.)"
@@ -167,7 +169,9 @@ class Mind:
         with me._lock:
             notable = me.sight_log[-1] if me.sight_log else None
         if notable and notable["text"] != self.last_notable and now - notable["at"] < 120:
-            found.append(f"your eyes just caught: {notable['text']}")
+            words = notable.get("on_screen")
+            found.append(f"your eyes just caught: {notable['text']}"
+                         + (f' (on screen it reads: "{words}")' if words else ""))
         for item in agenda.due_items():
             found.append(f"agenda #{item['id']} is due: {item['text']}")
         # Zero is around (camera, or recent activity in your window) but it's

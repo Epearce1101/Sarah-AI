@@ -273,7 +273,11 @@ class SelfModel:
                     self.sight[kind] = {**{k: v for k, v in data.items() if isinstance(v, (str, bool, int, float))}, "at": now}
             notable = observation.get("notable")
             if isinstance(notable, str) and notable.strip() and notable.strip().lower() not in ("null", "none"):
-                self.sight_log.append({"text": notable.strip()[:200], "at": now})
+                entry = {"text": notable.strip()[:200], "at": now}
+                words = observation.get("notable_text")
+                if isinstance(words, str) and words.strip() and words.strip().lower() not in ("null", "none"):
+                    entry["on_screen"] = words.strip().strip('"')[:120]
+                self.sight_log.append(entry)
                 memories.append(("noticed", notable.strip()))
         # Her day's memory: what the user was doing (app/activity), at the desk or not.
         try:

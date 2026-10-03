@@ -201,3 +201,15 @@ def test_a_quiet_moment_says_nothing(monkeypatch):
     monkeypatch.setattr(state_mod, "get_sarah", lambda: SimpleNamespace(_openrouter=Client()))
     record = asyncio.run(fresh_mind().think(["your eyes just caught: Zero is typing code"]))
     assert record["outcome"] == "stayed quiet"
+
+
+def test_noticed_text_on_screen_is_offered_for_circling():
+    m = fresh_mind()
+    me = get_self()
+    me.see({"notable": "A build error popped up in the terminal",
+            "notable_text": '"ModuleNotFoundError: No module named requests"'})
+    found = [t for t in m.triggers(time.time()) if "build error" in t]
+    assert found and 'on screen it reads: "ModuleNotFoundError: No module named requests"' in found[0]
+    me.see({"notable": "They switched to a cat video", "notable_text": "null"})
+    assert not any("reads" in t for t in m.triggers(time.time()) if "cat video" in t)
+    assert "show_on_screen" in mind_mod.PROMPT

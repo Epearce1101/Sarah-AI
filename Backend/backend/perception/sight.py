@@ -117,6 +117,10 @@ def _prompt(has_screen: bool, has_camera: bool, question: Optional[str]) -> str:
                             "doing": "<what they're doing, max 10 words>",
                             "mood": "<expression / body language, max 6 words>"}
     schema["notable"] = "<one thing a friend watching would react to, or null>"
+    if has_screen:
+        # So she can circle it on screen when she brings it up (show_on_screen finds text exactly).
+        schema["notable_text"] = ("<if that notable thing is on the screen and has words (an error, a message, "
+                                  "a title, a button), those words exactly as shown, max 12 words; else null>")
     if question:
         schema["answer"] = f"<answer to: {question}>"
     parts.append("If the screen mainly shows Sarah's own chat window, say so briefly and describe what's around it.")
