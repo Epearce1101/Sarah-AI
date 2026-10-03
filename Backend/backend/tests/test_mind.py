@@ -213,3 +213,11 @@ def test_noticed_text_on_screen_is_offered_for_circling():
     me.see({"notable": "They switched to a cat video", "notable_text": "null"})
     assert not any("reads" in t for t in m.triggers(time.time()) if "cat video" in t)
     assert "show_on_screen" in mind_mod.PROMPT
+
+
+def test_full_screen_app_keeps_her_quiet_for_a_while():
+    m = fresh_mind()
+    m.busy_until = time.time() + 5
+    assert m.ready(time.time()) == "full-screen app in front"
+    m.busy_until = time.time() - 1
+    assert m.ready(time.time()) != "full-screen app in front"

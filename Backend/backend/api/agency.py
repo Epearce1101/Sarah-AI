@@ -94,6 +94,18 @@ def initiative_set(quiet: bool = False):
     return mind.status()
 
 
+@router.post("/api/agency/initiative/busy")
+def initiative_busy(seconds: float = 10):
+    """A full-screen game or presentation is in front: she doesn't speak up
+    on her own for the next `seconds` (the app keeps renewing it while it
+    lasts, so it lapses by itself if the app stops)."""
+    import time
+
+    from backend.agency.mind import mind
+    mind.busy_until = time.time() + max(0.0, min(60.0, float(seconds)))
+    return {"busy_for": round(max(0.0, mind.busy_until - time.time()), 1)}
+
+
 @router.post("/api/agency/background")
 def background_set(hidden: bool = False):
     """The app window went to the tray (hidden) or came back: while it's in

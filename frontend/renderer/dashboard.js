@@ -28,6 +28,7 @@ import "./scripts/core/screen-capture.js";
 import { parseCues } from "./scripts/avatar3d/cues.js";
 import { LiveVoice, isEcho, wakeWord } from "./scripts/core/live-voice.js";
 import { SarahEyes } from "./scripts/core/eyes.js";
+import { classifyApp } from "./scripts/core/app-kind.js";
 import { SarahSenses } from "./scripts/core/senses.js";
 import { SarahGestures } from "./scripts/core/gestures.js";
 import { SarahFaceWatch } from "./scripts/core/face-watch.js";
@@ -567,6 +568,10 @@ class SarahUI {
         on: () => this._petPref("perch", false), toggle: () => this._setPetPref("perch", !this._petPref("perch", false)) },
       { label: "Pet: step aside from your mouse", hint: "If your mouse lingers right beside her, she moves out "
           + "of the way.", on: () => this._petPref("stepAside"), toggle: () => this._setPetPref("stepAside", !this._petPref("stepAside")) },
+      { label: "React to what you're doing", hint: "She notices the app in front: in pet mode she settles "
+          + "down to watch videos with you and fidgets less while you work; during a full-screen game or "
+          + "presentation she fades back and doesn't speak up on her own.",
+        on: () => this._petPref("react"), toggle: () => this._setPetPref("react", !this._petPref("react")) },
       { label: "Pet: nap when you're away", hint: "After 10 minutes without keyboard or mouse she lies down "
           + "for a nap, and gets up when you're back.", on: () => this._petPref("nap"), toggle: () => this._setPetPref("nap", !this._petPref("nap")) },
       { label: "Keep running when closed", hint: "Closing the window sends her to the tray, where she keeps "
@@ -707,6 +712,9 @@ class SarahUI {
       this._initPetDrag();
       this._initPetPointing();
     }
+    // What's in front of you: pet perching and reactions (often in pet mode;
+    // the main window only needs to know about full-screen games).
+    setInterval(() => this._foregroundTick(), this.isPet ? 1500 : 4000);
     window.sarahApp.onWindowState((state) => this._onWindowState(Boolean(state?.tray), state || {}));
     window.sarahApp.onPointerQuestion?.((q) => this._askAboutCircled(q));
     try { this._backgroundOn = Boolean((await window.sarahApp.getPrefs())?.background); } catch {}
@@ -831,7 +839,7 @@ class SarahUI {
         window.sarahApp.petStepAside?.(ev.clientX < window.innerWidth / 2 ? 1 : -1);
       }
     });
-    setInterval(() => this._petPerchTick(), 1500);
+
     document.documentElement.addEventListener("mouseleave", () => { if (!drag) setOver(false); });
     // Mouse wheel over her: bigger or smaller (feet stay put; remembered).
     area.addEventListener("wheel", (ev) => {
@@ -853,20 +861,65 @@ class SarahUI {
     try { localStorage.setItem(`sarah.pet.${key}`, on ? "on" : "off"); } catch {}
   }
 
+  // The window in front of you, every 1.5 s in pet mode (4 s otherwise):
+  // she reacts to what kind it is, and (pet, if switched on) stands on it.
+  async _foregroundTick() {
+    if (this._inTray && !this.isPet) return;
+    const react = this._petPref("react");
+    const perch = this.isPet && this._petPref("perch", false);
+    if (!react) this._applyWatching(null);
+    if (!perch) this._perchHome();
+    if (!react && !perch) return;
+    let fg = null;
+    try { fg = await (await fetch(`${API_BASE}/api/agency/foreground`)).json(); } catch { return; }
+    if (!fg?.found) return; // Sarah herself (or nothing) in front: nothing changes
+    if (react) await this._applyWatching(fg);
+    if (perch) await this._petPerchTick(fg);
+  }
+
+  // How she reacts to the kind of window in front (core/app-kind.js).
+  async _applyWatching(fg) {
+    const kind = fg ? classifyApp(fg) : null;
+    // Full-screen game or presentation: no speaking up on her own (renewed
+    // while it lasts, so it lapses by itself) and, as the pet, fade back.
+    if (kind === "focus") {
+      fetch(`${API_BASE}/api/agency/initiative/busy?seconds=10`, { method: "POST" }).catch(() => {});
+    }
+    if (this.isPet && (kind === "focus") !== Boolean(this._petDimmed)) {
+      this._petDimmed = kind === "focus";
+      window.sarahApp?.petDim?.(this._petDimmed);
+    }
+    const director = window.SARAH_AVATAR_DIRECTOR;
+    if (!director?.setWatching) return;
+    let point = null;
+    if (fg?.rect && window.sarahApp?.screenPointToClient) {
+      const [x, y, w, h] = fg.rect;
+      try { point = await window.sarahApp.screenPointToClient(x + w / 2, y + h / 2); } catch {}
+    }
+    if (kind !== this._watchKind || fg?.hwnd !== this._watchHwnd) {
+      this._watchKind = kind;
+      this._watchHwnd = fg?.hwnd;
+      director.setWatching(kind, point);
+    } else if (point) {
+      director.watchPoint = point; // the window moved
+    }
+  }
+
+  _perchHome() {
+    if (this._perched) window.sarahApp?.petHome?.();
+    this._perched = false;
+  }
+
   // Pet mode: stand on top of the window you're using and go along with it
   // (off by default). Back to her own spot when there's no room (maximized)
   // or the option is off; dragging her keeps her off that window.
-  async _petPerchTick() {
-    const home = () => {
-      if (this._perched) window.sarahApp.petHome?.();
-      this._perched = false;
-    };
-    if (!this._petPref("perch", false) || window.SARAH_AVATAR_DIRECTOR?.napping) return home();
-    let fg = null;
-    try { fg = await (await fetch(`${API_BASE}/api/agency/foreground`)).json(); } catch { return; }
-    if (!fg?.found) return; // Sarah herself (or nothing) in front: stay where she is
+  async _petPerchTick(fg) {
+    const home = () => this._perchHome();
+    const director = window.SARAH_AVATAR_DIRECTOR;
+    // Asleep, or settled down watching a video: on the floor of her own spot.
+    if (director?.napping || director?.watching === "video" || director?.watching === "focus") return home();
     this._foregroundHwnd = fg.hwnd;
-    if (fg.maximized || this._perchPausedFor === fg.hwnd) return home();
+    if (fg.maximized || fg.fullscreen || this._perchPausedFor === fg.hwnd) return home();
     const feet = window.SARAH_VRM?.feetClientPoint?.();
     if (!feet) return;
     const res = await window.sarahApp.petPerch?.({ rect: fg.rect, feetX: feet.x, feetY: feet.y });

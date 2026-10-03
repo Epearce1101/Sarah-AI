@@ -349,6 +349,13 @@ ipcMain.on("pet-home", () => {
   petPerched = false;
 });
 
+// A full-screen game or presentation in front: she fades back (and comes
+// back when it's gone).
+ipcMain.on("pet-dim", (_event, on) => {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  petWindow.setOpacity(on ? 0.35 : 1);
+});
+
 ipcMain.on("pet-hover", (_event, over) => {
   if (!petWindow || petWindow.isDestroyed()) return;
   if (process.platform !== "win32" && process.platform !== "darwin") return;

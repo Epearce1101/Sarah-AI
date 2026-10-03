@@ -145,6 +145,7 @@ contextBridge.exposeInMainWorld("sarahApp", {
   petScale: (factor) => ipcRenderer.send("pet-scale", Number(factor)),
   petStepAside: (dir) => ipcRenderer.send("pet-step-aside", Number(dir)),
   petPerch: (payload) => ipcRenderer.invoke("pet-perch", payload),
+  petDim: (on) => ipcRenderer.send("pet-dim", Boolean(on)),
   petHome: () => ipcRenderer.send("pet-home"),
   systemIdleSeconds: () => ipcRenderer.invoke("system-idle"),
   quit: () => ipcRenderer.invoke("quit-app"),

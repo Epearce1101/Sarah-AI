@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node tests/a1_theme_static_check.js && node tests/a2_live2d_contract_check.js && node tests/a3_avatar_system_static_check.js && node tests/diagnostics_panel_static_check.js && node tests/diagnostics_store_integrity_test.js && node tests/model_status_static_check.js && node tests/more_panel_static_check.js && node tests/core_streaming_unit_test.mjs && node tests/core_model_picker_unit_test.mjs && node tests/core_cues_unit_test.mjs && node tests/core_affect_unit_test.mjs && node tests/core_live_voice_unit_test.mjs && node tests/core_face_logic_unit_test.mjs && node tests/core_visemes_unit_test.mjs && node tests/core_animation_catalog_check.mjs"
+    "test": "node tests/a1_theme_static_check.js && node tests/a2_live2d_contract_check.js && node tests/a3_avatar_system_static_check.js && node tests/diagnostics_panel_static_check.js && node tests/diagnostics_store_integrity_test.js && node tests/model_status_static_check.js && node tests/more_panel_static_check.js && node tests/core_streaming_unit_test.mjs && node tests/core_model_picker_unit_test.mjs && node tests/core_cues_unit_test.mjs && node tests/core_affect_unit_test.mjs && node tests/core_live_voice_unit_test.mjs && node tests/core_face_logic_unit_test.mjs && node tests/core_visemes_unit_test.mjs && node tests/core_app_kind_unit_test.mjs && node tests/core_animation_catalog_check.mjs"
   },
   "devDependencies": {
     "electron": "^31.0.0"

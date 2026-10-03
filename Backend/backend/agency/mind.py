@@ -100,6 +100,7 @@ def _own_time_gap() -> float:
 class Mind:
     def __init__(self) -> None:
         self.quiet = False
+        self.busy_until = 0.0  # a full-screen game / presentation in front: don't speak up
         self.day = date.today()
         self.used = 0
         self.last_think = 0.0
@@ -192,6 +193,8 @@ class Mind:
         self._roll()
         if not self.enabled():
             return "quiet"
+        if now < self.busy_until:
+            return "full-screen app in front"
         if self.thinking:
             return "already thinking"
         if me.chats_in_flight or now - me.last_chat_started < 20:

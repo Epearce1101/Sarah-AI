@@ -99,6 +99,7 @@ export const petPref = (key, fallback = true) => {
   }
 };
 const NAP_AFTER = 600; // seconds without keyboard or mouse anywhere on the PC
+const WATCH_POSE = "pose_lie_front"; // on her stomach, chin in hand: watching a video with you
 // <point> words that are places around her, not things on Zero's screen.
 const POINT_WORDS = /^(chat|messages|conversation|input|keyboard|typing|user|you|viewer|camera|cursor|mouse|left|right|up|down|away|sky|floor|sidebar|menu|screen|top|self|me)$/i;
 const MOOD_FACE = {
@@ -626,6 +627,10 @@ export class SarahDirector {
   _setBaseForMode(change = false) {
     const anim = this.avatar.animator;
     if (this.napping) return; // she stays curled up until she wakes
+    if (this.watching === "video" && isPet() && anim.has(WATCH_POSE)) {
+      anim.setBase(WATCH_POSE, 1.4); // settled on the floor, watching with you
+      return;
+    }
     if (this.mode === "speaking") {
       anim.setBase(pick(TALKING), 0.5);
       return;
@@ -683,7 +688,9 @@ export class SarahDirector {
     let idle;
     try { idle = await window.sarahApp?.systemIdleSeconds?.(); } catch { return; }
     if (!Number.isFinite(idle)) return;
-    if (!this.napping && idle >= NAP_AFTER && this.mode === "idle" && !this.avatar.animator.busy && petPref("nap")) this.nap();
+    // Watching a video or a full-screen game means no input, not "away".
+    const busyScreen = this.watching === "video" || this.watching === "focus";
+    if (!this.napping && !busyScreen && idle >= NAP_AFTER && this.mode === "idle" && !this.avatar.animator.busy && petPref("nap")) this.nap();
     else if (this.napping && idle < 3) this.wake();
   }
 
@@ -700,10 +707,46 @@ export class SarahDirector {
   wake() {
     if (!this.napping) return;
     this.napping = false;
+    if (this.watching === "video" && isPet()) {
+      // Woke up with a video on: straight back to watching it.
+      this.watching = null;
+      this.setWatching("video", this.watchPoint);
+      return;
+    }
     this.avatar.body.still = false;
     this._setBaseForMode();
     this._frameFor(null);
     this.avatar.face.setBaseline(MOOD_FACE[this.mood.emotion] || this.mood.emotion, 0.2 + this.mood.intensity * 0.4);
+  }
+
+  // ----- what's on screen (pet mode) ------------------------------------------
+  // The dashboard tells her what kind of window you're in front of
+  // (core/app-kind.js) and where it is, in this window's coordinates.
+  setWatching(kind = null, point = null) {
+    const was = this.watching || null;
+    this.watching = kind || null;
+    this.watchPoint = point && Number.isFinite(point.x) && Number.isFinite(point.y) ? point : null;
+    if (was === this.watching) return;
+    // A glance at whatever you just switched to.
+    if (this.watchPoint && this.mode === "idle" && !this.napping) {
+      const p = this.watchPoint;
+      const where = () => this.avatar.screenToWorld(p.x, p.y);
+      this.attention = { target: where, until: performance.now() + 1800, source: "switch", name: "your new window" };
+    }
+    if (!isPet() || this.napping) return;
+    const lying = this.watching === "video" && this.avatar.animator.has(WATCH_POSE);
+    const wasLying = was === "video";
+    if (lying) {
+      this.avatar.body.still = true;
+      this.avatar.setFrame("floor");
+      this.avatar.face.setBaseline("relaxed", 0.5);
+      this._setBaseForMode();
+    } else if (wasLying) {
+      this.avatar.body.still = false;
+      this._frameFor(null);
+      this._setBaseForMode();
+      this.avatar.face.setBaseline(MOOD_FACE[this.mood.emotion] || this.mood.emotion, 0.2 + this.mood.intensity * 0.4);
+    }
   }
 
   // ----- per frame -----------------------------------------------------------
@@ -714,7 +757,7 @@ export class SarahDirector {
     const calm = isPet() && this.mode === "idle" && !this.avatar.animator.busy && !body.pose && !body.point
       && now - this.cursor.at > 1500 && !this.napping;
     // Asleep she barely moves: 20 fps is plenty.
-    this.avatar.maxFps = this.napping ? 20 : calm ? 30 : 0;
+    this.avatar.maxFps = this.napping || this.watching === "focus" ? 20 : calm ? 30 : 0;
 
     // Attention: explicit/temporary targets win; otherwise choose by mode.
     if (this.attention && now > this.attention.until) this.attention = null;
@@ -752,9 +795,11 @@ export class SarahDirector {
       this._napCheckAt = now + (this.napping ? 2000 : 15000);
       this._checkNap();
     }
-    if (this.mode === "idle" && (this.avatar.animator.busy || body.pose || this.napping)) this.lastIdleAction = now;
+    const still = this.napping || this.watching === "video" || this.watching === "focus";
+    if (this.mode === "idle" && (this.avatar.animator.busy || body.pose || still)) this.lastIdleAction = now;
     else if (this.mode === "idle") {
-      this.idleGap ??= rand(...(pet ? PET_IDLE_GAP : IDLE_GAP));
+      // Working: fewer fidgets.
+      this.idleGap ??= rand(...(pet ? PET_IDLE_GAP : IDLE_GAP)) * (this.watching === "work" ? 3 : 1);
       if (now - this.lastIdleAction > this.idleGap) {
         if (pet) {
           this.gesture(pick(PET_ACTIONS));
@@ -766,7 +811,7 @@ export class SarahDirector {
           if (Math.random() < 0.25) this._later(4000, () => { if (this.mode === "idle") this._setBaseForMode(true); });
         }
         this.lastIdleAction = now;
-        this.idleGap = rand(...(pet ? PET_IDLE_GAP : IDLE_GAP));
+        this.idleGap = rand(...(pet ? PET_IDLE_GAP : IDLE_GAP)) * (this.watching === "work" ? 3 : 1);
       }
     }
   }
@@ -780,6 +825,14 @@ export class SarahDirector {
       return this.lookAt(Math.random() < 0.8 ? "user" : pick(["up", "away", "chat"]), rand(1.2, 3), "speaking");
     }
     if (cursorFresh) return this.lookAt("cursor", 0.4, "cursor");
+    if (this.watching === "video" && this.watchPoint) {
+      // Eyes on the video, now and then a glance at you.
+      if (Math.random() < 0.12) return this.lookAt("user", rand(1.2, 2), "watching");
+      const p = this.watchPoint;
+      const where = () => this.avatar.screenToWorld(p.x, p.y);
+      this.attention = { target: where, until: now + rand(4000, 9000), source: "watching", name: "the video" };
+      return true;
+    }
     const roll = Math.random();
     const where = roll < 0.55 ? "user" : roll < 0.7 ? "chat" : roll < 0.85 ? pick(["left", "right", "up"]) : "down";
     return this.lookAt(where, rand(2, 6), "idle");

@@ -788,8 +788,11 @@ export class SarahVRM {
     // Whole body: centred, head to toe with even room around her. Closer
     // views anchor the head near the top (extra room goes below).
     const visible = 2 * dist * tanHalf;
+    // On the floor: the floor sits just above the bottom edge whatever the
+    // window's shape (in a tall pet window she lies on your taskbar, not
+    // floating mid-air).
     const centerY = spec.floor
-      ? p.bottom + spec.height * 0.42
+      ? p.bottom + visible * 0.42
       : spec.height == null
         ? (p.top + spec.headroom + p.bottom) / 2
         : p.top + spec.headroom - visible / 2;
