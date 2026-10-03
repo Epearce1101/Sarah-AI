@@ -26,10 +26,21 @@
       border: 8px solid transparent; border-bottom: 0; border-top-color: rgba(255, 255, 255, 0.96);
     }
     .bubble.show { opacity: 1; }
+    /* Circling something for her */
+    #ink { pointer-events: none; }
+    body.pointer { cursor: crosshair; background: rgba(20, 10, 40, 0.10); }
+    .hint {
+      position: fixed; left: 50%; top: 18px; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px;
+      font: 600 14px/1.2 "Segoe UI", system-ui, sans-serif; color: #fff; background: rgba(20, 120, 150, 0.92);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); display: none; pointer-events: none;
+    }
+    body.pointer .hint { display: block; }
   </style>
 </head>
 <body>
   <canvas id="marks"></canvas>
+  <canvas id="ink"></canvas>
+  <div class="hint" id="hint">Circle what you want to ask Sarah about · Esc to cancel</div>
   <div id="bubble" class="bubble"></div>
   <script type="module" src="scripts/overlay.js"></script>
 </body>

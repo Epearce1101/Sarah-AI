@@ -135,6 +135,8 @@ contextBridge.exposeInMainWorld("sarahApp", {
   getPrefs: () => ipcRenderer.invoke("app-prefs-get"),
   setPrefs: (patch) => ipcRenderer.invoke("app-prefs-set", patch),
   onWindowState: (callback) => ipcRenderer.on("sarah:window-state", (_event, state) => callback(state)),
+  // You circled something on screen (Ctrl+Alt+Space): { image: dataURL crop, rect: physical px }.
+  onPointerQuestion: (callback) => ipcRenderer.on("sarah:pointer-question", (_event, q) => callback(q)),
   setupChrome: () => ipcRenderer.invoke("setup-chrome-bridge"),
   listExtraAnimations: () => ipcRenderer.invoke("list-extra-animations"),
   setPetMode: (on) => ipcRenderer.invoke("pet-mode", Boolean(on)),

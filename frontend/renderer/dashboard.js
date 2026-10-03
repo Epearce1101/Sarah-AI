@@ -708,6 +708,7 @@ class SarahUI {
       this._initPetPointing();
     }
     window.sarahApp.onWindowState((state) => this._onWindowState(Boolean(state?.tray), state || {}));
+    window.sarahApp.onPointerQuestion?.((q) => this._askAboutCircled(q));
     try { this._backgroundOn = Boolean((await window.sarahApp.getPrefs())?.background); } catch {}
   }
 
@@ -871,6 +872,29 @@ class SarahUI {
     const res = await window.sarahApp.petPerch?.({ rect: fg.rect, feetX: feet.x, feetY: feet.y });
     if (res?.ok) this._perched = true;
     else home();
+  }
+
+  // You circled something on screen for her: she looks at it (points, in
+  // pet mode) and is asked about exactly that spot, with a picture of it.
+  async _askAboutCircled({ image, rect } = {}) {
+    if (!image) {
+      this.appendMessage?.("assistant", "I couldn't get a picture of what you circled. Try once more?");
+      return;
+    }
+    const [x, y, w, h] = Array.isArray(rect) ? rect : [];
+    if (this.isPet && [x, y, w, h].every(Number.isFinite) && window.sarahApp?.screenPointToClient) {
+      try {
+        const at = await window.sarahApp.screenPointToClient(x + w / 2, y + h / 2);
+        if (at) window.SARAH_AVATAR_DIRECTOR?.pointAtScreen?.(at.x, at.y, { hold: 2.5, label: "what you circled" });
+      } catch {}
+    } else {
+      window.SARAH_AVATAR_DIRECTOR?.lookAt?.("screen", 2.5, "looking");
+    }
+    const where = [x, y, w, h].every(Number.isFinite) ? ` (at x=${x}, y=${y}, ${w}x${h} on my screen)` : "";
+    await this._sendChatWithAttachments(
+      `What's this? I circled it on my screen${where}.`,
+      [{ kind: "image", dataUrl: image, name: "circled on screen.png" }],
+    );
   }
 
   // A new message moves the talk on: last turn's marks on the screen go.

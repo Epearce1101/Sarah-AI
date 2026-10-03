@@ -13,6 +13,7 @@ const {
   clipboard,
   Menu,
   Tray,
+  globalShortcut,
 } = require("electron");
 
 const path = require("path");
@@ -389,6 +390,7 @@ function setupTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "Open Sarah", click: () => (petWindow ? leavePetMode() : showWindow()) },
     { label: "Desktop pet mode", click: () => (petWindow ? leavePetMode() : enterPetMode()) },
+    { label: `Circle something for Sarah (${POINTER_KEY_LABEL})`, click: () => startPointer() },
     { type: "separator" },
     { label: "Quit Sarah", click: quitSarah },
   ]));
@@ -701,6 +703,7 @@ function overlayFor(display) {
   win.setContentProtection(true);
   win.loadFile(path.join(__dirname, "renderer", "overlay.html"));
   win.on("closed", () => { clearTimeout(win._failsafe); overlays.delete(display.id); });
+  win._display = display;
   overlays.set(display.id, win);
   return win;
 }
@@ -815,6 +818,94 @@ ipcMain.handle("overlay-bubble", (_event, { text = "", x, y, seconds } = {}) => 
 app.whenReady().then(() => {
   const { screen } = require("electron");
   for (const ev of ["display-added", "display-removed", "display-metrics-changed"]) screen.on(ev, resetOverlays);
+  try {
+    if (!globalShortcut.register(POINTER_KEY, () => startPointer())) console.warn(`[pointer] ${POINTER_KEY} is taken by another app`);
+  } catch (err) {
+    console.warn("[pointer] shortcut unavailable:", err);
+  }
+});
+app.on("will-quit", () => { try { globalShortcut.unregisterAll(); } catch {} });
+
+// ===========================================================================
+// CIRCLE SOMETHING FOR HER: press the shortcut (or the tray item), draw
+// around anything on any screen, and she's asked "what's this?" with a
+// picture of exactly that spot. Esc, a right-click or 30 s cancels.
+// ===========================================================================
+const POINTER_KEY = "CommandOrControl+Alt+Space";
+const POINTER_KEY_LABEL = process.platform === "darwin" ? "Cmd+Option+Space" : "Ctrl+Alt+Space";
+let pointerActive = false;
+let pointerTimer = null;
+
+function startPointer() {
+  if (pointerActive) return;
+  const { screen } = require("electron");
+  pointerActive = true;
+  for (const display of screen.getAllDisplays()) {
+    const win = overlayFor(display);
+    clearTimeout(win._failsafe);
+    win._until = 0;
+    win._pointer = true;
+    win.setIgnoreMouseEvents(false);
+    win.setFocusable(true);
+    sendToOverlay(win, "overlay:pointer", { on: true, key: POINTER_KEY_LABEL });
+  }
+  const here = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  setTimeout(() => overlays.get(here.id)?.focus(), 60); // so Esc reaches it
+  clearTimeout(pointerTimer);
+  pointerTimer = setTimeout(endPointer, 30000); // never stuck in drawing mode
+}
+
+function endPointer() {
+  pointerActive = false;
+  clearTimeout(pointerTimer);
+  for (const win of overlays.values()) {
+    if (win.isDestroyed()) continue;
+    win._pointer = false;
+    win.setIgnoreMouseEvents(true);
+    win.setFocusable(false);
+    win.webContents.send("overlay:pointer", { on: false });
+    extendOverlay(win, 3); // the stroke fades, then the window hides
+  }
+}
+
+ipcMain.on("overlay-pointer-cancel", () => endPointer());
+
+ipcMain.on("overlay-pointer-done", async (event, { rect } = {}) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  endPointer();
+  const display = win?._display;
+  if (!display || !Array.isArray(rect) || !rect.every(Number.isFinite)) return;
+  const { screen } = require("electron");
+  const [lx, ly, lw, lh] = rect;
+  const dip = { x: display.bounds.x + lx, y: display.bounds.y + ly, width: lw, height: lh };
+  const phys = process.platform === "win32" ? screen.dipToScreenRect(null, dip) : dip;
+  let image = null;
+  try {
+    // A still of that display at full resolution, cropped to the circle
+    // plus a margin (her own overlay is excluded from captures).
+    const scale = display.scaleFactor || 1;
+    const size = { width: Math.round(display.size.width * scale), height: Math.round(display.size.height * scale) };
+    const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: size });
+    const src = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0];
+    if (src) {
+      const shot = src.thumbnail;
+      const k = shot.getSize().width / display.size.width;
+      const pad = 32;
+      const x = Math.max(0, Math.round((lx - pad) * k));
+      const y = Math.max(0, Math.round((ly - pad) * k));
+      const w = Math.min(shot.getSize().width - x, Math.round((lw + pad * 2) * k));
+      const h = Math.min(shot.getSize().height - y, Math.round((lh + pad * 2) * k));
+      let crop = shot.crop({ x, y, width: w, height: h });
+      if (crop.getSize().width > 1400) crop = crop.resize({ width: 1400 });
+      image = crop.toDataURL();
+    }
+  } catch (err) {
+    console.warn("[pointer] capture failed:", err);
+  }
+  let target = petWindow && !petWindow.isDestroyed() ? petWindow : mainWindow;
+  if (!target) return;
+  if (target === mainWindow && !mainWindow.isVisible()) showWindow();
+  target.webContents.send("sarah:pointer-question", { image, rect: [phys.x, phys.y, phys.width, phys.height] });
 });
 
 // ===========================================================================
@@ -1142,3 +1233,6 @@ ipcMain.handle("show-open-dialog-files", async (_, multiple = true) => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
+
+// For the test harness (tests drive the pointer without the global shortcut).
+module.exports = { startPointer, endPointer };

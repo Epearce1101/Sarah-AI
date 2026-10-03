@@ -176,7 +176,7 @@ function clearMarks() {
 
 // Tell the main process when nothing is showing, so it hides this window.
 function reportIdle() {
-  if (!marks.length && !bubble.classList.contains("show")) window.sarahOverlay?.idle?.();
+  if (!marks.length && !bubble.classList.contains("show") && !pointerOn) window.sarahOverlay?.idle?.();
 }
 
 // Watchdog: if the window is throttled and animation frames stop, expired
@@ -233,7 +233,99 @@ function showBubble({ text = "", x, y, seconds } = {}) {
   bubbleTimer = setTimeout(() => { hideBubble(); reportIdle(); }, ms);
 }
 
+// ---------------------------------------------------------------------------
+// Circling something for her: draw around it with the mouse; on release the
+// bounding box goes to the main process, which crops a still and asks her.
+// ---------------------------------------------------------------------------
+const ink = document.getElementById("ink");
+const inkCtx = ink.getContext("2d");
+const PEN = "#3fe0ff";
+let pointerOn = false;
+let stroke = null;      // [{x, y}] while drawing
+let inkFade = 0;
+
+function sizeInk() {
+  const dpr = window.devicePixelRatio || 1;
+  ink.width = Math.round(innerWidth * dpr);
+  ink.height = Math.round(innerHeight * dpr);
+  inkCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener("resize", sizeInk);
+sizeInk();
+
+function drawStroke(points, alpha = 1) {
+  inkCtx.clearRect(0, 0, innerWidth, innerHeight);
+  if (!points || points.length < 2) return;
+  inkCtx.globalAlpha = alpha;
+  inkCtx.strokeStyle = PEN;
+  inkCtx.lineWidth = 4;
+  inkCtx.lineCap = "round";
+  inkCtx.lineJoin = "round";
+  inkCtx.shadowColor = "rgba(63, 224, 255, 0.8)";
+  inkCtx.shadowBlur = 10;
+  inkCtx.beginPath();
+  inkCtx.moveTo(points[0].x, points[0].y);
+  for (const p of points.slice(1)) inkCtx.lineTo(p.x, p.y);
+  inkCtx.stroke();
+}
+
+function fadeStroke(points) {
+  cancelAnimationFrame(inkFade);
+  const born = performance.now();
+  const step = (now) => {
+    const a = 1 - (now - born) / 1800;
+    if (a <= 0) { inkCtx.clearRect(0, 0, innerWidth, innerHeight); reportIdle(); return; }
+    drawStroke(points, a);
+    inkFade = requestAnimationFrame(step);
+  };
+  inkFade = requestAnimationFrame(step);
+  setTimeout(() => inkCtx.clearRect(0, 0, innerWidth, innerHeight), 2200); // even if frames stall
+}
+
+function setPointer({ on = false, key } = {}) {
+  pointerOn = Boolean(on);
+  document.body.classList.toggle("pointer", pointerOn);
+  if (key) document.getElementById("hint").textContent = `Circle what you want to ask Sarah about · Esc to cancel`;
+  if (!pointerOn) stroke = null;
+  if (pointerOn) window.focus();
+}
+
+addEventListener("pointerdown", (ev) => {
+  if (!pointerOn) return;
+  if (ev.button === 2) { window.sarahOverlay?.pointerCancel?.(); return; }
+  stroke = [{ x: ev.clientX, y: ev.clientY }];
+  try { document.body.setPointerCapture(ev.pointerId); } catch {}
+});
+addEventListener("pointermove", (ev) => {
+  if (!pointerOn || !stroke) return;
+  const last = stroke[stroke.length - 1];
+  if (Math.hypot(ev.clientX - last.x, ev.clientY - last.y) < 2) return;
+  stroke.push({ x: ev.clientX, y: ev.clientY });
+  drawStroke(stroke);
+});
+addEventListener("pointerup", () => {
+  if (!pointerOn || !stroke) return;
+  const pts = stroke;
+  stroke = null;
+  const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+  let [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  // A click (or a tiny scribble) means "this spot": a small box around it.
+  if (x1 - x0 < 24 && y1 - y0 < 24) {
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    [x0, x1, y0, y1] = [cx - 90, cx + 90, cy - 55, cy + 55];
+  }
+  x0 = Math.max(0, x0); y0 = Math.max(0, y0);
+  x1 = Math.min(innerWidth, x1); y1 = Math.min(innerHeight, y1);
+  fadeStroke(pts.length > 1 ? pts : null);
+  window.sarahOverlay?.pointerDone?.([Math.round(x0), Math.round(y0), Math.round(x1 - x0), Math.round(y1 - y0)]);
+});
+addEventListener("keydown", (ev) => {
+  if (pointerOn && ev.key === "Escape") window.sarahOverlay?.pointerCancel?.();
+});
+addEventListener("contextmenu", (ev) => ev.preventDefault());
+
+window.sarahOverlay?.onPointer?.(setPointer);
 window.sarahOverlay?.onMarks(addMarks);
 window.sarahOverlay?.onClear(clearMarks);
 window.sarahOverlay?.onBubble(showBubble);
-window.SARAH_OVERLAY = { addMarks, clearMarks, showBubble, hideBubble, count: () => marks.length }; // for testing
+window.SARAH_OVERLAY = { addMarks, clearMarks, showBubble, hideBubble, setPointer, count: () => marks.length }; // for testing
