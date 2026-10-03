@@ -115,16 +115,38 @@ def available() -> bool:
 
 def synthesize(text: str, length_scale: Optional[float] = None) -> bytes:
     """WAV bytes for `text`. length_scale > 1 speaks slower (Piper's knob)."""
+    return synthesize_timed(text, length_scale)[0]
+
+
+def synthesize_timed(text: str, length_scale: Optional[float] = None):
+    """(WAV bytes, viseme entries): the audio, and when each mouth shape
+    happens in it (see backend/visemes.py). Entries may be empty."""
+    from backend import visemes
+
     engine = _load()
     if engine is None:
         raise RuntimeError("Kokoro is not available")
     rate = (1.0 / float(length_scale) if length_scale else 1.0) * speed()
     rate = max(0.6, min(1.6, rate))
     v = voice()
+    timings = []
     with _lock:  # one GPU session, one request at a time
-        samples, sr = engine.create(text, voice=v, speed=rate, lang=_lang(v))
+        if hasattr(engine, "create_timed"):
+            samples, sr, timings = engine.create_timed(text, voice=v, speed=rate, lang=_lang(v))
+        else:
+            samples, sr = engine.create(text, voice=v, speed=rate, lang=_lang(v))
+    samples = np.asarray(samples, dtype=np.float32)
+    entries = []
+    try:
+        if timings:
+            entries = visemes.from_timings(timings)
+        else:
+            phonemes = engine.tokenizer.phonemize(text, _lang(v))
+            entries = visemes.align(visemes.units_from_phonemes(phonemes), samples, sr)
+    except Exception as exc:  # lip sync is a nicety; the voice matters more
+        logger.debug("[TTS] no viseme timeline: %s", exc)
     import soundfile as sf
 
     buf = io.BytesIO()
-    sf.write(buf, np.asarray(samples, dtype=np.float32), sr, format="WAV", subtype="PCM_16")
-    return buf.getvalue()
+    sf.write(buf, samples, sr, format="WAV", subtype="PCM_16")
+    return buf.getvalue(), entries

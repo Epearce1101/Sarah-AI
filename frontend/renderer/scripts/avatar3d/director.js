@@ -363,11 +363,12 @@ export class SarahDirector {
   // ----- speech --------------------------------------------------------------
   // Called by the TTS player when a clip starts. `cues` carry `at` offsets in
   // `text`; each fires when playback reaches that point.
-  speechStart({ analyser = null, text = "", cues = [], duration = 0 } = {}) {
+  speechStart({ analyser = null, text = "", cues = [], duration = 0, visemes = null, audio = null } = {}) {
     this.speaking = true;
     this.speechSerial = (this.speechSerial || 0) + 1;
     this._setMode("speaking");
     this.avatar.face.attachAnalyser(analyser);
+    this.avatar.face.setTimeline(visemes, audio);
     const seconds = duration && Number.isFinite(duration) ? duration : Math.max(1, text.length * 0.06);
     this.avatar.face.speakingFallback = analyser ? 0 : performance.now() + seconds * 1000;
     const plan = this._bodyLanguage(text, cues);
@@ -387,6 +388,7 @@ export class SarahDirector {
   speechEnd() {
     this.speaking = false;
     this.avatar.face.attachAnalyser(null);
+    this.avatar.face.setTimeline(null);
     this.avatar.face.speakingFallback = 0;
     const serial = this.speechSerial;
     this._later(900, () => {

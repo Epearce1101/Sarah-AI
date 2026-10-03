@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Response
 
+from backend import visemes
 from backend.api.schemas import TTSRequest
 from backend.diagnostics.telemetry import record_voice_latency
 
@@ -61,10 +62,10 @@ def api_tts(req: TTSRequest):
     req.text = text
     if tts_kokoro.available():
         try:
-            wav_bytes = tts_kokoro.synthesize(text, req.length_scale)
+            wav_bytes, entries = tts_kokoro.synthesize_timed(text, req.length_scale)
             record_voice_latency("tts", (time.perf_counter() - started_at) * 1000, ok=True)
             return Response(content=wav_bytes, media_type="audio/wav",
-                            headers={"Content-Disposition": 'inline; filename="sarah_tts.wav"'})
+                            headers=_headers(visemes.encode(entries)))
         except Exception:
             logger.exception("[/api/tts] Kokoro failed; falling back to Piper")
 
@@ -97,8 +98,27 @@ def api_tts(req: TTSRequest):
 
     record_voice_latency("tts", (time.perf_counter() - started_at) * 1000, ok=True)
 
-    return Response(
-        content=wav_bytes,
-        media_type="audio/wav",
-        headers={"Content-Disposition": 'inline; filename="sarah_tts.wav"'},
-    )
+    return Response(content=wav_bytes, media_type="audio/wav", headers=_headers(_piper_visemes(text, wav_bytes)))
+
+
+def _headers(timeline):
+    """The clip's viseme timeline rides along in a header (see backend/visemes.py)."""
+    headers = {"Content-Disposition": 'inline; filename="sarah_tts.wav"'}
+    if timeline:
+        headers["X-Sarah-Visemes"] = timeline
+    return headers
+
+
+def _piper_visemes(text: str, wav_bytes: bytes):
+    """Piper gives no phonemes: lay the spelling over the audio."""
+    try:
+        import io
+
+        import soundfile as sf
+
+        samples, sr = sf.read(io.BytesIO(wav_bytes), dtype="float32")
+        if samples.ndim > 1:
+            samples = samples.mean(axis=1)
+        return visemes.encode(visemes.align(visemes.units_from_text(text), samples, sr))
+    except Exception:
+        return None

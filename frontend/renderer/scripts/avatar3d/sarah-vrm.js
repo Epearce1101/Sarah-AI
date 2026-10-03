@@ -16,7 +16,7 @@ import {
   createVRMAnimationClip,
 } from "@pixiv/three-vrm-animation";
 import { describeFile, loadMixamoClip } from "./mixamo.js";
-import { visemesFromSpectrum } from "./visemes.js";
+import { visemesFromSpectrum, parseTimeline, timelineShape } from "./visemes.js";
 
 const { damp, clamp, degToRad } = THREE.MathUtils;
 const tmpV1 = new THREE.Vector3();
@@ -519,6 +519,13 @@ class Face {
     if (this.blinkT < 0) this.blinkT = 0;
   }
 
+  // Mouth shapes from her voice engine, played against the clip's own
+  // clock (raw X-Sarah-Visemes header text, or null to stop).
+  setTimeline(raw, audio = null) {
+    this.timeline = raw && audio ? parseTimeline(raw) : null;
+    this.timelineAudio = this.timeline ? audio : null;
+  }
+
   attachAnalyser(analyser) {
     this.analyser = analyser;
     this.freq = analyser ? new Uint8Array(analyser.frequencyBinCount) : null;
@@ -583,11 +590,22 @@ class Face {
       this.energy = damp(this.energy, volume, 18, dt);
       if (volume > 0.04) {
         speaking = true;
-        // Vowel shape from the formants of her voice (visemes.js).
-        this.analyser.getFloatFrequencyData(this.spectrum);
-        const binHz = (this.analyser.context?.sampleRate || 48000) / this.analyser.fftSize;
-        Object.assign(targets, visemesFromSpectrum(this.spectrum, binHz, volume));
+        const audio = this.timelineAudio;
+        if (this.timeline && audio && !audio.paused) {
+          // The engine said which sound this is: shape from the timeline
+          // (a hair early, as mouths move before the sound), opening from
+          // how loud it is.
+          Object.assign(targets, timelineShape(this.timeline, audio.currentTime + 0.04, Math.min(1, volume * 1.8)));
+        } else {
+          // Vowel shape from the formants of her voice (visemes.js).
+          this.analyser.getFloatFrequencyData(this.spectrum);
+          const binHz = (this.analyser.context?.sampleRate || 48000) / this.analyser.fftSize;
+          Object.assign(targets, visemesFromSpectrum(this.spectrum, binHz, volume));
+        }
       }
+    } else if (this.timeline && this.timelineAudio && !this.timelineAudio.paused) {
+      speaking = true; // no analyser: the timeline alone, at a steady opening
+      Object.assign(targets, timelineShape(this.timeline, this.timelineAudio.currentTime + 0.04, 0.75));
     } else if (this.speakingFallback > now) {
       speaking = true;
       const t = now / 1000;

@@ -176,7 +176,22 @@ export class SarahBackend {
 
     if (!res.ok) throw new Error("TTS failed");
     const blob = await res.blob();
-    return URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob);
+    // Her mouth shapes for this clip, timed to it (lip sync).
+    const visemes = res.headers.get("X-Sarah-Visemes");
+    if (visemes) {
+      this._visemes ||= new Map();
+      this._visemes.set(url, visemes);
+      if (this._visemes.size > 40) this._visemes.delete(this._visemes.keys().next().value);
+    }
+    return url;
+  }
+
+  // The lip-sync timeline that came with a tts() clip (raw header text), once.
+  takeVisemes(url) {
+    const v = this._visemes?.get(url) || null;
+    this._visemes?.delete(url);
+    return v;
   }
 
   async stt(audioB64, mimeType = "audio/webm") {

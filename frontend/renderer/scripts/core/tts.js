@@ -147,7 +147,7 @@ export class SarahTTS {
   // active: the 3D director gets the analyser (lip sync + speech beats) and
   // the clip's stage-direction cues, timed to this clip's playback; the
   // Live2D rig gets a voice level per frame.
-  async _attachAvatarAudio(audio, text = "", cues = []) {
+  async _attachAvatarAudio(audio, text = "", cues = [], visemes = null) {
     const director = window.SARAH_AVATAR_DIRECTOR;
     const live2d = window.SARAH_LIVE2D?.setVoiceLevel && !director;
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
@@ -182,7 +182,7 @@ export class SarahTTS {
 
     if (director) {
       audio.addEventListener("play", () => {
-        director.speechStart({ analyser, text, cues, duration: audio.duration });
+        director.speechStart({ analyser, text, cues, duration: audio.duration, visemes, audio });
       }, { once: true });
       const end = () => director.speechEnd();
       audio.addEventListener("ended", end, { once: true });
@@ -288,7 +288,7 @@ export class SarahTTS {
         audio.addEventListener(evt, () => resolve(), { once: true });
       }
     });
-    await this._attachAvatarAudio(audio, text, cues);
+    await this._attachAvatarAudio(audio, text, cues, this.backend.takeVisemes?.(url) || null);
     if (!audio._routed) audio.volume = this.volume;
     await new Promise((resolve) => {
       if (audio.readyState >= 3) {

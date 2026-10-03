@@ -32,3 +32,19 @@ const db = vowel(500, 2000); db[3] = -Infinity;
 const w = visemesFromSpectrum(db, binHz, 1);
 assert.ok(VISEMES.every((k) => w[k] >= 0 && w[k] <= 1));
 console.log("visemes ok");
+
+// Voice-engine timelines.
+import { parseTimeline, timelineShape } from "../renderer/scripts/avatar3d/visemes.js";
+const tl = parseTimeline('[[0,"m",80],[80,"a",200],[280,"u",150],[430,"_",100]]');
+assert.equal(tl.length, 4);
+assert.equal(parseTimeline("nope"), null);
+assert.equal(parseTimeline(null), null);
+const at = (t) => timelineShape(tl, t, 1);
+assert.ok(VISEMES.every((k) => at(0.04)[k] === 0), "lips closed on m");
+assert.ok(at(0.15).aa > 0.9, "open on a");
+assert.ok(at(0.33).ou > 0.6 && at(0.33).aa === 0, "rounded on u");
+const mid = at(0.26); // late in "a": already moving toward "u"
+assert.ok(mid.aa > mid.ou && mid.ou > 0.2, `coarticulation ${JSON.stringify(mid)}`);
+assert.ok(VISEMES.every((k) => at(0.7)[k] === 0), "closed after the end");
+assert.ok(timelineShape(tl, 0.15, 0.4).aa < 0.45, "quieter -> less open");
+console.log("timelines ok");

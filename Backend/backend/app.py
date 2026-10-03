@@ -82,6 +82,7 @@ def create_app() -> FastAPI:
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Sarah-Visemes"],  # lip-sync timeline on /api/tts
     )
 
     register_routers(app)

@@ -89,3 +89,68 @@ export function visemesFromSpectrum(db, binHz, volume) {
   out.aa = Math.max(out.aa, amount * (total > 1e-9 ? 0.25 : 0.6));
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Timelines from her voice engine (the X-Sarah-Visemes header on /api/tts):
+// [[start_ms, code, length_ms], ...] with codes a e i o u (vowels), m (lips
+// closed: m b p), f (f v), c (other consonants), _ (silence).
+// ---------------------------------------------------------------------------
+
+const CODE_SHAPES = {
+  a: { aa: 1 },
+  e: { ee: 0.85, aa: 0.15 },
+  i: { ih: 1 },
+  o: { oh: 1 },
+  u: { ou: 1 },
+  m: {},                       // lips together
+  f: { ih: 0.3 },              // lower lip to teeth, mouth nearly shut
+  c: { aa: 0.25, ih: 0.15 },   // most consonants: slightly open
+  _: {},
+};
+
+/** The header value -> [{t, c, d}] in seconds (null if absent or malformed). */
+export function parseTimeline(header) {
+  if (!header) return null;
+  try {
+    const rows = JSON.parse(header);
+    if (!Array.isArray(rows)) return null;
+    const out = [];
+    for (const r of rows) {
+      if (!Array.isArray(r) || r.length < 3 || !Number.isFinite(r[0]) || !Number.isFinite(r[2])) continue;
+      out.push({ t: r[0] / 1000, c: CODE_SHAPES[r[1]] ? r[1] : "c", d: Math.max(0.01, r[2] / 1000) });
+    }
+    return out.length ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+function findEntry(timeline, t) {
+  let lo = 0, hi = timeline.length - 1;
+  if (hi < 0 || t < timeline[0].t) return -1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (timeline[mid].t <= t) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+
+/**
+ * Viseme weights at playback time `t` (seconds), scaled by `amount` (how
+ * open: her current loudness). The mouth starts moving toward the next shape
+ * in the last 35% of each sound, as real mouths do.
+ */
+export function timelineShape(timeline, t, amount) {
+  const out = { aa: 0, ih: 0, ou: 0, ee: 0, oh: 0 };
+  const k = findEntry(timeline, t);
+  if (k < 0) return out;
+  const cur = timeline[k];
+  if (t > cur.t + cur.d + 0.06) return out; // after the last sound
+  const p = (t - cur.t) / cur.d;
+  const next = timeline[k + 1];
+  const blend = next && p > 0.65 ? Math.min(1, (p - 0.65) / 0.35) * 0.5 : 0;
+  for (const [shape, w] of Object.entries(CODE_SHAPES[cur.c] || {})) out[shape] += w * (1 - blend);
+  if (blend) for (const [shape, w] of Object.entries(CODE_SHAPES[next.c] || {})) out[shape] += w * blend;
+  for (const k2 of VISEMES) out[k2] = Math.min(CAPS[k2], out[k2] * amount);
+  return out;
+}
