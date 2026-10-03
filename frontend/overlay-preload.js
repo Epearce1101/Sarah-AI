@@ -6,4 +6,5 @@ contextBridge.exposeInMainWorld("sarahOverlay", {
   onMarks: (cb) => ipcRenderer.on("overlay:marks", (_e, payload) => cb(payload)),
   onClear: (cb) => ipcRenderer.on("overlay:clear", () => cb()),
   onBubble: (cb) => ipcRenderer.on("overlay:bubble", (_e, payload) => cb(payload)),
+  idle: () => ipcRenderer.send("overlay-idle"),
 });

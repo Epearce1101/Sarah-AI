@@ -919,13 +919,14 @@ async def _ground_on_screen(target: str) -> Dict[str, Any]:
       "target = the exact text shown on screen (a button, link, menu, line of text, error message), or an "
       "app, file or folder name. Use it whenever Zero asks about their screen ('what's this', 'where do I "
       "click', 'what are you looking at'), so they see exactly what you mean. Several calls show several "
-      "marks; style 'clear' removes them.",
+      "marks (up to 4); they fade on their own and go when Zero sends the next message; style 'clear' "
+      "removes them now.",
       {"target": {"type": "string"},
        "style": {"type": "string", "enum": ["circle", "arrow", "underline", "box", "clear"]},
        "label": {"type": "string", "description": "a few words shown next to the mark (optional)"},
-       "seconds": {"type": "number", "description": "how long it stays (default 8, max 30)"}},
+       "seconds": {"type": "number", "description": "how long it stays (default 6, max 15)"}},
       ["target"], timeout=45)
-async def show_on_screen(target: str, style: str = "circle", label: str = "", seconds: float = 8):
+async def show_on_screen(target: str, style: str = "circle", label: str = "", seconds: float = 6):
     from .locate import find_on_screen
     from .senses import senses
 
@@ -939,7 +940,7 @@ async def show_on_screen(target: str, style: str = "circle", label: str = "", se
         raise RuntimeError(f"Couldn't mark '{target}': {hit.get('reason', 'not found')}.")
     mark = {"rect": hit["rect"], "style": style if style in ("circle", "arrow", "underline", "box") else "circle",
             "label": (label or "")[:60], "approx": bool(hit.get("approx"))}
-    if not await senses.push({"type": "mark", "marks": [mark], "seconds": max(2.0, min(30.0, float(seconds or 8)))}):
+    if not await senses.push({"type": "mark", "marks": [mark], "seconds": max(2.0, min(15.0, float(seconds or 6)))}):
         raise RuntimeError("Sarah's app isn't connected, so nothing could be drawn on screen.")
     where = f"{hit.get('kind', 'on screen')}"
     note = " (approximate, found by looking at a screenshot)" if hit.get("approx") else ""

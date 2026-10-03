@@ -9,8 +9,12 @@ const bubble = document.getElementById("bubble");
 const INK = "#ff4fd8";
 const DRAW_MS = 450;
 const FADE_MS = 400;
+const MAX_MARKS = 4;
+// Hard limits so nothing lingers: a mark lasts 1.5-15 s, a bubble 1.5-15 s.
+const clampSeconds = (s, fallback) => Math.max(1.5, Math.min(15, Number(s) || fallback));
 let marks = [];
 let raf = 0;
+let lastFrame = 0;
 
 function resize() {
   const dpr = window.devicePixelRatio || 1;
@@ -124,13 +128,18 @@ function placeLabel(m, bounds) {
   m.el.style.top = `${above ? bounds.top - r.height - 8 : bounds.bottom + 8}px`;
 }
 
-function frame(now) {
-  ctx.clearRect(0, 0, innerWidth, innerHeight);
+function dropExpired(now) {
   marks = marks.filter((m) => {
     if (now < m.until) return true;
     m.el?.remove();
     return false;
   });
+}
+
+function frame(now) {
+  lastFrame = performance.now();
+  ctx.clearRect(0, 0, innerWidth, innerHeight);
+  dropExpired(now);
   for (const m of marks) {
     const p = Math.min(1, (now - m.born) / DRAW_MS);
     const fade = Math.min(1, Math.max(0, (m.until - now) / FADE_MS));
@@ -140,31 +149,79 @@ function frame(now) {
     placeLabel(m, bounds);
   }
   raf = marks.length ? requestAnimationFrame(frame) : 0;
+  if (!marks.length) reportIdle();
 }
 
-function addMarks({ marks: list = [], seconds = 8 } = {}) {
+function addMarks({ marks: list = [], seconds = 6 } = {}) {
   const now = performance.now();
+  const ms = clampSeconds(seconds, 6) * 1000;
   for (const m of list) {
-    marks.push({ ...m, born: now, until: now + seconds * 1000, seed: Math.random() * 10 });
+    if (!Array.isArray(m?.rect) || m.rect.length !== 4 || !m.rect.every(Number.isFinite)) continue;
+    marks.push({ ...m, born: now, until: now + ms, seed: Math.random() * 10 });
   }
-  if (!raf) raf = requestAnimationFrame(frame);
+  // Only the latest few; the oldest go first.
+  while (marks.length > MAX_MARKS) marks.shift().el?.remove();
+  if (!raf && marks.length) raf = requestAnimationFrame(frame);
 }
 
 function clearMarks() {
   for (const m of marks) m.el?.remove();
   marks = [];
+  cancelAnimationFrame(raf);
+  raf = 0;
   ctx.clearRect(0, 0, innerWidth, innerHeight);
+  hideBubble();
+  reportIdle();
 }
 
+// Tell the main process when nothing is showing, so it hides this window.
+function reportIdle() {
+  if (!marks.length && !bubble.classList.contains("show")) window.sarahOverlay?.idle?.();
+}
+
+// Watchdog: if the window is throttled and animation frames stop, expired
+// marks are still removed and the canvas wiped on a plain timer.
+setInterval(() => {
+  const now = performance.now();
+  if (!marks.length) return;
+  if (now - lastFrame > 700) {
+    dropExpired(now);
+    if (!marks.length) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      reportIdle();
+    } else {
+      frame(now);
+    }
+  }
+}, 500);
+
 let bubbleTimer = 0;
+let bubbleText = "";     // the full text showing now
+let bubbleExpired = "";  // text whose time is up: follow-up moves don't revive it
+function hideBubble() {
+  clearTimeout(bubbleTimer);
+  if (bubbleText) bubbleExpired = bubbleText;
+  bubbleText = "";
+  bubble.classList.remove("show");
+  bubble.textContent = "";
+}
+
 function showBubble({ text = "", x, y, seconds } = {}) {
   const words = String(text || "").trim();
-  if (!words) {
-    bubble.classList.remove("show");
+  if (!words || !Number.isFinite(x) || !Number.isFinite(y)) {
+    hideBubble();
+    reportIdle();
     return;
   }
-  const same = bubble.textContent === words && bubble.classList.contains("show");
-  bubble.textContent = words.length > 260 ? `${words.slice(0, 257)}…` : words;
+  if (words === bubbleExpired && words !== bubbleText) { reportIdle(); return; }
+  const same = words === bubbleText;
+  if (!same) {
+    bubbleText = words;
+    bubbleExpired = "";
+    bubble.textContent = words.length > 260 ? `${words.slice(0, 257)}…` : words;
+  }
   // Keep it on screen: above her head, nudged in from the edges.
   const half = Math.min(140, bubble.offsetWidth / 2 || 140);
   bubble.style.left = `${Math.max(half + 6, Math.min(innerWidth - half - 6, x))}px`;
@@ -172,11 +229,11 @@ function showBubble({ text = "", x, y, seconds } = {}) {
   bubble.classList.add("show");
   if (same) return; // just following her as she moves
   clearTimeout(bubbleTimer);
-  const ms = (seconds || Math.min(12, 2.5 + words.length * 0.055)) * 1000;
-  bubbleTimer = setTimeout(() => bubble.classList.remove("show"), ms);
+  const ms = clampSeconds(seconds, Math.min(12, 2.5 + words.length * 0.055)) * 1000;
+  bubbleTimer = setTimeout(() => { hideBubble(); reportIdle(); }, ms);
 }
 
 window.sarahOverlay?.onMarks(addMarks);
 window.sarahOverlay?.onClear(clearMarks);
 window.sarahOverlay?.onBubble(showBubble);
-window.SARAH_OVERLAY = { addMarks, clearMarks, showBubble }; // for testing
+window.SARAH_OVERLAY = { addMarks, clearMarks, showBubble, hideBubble, count: () => marks.length }; // for testing

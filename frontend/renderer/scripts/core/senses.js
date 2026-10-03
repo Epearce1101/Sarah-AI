@@ -56,7 +56,7 @@ export class SarahSenses {
       this._reply(msg.id, frame);
     } else if (msg.type === "mark") {
       // Draw on the screen overlay; in pet mode she also points at it.
-      await window.sarahApp?.overlayMark?.({ marks: msg.marks || [], seconds: msg.seconds || 8, clear: Boolean(msg.clear) });
+      await window.sarahApp?.overlayMark?.({ marks: msg.marks || [], seconds: msg.seconds || 6, clear: Boolean(msg.clear) });
       const m = msg.marks?.[0];
       if (m && document.documentElement.classList.contains("pet-mode") && window.sarahApp?.screenPointToClient) {
         const [x, y, w, h] = m.rect;

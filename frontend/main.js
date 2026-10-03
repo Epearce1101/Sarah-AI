@@ -153,6 +153,7 @@ function setWindowState(inTray) {
 function hideToTray() {
   if (!mainWindow) return;
   mainWindow.hide();
+  if (!petWindow) clearOverlays(); // nothing of hers stays on screen while she's away
   setWindowState(true);
   if (!trayHintShown && tray) {
     trayHintShown = true;
@@ -235,6 +236,7 @@ function enterPetMode() {
   petWindow.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { pet: "1" } });
   petWindow.on("closed", () => {
     petWindow = null;
+    clearOverlays(); // her bubble goes with her
     if (!quitting) showMainAfterPet();
   });
   // The main window hands over her senses now but stays on screen until the
@@ -681,21 +683,62 @@ function overlayFor(display) {
     frame: false, transparent: true, backgroundColor: "#00000000", hasShadow: false,
     alwaysOnTop: true, skipTaskbar: true, focusable: false, resizable: false, movable: false,
     fullscreenable: false, show: false,
-    webPreferences: { preload: path.join(__dirname, "overlay-preload.js"), contextIsolation: true, nodeIntegration: false },
+    webPreferences: {
+      preload: path.join(__dirname, "overlay-preload.js"), contextIsolation: true, nodeIntegration: false,
+      // Covered or not, its timers and frames must keep running so marks fade on time.
+      backgroundThrottling: false,
+    },
   });
   win.setIgnoreMouseEvents(true);
   win.setAlwaysOnTop(true, "screen-saver");
   win.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreen: true });
   win.setContentProtection(true);
   win.loadFile(path.join(__dirname, "renderer", "overlay.html"));
-  win.on("closed", () => overlays.delete(display.id));
+  win.on("closed", () => { clearTimeout(win._failsafe); overlays.delete(display.id); });
   overlays.set(display.id, win);
   return win;
 }
 
-function sendToOverlay(win, channel, payload) {
-  const go = () => { win.showInactive(); win.webContents.send(channel, payload); };
+// Nothing may outlive its time: besides the overlay page's own timers, the
+// main process wipes and hides each overlay window a moment after the last
+// thing on it should have gone, even if that page has stalled.
+const OVERLAY_MAX_S = 15;
+const overlaySeconds = (s, fallback) => Math.max(1.5, Math.min(OVERLAY_MAX_S, Number(s) || fallback));
+function extendOverlay(win, seconds) {
+  const until = Date.now() + seconds * 1000 + 1200;
+  if (win._until && win._until >= until) return;
+  win._until = until;
+  clearTimeout(win._failsafe);
+  win._failsafe = setTimeout(() => {
+    if (win.isDestroyed()) return;
+    win._until = 0;
+    win._bubbleDone = win._bubble;
+    win._bubble = "";
+    win.webContents.send("overlay:clear");
+    win.hide();
+  }, until - Date.now());
+}
+
+function sendToOverlay(win, channel, payload, seconds) {
+  if (seconds) extendOverlay(win, seconds);
+  const go = () => {
+    if (win.isDestroyed()) return;
+    if (!win.isVisible()) win.showInactive();
+    win.webContents.send(channel, payload);
+  };
   if (win.webContents.isLoading()) win.webContents.once("did-finish-load", go); else go();
+}
+
+function clearOverlays() {
+  for (const win of overlays.values()) {
+    if (win.isDestroyed()) continue;
+    clearTimeout(win._failsafe);
+    win._until = 0;
+    if (win._bubble) win._bubbleDone = win._bubble;
+    win._bubble = "";
+    win.webContents.send("overlay:clear");
+    win.hide();
+  }
 }
 
 function resetOverlays() {
@@ -703,13 +746,24 @@ function resetOverlays() {
   overlays.clear();
 }
 
+// The overlay page reports when nothing is left on it.
+ipcMain.on("overlay-idle", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed() || win._pointer) return;
+  clearTimeout(win._failsafe);
+  win._until = 0;
+  if (win._bubble) { win._bubbleDone = win._bubble; win._bubble = ""; }
+  win.hide();
+});
+
 // Marks in physical screen pixels -> each display's overlay, in its own DIPs.
-ipcMain.handle("overlay-mark", (_event, { marks = [], seconds = 8, clear = false } = {}) => {
+ipcMain.handle("overlay-mark", (_event, { marks = [], seconds = 6, clear = false } = {}) => {
   const { screen } = require("electron");
   if (clear) {
-    for (const win of overlays.values()) if (!win.isDestroyed()) win.webContents.send("overlay:clear");
+    clearOverlays();
     return { ok: true };
   }
+  seconds = overlaySeconds(seconds, 6);
   const perDisplay = new Map();
   for (const m of marks) {
     const [x, y, w, h] = m.rect || [];
@@ -721,7 +775,7 @@ ipcMain.handle("overlay-mark", (_event, { marks = [], seconds = 8, clear = false
     perDisplay.get(display.id).marks.push(local);
   }
   for (const { display, marks: list } of perDisplay.values()) {
-    sendToOverlay(overlayFor(display), "overlay:marks", { marks: list, seconds });
+    sendToOverlay(overlayFor(display), "overlay:marks", { marks: list, seconds }, seconds);
   }
   return { ok: perDisplay.size > 0 };
 });
@@ -730,12 +784,25 @@ ipcMain.handle("overlay-mark", (_event, { marks = [], seconds = 8, clear = false
 ipcMain.handle("overlay-bubble", (_event, { text = "", x, y, seconds } = {}) => {
   const { screen } = require("electron");
   if (!Number.isFinite(x) || !Number.isFinite(y)) return { ok: false };
+  const words = String(text || "").trim();
   const display = screen.getDisplayNearestPoint({ x: Math.round(x), y: Math.round(y) });
-  const payload = { text, x: x - display.bounds.x, y: y - display.bounds.y, seconds };
   for (const [id, win] of overlays) {
-    if (id !== display.id && !win.isDestroyed()) win.webContents.send("overlay:bubble", { text: "" });
+    if (id !== display.id && !win.isDestroyed()) { win._bubble = ""; win.webContents.send("overlay:bubble", { text: "" }); }
   }
-  sendToOverlay(overlayFor(display), "overlay:bubble", payload);
+  const win = overlays.get(display.id);
+  if (!words) {
+    if (win && !win.isDestroyed()) { win._bubble = ""; win.webContents.send("overlay:bubble", { text: "" }); }
+    return { ok: true };
+  }
+  // Words whose time is up stay gone, even as she keeps moving.
+  if (win && !win.isDestroyed() && win._bubbleDone === words) return { ok: true };
+  const target = overlayFor(display);
+  // Only new words set the deadline; following her around doesn't extend it.
+  const fresh = target._bubble !== words;
+  target._bubble = words;
+  if (fresh) target._bubbleDone = "";
+  const secs = fresh ? overlaySeconds(seconds, Math.min(12, 2.5 + words.length * 0.055)) : 0;
+  sendToOverlay(target, "overlay:bubble", { text: words, x: x - display.bounds.x, y: y - display.bounds.y, seconds }, secs);
   return { ok: true };
 });
 

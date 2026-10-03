@@ -872,6 +872,11 @@ class SarahUI {
     else home();
   }
 
+  // A new message moves the talk on: last turn's marks on the screen go.
+  _clearScreenMarks() {
+    try { window.sarahApp?.overlayMark?.({ clear: true }); } catch (_) {}
+  }
+
   // Pet mode: her words in a bubble above her head (on the screen overlay),
   // following her if she's moved while it shows.
   _petBubble(text) {
@@ -2248,6 +2253,7 @@ class SarahUI {
 
   async _sendEditedMessage(text, isReroll = false) {
     // Re-send the edited user message to get a new AI response
+    this._clearScreenMarks();
     this.setInputDisabled(true);
     this.setStatus("Thinking...");
     this._setAvatarMode("thinking", { source: "chat" });
@@ -6395,6 +6401,7 @@ class SarahUI {
 
     console.log("[Chat] _sendChat called, activeConversationId before:", this.activeConversationId);
     this._chatBusy = true;
+    this._clearScreenMarks();
 
     if (!this.activeConversationId) {
       try {
@@ -6585,6 +6592,7 @@ class SarahUI {
   }
 
   async _sendChatWithAttachments(text, attachments) {
+    this._clearScreenMarks();
     const prompt = text?.trim() || "Analyze the attached content.";
     const imageAttachments = attachments.filter((att) => att.kind === "image" && att.dataUrl);
     const textAttachments = attachments.filter((att) => att.kind === "text" && att.text);
