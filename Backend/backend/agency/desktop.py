@@ -330,3 +330,134 @@ def launch(target: str) -> str:
                            "it (Windows would just show an error box). Ask Zero what it's called or where it is.")
     os.startfile(found)
     return found
+
+
+# ---------------------------------------------------------------------------
+# Screens and windows, for moving the pet out of the way (see pet.py)
+# ---------------------------------------------------------------------------
+
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG), ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+
+
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", _RECT), ("rcWork", _RECT), ("dwFlags", wintypes.DWORD)]
+
+
+def _rect(r: _RECT):
+    return (int(r.left), int(r.top), int(r.right), int(r.bottom))
+
+
+_SHELL_CLASSES = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow",
+                  "Windows.UI.Core.CoreWindow"}
+WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE = 0x80, 0x08000000
+
+
+class _PhysicalPixels:
+    """Real pixels on every monitor for this thread, whatever the scaling
+    (Electron converts them back for the pet window)."""
+
+    def __enter__(self):
+        self.previous = None
+        try:
+            fn = user32.SetThreadDpiAwarenessContext
+            fn.restype, fn.argtypes = ctypes.c_void_p, [ctypes.c_void_p]
+            self.previous = fn(ctypes.c_void_p(-4))  # per-monitor aware v2
+        except (AttributeError, OSError):
+            pass
+        return self
+
+    def __exit__(self, *exc):
+        if self.previous:
+            user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(self.previous))
+
+
+def _monitors() -> List[Dict[str, object]]:
+    found: List[Dict[str, object]] = []
+    Proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(_RECT), wintypes.LPARAM)
+
+    def cb(hmon, _hdc, _rc, _lp):
+        info = _MONITORINFO()
+        info.cbSize = ctypes.sizeof(_MONITORINFO)
+        if not user32.GetMonitorInfoW(hmon, ctypes.byref(info)):
+            return True
+        scale = 1.0
+        try:
+            dx, dy = wintypes.UINT(), wintypes.UINT()
+            if ctypes.windll.shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(dx), ctypes.byref(dy)) == 0:
+                scale = dx.value / 96
+        except (AttributeError, OSError):
+            pass
+        found.append({"rect": _rect(info.rcMonitor), "work": _rect(info.rcWork),
+                      "primary": bool(info.dwFlags & 1), "scale": scale})
+        return True
+
+    user32.EnumDisplayMonitors(None, None, Proc(cb), 0)
+    return found
+
+
+def _visible_rect(hwnd):
+    """The window as drawn (without Windows 10's invisible resize borders)."""
+    r = _RECT()
+    try:
+        if ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd, 9, ctypes.byref(r), ctypes.sizeof(r)) == 0:
+            return _rect(r)
+    except (AttributeError, OSError):
+        pass
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
+    return _rect(r)
+
+
+def _cloaked(hwnd) -> bool:
+    flag = wintypes.DWORD()
+    try:
+        return ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd, 14, ctypes.byref(flag), ctypes.sizeof(flag)) == 0 \
+            and bool(flag.value)
+    except (AttributeError, OSError):
+        return False
+
+
+def _app_windows() -> List[Dict[str, object]]:
+    """Visible app windows, topmost first (not Sarah's, the taskbar, the
+    desktop, overlays or hidden Store-app frames)."""
+    found: List[Dict[str, object]] = []
+    Proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    get_ex = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+
+    def cb(hwnd, _):
+        if not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd) or _cloaked(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+        title = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, title, length + 1)
+        cls = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, cls, 256)
+        if cls.value in _SHELL_CLASSES or title.value.startswith("Sarah V10"):
+            return True
+        if get_ex(hwnd, -20) & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE):  # palettes, game overlays
+            return True
+        rect = _visible_rect(hwnd)
+        if rect[2] - rect[0] < 50 or rect[3] - rect[1] < 50:
+            return True
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        found.append({"hwnd": int(hwnd), "title": title.value, "app": _process_name(pid.value), "rect": rect})
+        return True
+
+    user32.EnumWindows(Proc(cb), 0)
+    return found
+
+
+def screen_layout() -> Dict[str, object]:
+    """Monitors, app windows (topmost first) and the one Zero is using, in
+    physical pixels."""
+    if os.name != "nt":
+        raise DesktopError("moving the pet needs Windows")
+    with _PhysicalPixels():
+        monitors = _monitors()
+        wins = _app_windows()
+        fg = int(user32.GetForegroundWindow() or 0)
+    active = next((w for w in wins if w["hwnd"] == fg), wins[0] if wins else None)
+    return {"monitors": monitors, "windows": wins, "active": active}

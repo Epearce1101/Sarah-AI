@@ -225,6 +225,7 @@ function enterPetMode() {
   petWindow.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { pet: "1" } });
   petWindow.on("closed", () => {
     petWindow = null;
+    petHome = null;
     if (!quitting) showMainAfterPet();
   });
   // The main window hands over her senses now but stays on screen until the
@@ -260,6 +261,7 @@ let petDrag = null;
 ipcMain.on("pet-drag", (_event, { phase, x, y } = {}) => {
   if (!petWindow) return;
   if (phase === "start") {
+    petHome = null; // you put her somewhere: that's where she belongs now
     petDrag = { from: petWindow.getBounds(), x, y };
   } else if (phase === "move" && petDrag) {
     const { from } = petDrag;
@@ -269,6 +271,57 @@ ipcMain.on("pet-drag", (_event, { phase, x, y } = {}) => {
   } else {
     petDrag = null;
   }
+});
+
+// Out of the way and back (her "pet" tool): the backend picks the spot in
+// physical screen pixels (the gap beside your app, or another monitor if
+// it's fullscreen); she glides there and remembers where she was.
+let petHome = null;
+
+function petPhysical(bounds) {
+  const { screen } = require("electron");
+  return process.platform === "win32" ? screen.dipToScreenRect(petWindow, bounds) : bounds;
+}
+
+function glidePet(to, ms = 380) {
+  const from = petWindow.getBounds();
+  const steps = 16;
+  return new Promise((resolve) => {
+    let i = 0;
+    const tick = () => {
+      if (!petWindow) return resolve();
+      i += 1;
+      const t = 1 - (1 - i / steps) ** 3; // ease out
+      petWindow.setBounds({ x: Math.round(from.x + (to.x - from.x) * t), y: Math.round(from.y + (to.y - from.y) * t),
+        width: from.width, height: from.height });
+      if (i >= steps) resolve(); else setTimeout(tick, ms / steps);
+    };
+    tick();
+  });
+}
+
+ipcMain.handle("pet-where", () => {
+  if (!petWindow) return { pet: false };
+  const b = petWindow.getBounds();
+  return { pet: true, dip: { width: b.width, height: b.height }, physical: petPhysical(b), home: Boolean(petHome) };
+});
+
+ipcMain.handle("pet-move", async (_event, { x, y, back } = {}) => {
+  if (!petWindow) return { pet: false };
+  const { screen } = require("electron");
+  const now = petWindow.getBounds();
+  let to;
+  if (back) {
+    if (!petHome) return { pet: true, bounds: now };
+    to = petHome;
+    petHome = null;
+  } else {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { pet: true, error: "no spot" };
+    to = process.platform === "win32" ? screen.screenToDipRect(null, { x, y, width: now.width, height: now.height }) : { x, y };
+    if (!petHome) petHome = { x: now.x, y: now.y };
+  }
+  await glidePet(to);
+  return petWindow ? { pet: true, bounds: petWindow.getBounds() } : { pet: false };
 });
 
 // Right-click on the pet: close Sarah completely (same as "Quit Sarah").

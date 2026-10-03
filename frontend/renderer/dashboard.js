@@ -1658,6 +1658,7 @@ class SarahUI {
       move_path: () => a.approval_id ? `📦 Moving ${short(a.source, 40)}` : `📦 Asking to move ${short(a.source, 40)}`,
       delete_path: () => a.approval_id ? `🗑️ Recycling ${short(a.path)}` : `🗑️ Asking to recycle ${short(a.path)}`,
       open_item: () => `🚀 Opening ${short(a.target)}`,
+      pet: () => (a.action === "back" ? "🐾 Coming back" : "🐾 Getting out of the way"),
       control_input: () => `🖱️ ${a.action}${a.text ? ` “${short(a.text, 30)}”` : ""}`,
       look: () => `👀 Looking: ${short(a.question)}`,
       remember: () => "🧠 Remembering that",

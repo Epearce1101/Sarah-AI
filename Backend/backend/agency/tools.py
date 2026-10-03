@@ -896,6 +896,40 @@ async def open_item(target: str):
     return f"Opened {target}" + (f" ({found})" if found != target else "")
 
 
+@tool("pet", "Desktop pet mode (you're a small window on top of Zero's screen). out_of_the_way: when Zero asks "
+      "you to get off the screen, move or get out of the way: you go into the gap beside the app they're using, "
+      "or to another monitor if it's fullscreen. back: return to where you were before you moved.",
+      {"action": {"type": "string", "enum": ["out_of_the_way", "back"]}}, ["action"], timeout=20)
+async def pet(action: str):
+    from . import desktop, pet as spots
+    from .senses import senses
+
+    where = await senses.request("pet_where", {}, timeout=5)
+    if not where or not where.get("pet"):
+        raise desktop.DesktopError("You're not in desktop pet mode right now (or the app isn't open), so there's "
+                                   "no pet window to move.")
+    if action == "back":
+        if not where.get("home"):
+            return "I hadn't moved out of the way, so I'm already where Zero put me."
+        moved = await senses.request("pet_move", {"back": True}, timeout=10)
+        reason = "I went back to where I was"
+    elif action == "out_of_the_way":
+        layout = await asyncio.to_thread(desktop.screen_layout)
+        b = where["physical"]
+        now = (b["x"], b["y"], b["x"] + b["width"], b["y"] + b["height"])
+        choice = spots.plan(now, (where["dip"]["width"], where["dip"]["height"]),
+                            layout["monitors"], layout["windows"], layout["active"])
+        if not choice["move"]:
+            return choice["reason"]
+        moved = await senses.request("pet_move", {"x": choice["spot"][0], "y": choice["spot"][1]}, timeout=10)
+        reason = choice["reason"]
+    else:
+        raise ValueError("action must be out_of_the_way or back")
+    if not moved or not moved.get("bounds"):
+        raise desktop.DesktopError("The app didn't confirm that my window moved.")
+    return f"{reason} (checked: my window moved to {moved['bounds']['x']}, {moved['bounds']['y']})."
+
+
 @tool("pause", "Wait a few seconds (e.g. to let Zero see something, or for an app to load).",
       {"seconds": {"type": "number", "description": "1-60"}}, ["seconds"], timeout=65)
 async def pause(seconds: float):

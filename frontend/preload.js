@@ -139,6 +139,8 @@ contextBridge.exposeInMainWorld("sarahApp", {
   petDrag: (phase, x, y) => ipcRenderer.send("pet-drag", { phase, x, y }),
   quit: () => ipcRenderer.invoke("quit-app"),
   petReady: () => ipcRenderer.send("pet-ready"),
+  petWhere: () => ipcRenderer.invoke("pet-where"),
+  petMove: (spot) => ipcRenderer.invoke("pet-move", spot),
 });
 
 contextBridge.exposeInMainWorld("electron", {

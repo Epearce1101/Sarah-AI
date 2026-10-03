@@ -37,6 +37,9 @@ does the same.
   talking to her or Resume lets her carry on). Names can be misheard, so a
   file, app or window that only nearly matches gets a "Did you mean...?"
   first.
+- **Pet mode** — tell her to get off the screen and she moves into the gap
+  beside the app you're using, or to another monitor if it's fullscreen;
+  "come back" returns her to where she was (`backend/agency/pet.py`).
 - **Web** — her own browser (Playwright Chromium in `Backend/models`, run
   `Backend\.venv\Scripts\python -m playwright install chromium` with
   `PLAYWRIGHT_BROWSERS_PATH=Backend\models\ms-playwright` on a fresh machine),
