@@ -4,6 +4,13 @@ Tracking file for current/previous issues. Tick a box when fixed; leave a short 
 
 ---
 
+## 2026-10-03 — Asking before deleting/moving, stopping when stuck (#130–#133)
+
+- [x] **#130 She deleted and moved files without asking** (requested) — `backend/agency/safety.py`: `delete_path`, `move_path` and `run_shell` commands that delete/move (Remove-Item, del, Move-Item, Rename-Item, ...) return an approval id instead of acting; she asks Zero, and the call only goes through with that id after Zero's next message reads as a clear yes ("no", "wait", "don't" cancel it; unclear replies are asked again). Recorded from Zero's own words in `api/chat.py`, so she can't approve herself. Her own workspace files are exempt. Inside her Python (`run_python`, her tools) the audit hook refuses deleting/moving anything outside her workspace, temp and caches.
+- [x] **#131 Loops when a tool kept failing** (requested) — 5 failed tool calls within 15 minutes (`SARAH_FAIL_LIMIT`, `SARAH_FAIL_WINDOW_MINUTES`) stop all her tools: the turn ends with a final round without tools, the mind loop waits (`ready()` → "stopped after repeated failures"), and nothing runs again until Zero says something or presses Resume.
+- [x] **#132 Stuck on an error box she couldn't close** (requested) — when she stops, a screenshot is saved to `sarah_workspace/snapshots/stopped-*.png`, open error-looking windows are named, and she's told not to retry or close them herself but to tell Zero why she stopped. If a private moment would otherwise end silent, she says "I stopped what I was doing because ..." with the screenshot path.
+- [x] **#133 Opening an unknown app popped up "Windows cannot find..."** — `open_item` / `app open` used `cmd /c start <name>` blindly. Now `desktop.find_app` looks first (path, PATH, App Paths, Start menu shortcuts, Store apps via Get-StartApps) and reports "couldn't find" without a pop-up. A hung UI Automation call no longer blocks every later `app` call: the thread is replaced after 75 s.
+
 ## 2026-09-28 — Memory of her days, usage meter, skills, web (#123–#129)
 
 - [x] **#123 She forgot each day** — `backend/memory/journal.py`: an experience log through the day (what she saw Zero doing, noticed, felt, did, sensed; repeats skipped), a first-person journal entry per finished day (one free request, catches up missed days), lasting facts into long-term memory (tag `journal`); her last two entries + "earlier today" in every prompt. `GET /api/journal`, `POST /api/journal/write?day=`.

@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from backend.api.schemas import ChatRequest, ChatResponse
 from backend import llm_models, state
+from backend.agency import safety
 from backend.config import settings
 from backend.diagnostics.telemetry import record_chat_error, record_chat_result
 from backend.embodiment import get_self
@@ -208,6 +209,8 @@ async def api_chat(payload: ChatRequest):
     me = get_self()
     me.note_modality(payload.conversation_id, payload.modality)
     me.chat_started()
+    if not payload.regenerate:
+        safety.note_user_message(payload.message)
     try:
         result = await sarah.handle_message(
             message=payload.message,
@@ -254,6 +257,8 @@ async def api_chat_stream(payload: ChatRequest):
         me = get_self()
         me.note_modality(payload.conversation_id, payload.modality)
         me.chat_started()
+        if not payload.regenerate:
+            safety.note_user_message(payload.message)  # her answer to "should I delete it?"
         try:
             async for event in sarah.handle_message_stream(
                 message=payload.message,

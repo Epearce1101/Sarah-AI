@@ -43,9 +43,25 @@ def _auto():
     return auto
 
 
+RUN_TIMEOUT = 75  # under the app tool's 90 s, so a hang is caught here
+
+
 def run(fn, *args, **kwargs):
-    """Run on the UI Automation thread (from any thread)."""
-    return _executor.submit(fn, *args, **kwargs).result(timeout=120)
+    """Run on the UI Automation thread (from any thread). If the call hangs
+    (an app stuck behind an error box, say), that thread is abandoned for a
+    fresh one, so later calls don't queue up behind it and fail too."""
+    global _executor, _initializer, _refs_window
+    future = _executor.submit(fn, *args, **kwargs)
+    try:
+        return future.result(timeout=RUN_TIMEOUT)
+    except concurrent.futures.TimeoutError:
+        stuck, _executor = _executor, concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="sarah-uia")
+        stuck.shutdown(wait=False, cancel_futures=True)
+        _initializer = None
+        _refs.clear()
+        _refs_window = None
+        raise desktop.DesktopError(f"The app didn't respond for {RUN_TIMEOUT} s (it may be stuck behind an error or "
+                                   "a dialog). Don't keep retrying: take a look, and tell Zero if it's stuck.")
 
 
 # ---------------------------------------------------------------------------
@@ -424,15 +440,10 @@ def _save_as(title: str, path: Path) -> Dict[str, Any]:
 
 
 def _open(target: str, wait: float = 15.0) -> Dict[str, Any]:
-    import subprocess
-
     before = desktop.windows()
     old = {x["hwnd"] for x in before}
     t = os.path.expanduser(target.strip().strip('"'))
-    if os.path.exists(t):
-        os.startfile(t)
-    else:
-        subprocess.Popen(["cmd", "/c", "start", "", t], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    desktop.launch(t)  # raises (no error box) if Windows can't find it
     key = Path(t).stem.lower()
     deadline = time.time() + wait
     while time.time() < deadline:

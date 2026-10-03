@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -101,7 +102,12 @@ def test_file_tools_and_recycle_bin(tmp_path):
     assert "hello" in run(tools.call("read_file", {"path": str(target)}))["result"]
     listing = run(tools.call("list_directory", {"path": str(tmp_path)}))
     assert "note.txt" in listing["result"]
-    out = run(tools.call("delete_path", {"path": str(target)}))
+    asked = run(tools.call("delete_path", {"path": str(target)}))
+    assert not asked["ok"] and "NOT DONE YET" in asked["result"] and target.exists()  # Zero's OK first
+    from backend.agency import safety
+    safety.note_user_message("yes")
+    approval = re.search(r'approval_id="(\w+)"', asked["result"]).group(1)
+    out = run(tools.call("delete_path", {"path": str(target), "approval_id": approval}))
     assert out["ok"] and "Recycle Bin" in out["result"] and not target.exists()
 
 

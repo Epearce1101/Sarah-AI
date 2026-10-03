@@ -291,6 +291,10 @@ class Settings:
     # Agency: tools in chat turns (web, code, files, apps, input, her own
     # tools), guarded by backend/agency/guard.py.
     agency_enabled: bool = field(default_factory=lambda: _bool("SARAH_AGENCY", True))
+    # This many failed tool calls within the window stops her tools until
+    # Zero says something (backend/agency/safety.py).
+    agency_fail_limit: int = field(default_factory=lambda: _int("SARAH_FAIL_LIMIT", 5))
+    agency_fail_window_minutes: int = field(default_factory=lambda: _int("SARAH_FAIL_WINDOW_MINUTES", 15))
     # Initiative: her mind loop between conversations (backend/agency/mind.py).
     autonomy_enabled: bool = field(default_factory=lambda: _bool("SARAH_AUTONOMY", True))
     autonomy_daily_cap: int = field(default_factory=lambda: _int("SARAH_AUTONOMY_DAILY_CAP", 150))

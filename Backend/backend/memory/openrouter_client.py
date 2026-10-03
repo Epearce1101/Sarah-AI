@@ -449,6 +449,15 @@ class OpenRouterClient:
             return None
 
     @staticmethod
+    def _halted_note() -> Optional[str]:
+        try:
+            from backend.agency import safety
+            halt = safety.tripped()
+        except Exception:
+            return None
+        return safety.stop_message(halt) if halt else None
+
+    @staticmethod
     def _out_of_steps_note(turn_started: float) -> str:
         try:
             from backend.agency import plans
@@ -612,7 +621,7 @@ class OpenRouterClient:
         while True:
             final_round = bool(tool_specs) and step >= budget
             if final_round:
-                messages.append({"role": "system", "content": self._out_of_steps_note(turn_started)})
+                messages.append({"role": "system", "content": self._halted_note() or self._out_of_steps_note(turn_started)})
             attempt_kwargs = kwargs
             while True:  # one round; retried once on a fallback model if the model stalls
                 queue: asyncio.Queue = asyncio.Queue()
@@ -748,6 +757,8 @@ class OpenRouterClient:
                     # Keep her on track: the next step, and check before moving on.
                     messages[-1]["content"] += (f"\n\n[{agency_plans.status_line(plan)} Check this result "
                                                 "before moving on, then update_plan.]")
+            if agency_tools.halted():
+                budget = step  # stopped after repeated failures: no more tools, say why
 
         usage = usage_total if usage_total["total_tokens"] else {
             "prompt_tokens": packet.estimated_tokens,

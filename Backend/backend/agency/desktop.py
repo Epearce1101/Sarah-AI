@@ -9,7 +9,10 @@ locked, typing/clicking can't reach apps, so she's told that plainly.
 from __future__ import annotations
 
 import ctypes
+import json
 import os
+import re
+import shutil
 import subprocess
 import time
 from ctypes import wintypes
@@ -223,3 +226,94 @@ def open_in_chrome(url: str) -> str:
         raise DesktopError("Google Chrome isn't installed.")
     subprocess.Popen([chrome, url], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return f"Opened {url} in Chrome"
+
+
+# ---------------------------------------------------------------------------
+# Finding an app before starting it
+# ---------------------------------------------------------------------------
+
+def _start_menu_shortcuts() -> List[Path]:
+    roots = [Path(os.environ.get("ProgramData", r"C:\ProgramData")), Path(os.environ.get("APPDATA", ""))]
+    found: List[Path] = []
+    for root in roots:
+        menu = root / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+        if menu.is_dir():
+            found += [p for p in menu.rglob("*.lnk") if "uninstall" not in p.stem.lower()]
+    return found
+
+
+def _store_apps() -> List[Dict[str, str]]:
+    """Start menu apps that aren't shortcuts (Store apps), as {Name, AppID}."""
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                              "Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress"],
+                             capture_output=True, text=True, timeout=15,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+        apps = json.loads(out) if out else []
+        return [apps] if isinstance(apps, dict) else list(apps)
+    except Exception:
+        return []
+
+
+def _best(items: List, name_of, key: str):
+    exact = [i for i in items if name_of(i).lower() == key]
+    if exact:
+        return exact[0]
+    partial = sorted((i for i in items if key in name_of(i).lower()), key=lambda i: len(name_of(i)))
+    return partial[0] if partial else None
+
+
+def find_app(name: str) -> Optional[str]:
+    """What to launch for a file, app name ("spotify", "notepad", "Steam") or
+    URI, or None if Windows wouldn't find it. Starting an unknown name with
+    `start` pops up a "Windows cannot find..." box that stays on screen, so
+    look first: an existing path, PATH, App Paths, Start menu shortcuts, then
+    Store apps."""
+    raw = (name or "").strip().strip('"')
+    if not raw:
+        return None
+    t = os.path.expandvars(os.path.expanduser(raw))
+    if os.path.exists(t):
+        return t
+    if re.match(r"^[a-z]:[\\/]", t, re.I) or "\\" in t or "/" in t:
+        if re.match(r"^[a-z][a-z0-9+.\-]+:", t, re.I) and not re.match(r"^[a-z]:", t, re.I):
+            return t  # a URI like steam://run/123: its handler opens it
+        return None   # a path that isn't there
+    if re.match(r"^[a-z][a-z0-9+.\-]+:", t, re.I):
+        return t      # ms-settings:, spotify:, mailto:...
+    for candidate in (t, t + ".exe"):
+        hit = shutil.which(candidate)
+        if hit:
+            return hit
+    exe = t if t.lower().endswith(".exe") else t + ".exe"
+    try:
+        import winreg
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(hive, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}") as k:
+                    value = (winreg.QueryValue(k, None) or "").strip('"')
+                    if value and Path(value).exists():
+                        return value
+            except OSError:
+                pass
+    except ImportError:
+        pass
+    key = t.lower().removesuffix(".exe")
+    shortcut = _best(_start_menu_shortcuts(), lambda p: p.stem, key)
+    if shortcut is not None:
+        return str(shortcut)
+    app = _best([a for a in _store_apps() if a.get("Name") and a.get("AppID")], lambda a: a["Name"], key)
+    if app is not None:
+        return "shell:AppsFolder\\" + app["AppID"]
+    return None
+
+
+def launch(target: str) -> str:
+    """Start a file, app or URI the way double-clicking it would. Raises
+    DesktopError (without any pop-up) when there's nothing by that name."""
+    found = find_app(target)
+    if not found:
+        raise DesktopError(f"I couldn't find an app or file called '{target}' on this PC, so I didn't try to start "
+                           "it (Windows would just show an error box). Ask Zero what it's called or where it is.")
+    os.startfile(found)
+    return found

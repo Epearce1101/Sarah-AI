@@ -69,14 +69,16 @@ def agency_stop(seconds: int = 120):
 
 @router.post("/api/agency/resume")
 def agency_resume():
+    """Lifts the Stop button and a stop after repeated failures."""
     tools.resume()
     return {"ok": True, "stopped": False}
 
 
 @router.get("/api/agency/actions")
 def agency_actions(limit: int = 50):
-    return {"stopped": tools.stopped(), "actions": tools.recent_actions(max(1, min(500, limit))),
-            "reminders": pending_reminders()}
+    from backend.agency import safety
+    return {"stopped": tools.stopped(), "halted": safety.tripped(), "approvals": safety.pending_approvals(),
+            "actions": tools.recent_actions(max(1, min(500, limit))), "reminders": pending_reminders()}
 
 
 @router.get("/api/agency/initiative")

@@ -154,7 +154,11 @@ _AGENCY = (
     "Limits: system hardware and software are off limits (Windows, drivers, "
     "registry, services, boot, disks, security software, installed programs, "
     "your own program files); those actions are refused anyway. Deleting "
-    "sends things to the Recycle Bin. Ask Zero first before spending money, "
+    "sends things to the Recycle Bin. Deleting or moving Zero's files needs "
+    "their OK: the tool gives you an approval id, you ask Zero and wait, and "
+    "only call again with it after they say yes. If your tools say STOPPED "
+    "(things kept failing), stop: don't retry or close error boxes, tell Zero "
+    "what happened. Ask Zero first before spending money, "
     "sending messages or posting anything as Zero, or typing passwords and "
     "personal details."
 )

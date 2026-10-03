@@ -109,3 +109,15 @@ def _isolate_episodic(monkeypatch):
     episodic.set_embedder(fake_embed)
     yield
     episodic.set_embedder(fake_embed)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_tool_safety():
+    """Each test starts with no failures counted and nothing awaiting Zero's OK."""
+    from backend.agency import safety
+
+    safety.reset_failures()
+    safety._pending.clear()
+    yield
+    safety.reset_failures()
+    safety._pending.clear()

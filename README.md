@@ -30,7 +30,11 @@ does the same.
   files, apps, mouse/keyboard, fresh looks, reminders) and builds new tools for
   herself (`Backend/data/sarah_workspace/tools`). System hardware/software is
   off limits (`backend/agency/guard.py`); deletes go to the Recycle Bin; every
-  action is logged; **■ Stop** pauses her tools.
+  action is logged; **■ Stop** pauses her tools. She asks before deleting or
+  moving your files (the action runs only after you say yes), and after 5
+  failed tool calls in 15 minutes she stops, saves a screenshot to
+  `sarah_workspace/snapshots` and tells you why (`backend/agency/safety.py`;
+  talking to her or Resume lets her carry on).
 - **Web** — her own browser (Playwright Chromium in `Backend/models`, run
   `Backend\.venv\Scripts\python -m playwright install chromium` with
   `PLAYWRIGHT_BROWSERS_PATH=Backend\models\ms-playwright` on a fresh machine),
@@ -49,7 +53,7 @@ does the same.
 
 Knobs (env): `SARAH_VISION_DAILY_CAP` (400), `SARAH_VISION_MIN_INTERVAL` (10 s),
 `SARAH_AUTONOMY` / `SARAH_AUTONOMY_DAILY_CAP` (150) / `SARAH_AUTONOMY_MIN_GAP`
-(120 s), `SARAH_AGENCY`, `SARAH_PRESENCE_VOICE`, `SARAH_WHISPER_MODEL`.
+(120 s), `SARAH_AGENCY`, `SARAH_FAIL_LIMIT` (5) / `SARAH_FAIL_WINDOW_MINUTES` (15), `SARAH_PRESENCE_VOICE`, `SARAH_WHISPER_MODEL`.
 Everything downloaded (Whisper models, her Python environment) stays under the
 project folder, not C:.
 

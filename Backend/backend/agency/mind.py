@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 from backend.config import settings
 from backend.identity import get_user_name
 
-from . import agenda
+from . import agenda, safety
 
 logger = logging.getLogger("sarah.mind")
 
@@ -188,6 +188,8 @@ class Mind:
         self._roll()
         if not self.enabled():
             return "quiet"
+        if safety.tripped():
+            return "stopped after repeated failures (waiting for Zero)"
         if self.thinking:
             return "already thinking"
         if me.chats_in_flight or now - me.last_chat_started < 20:
@@ -299,10 +301,16 @@ class Mind:
                             await senses.push({"type": "activity", **{k: v for k, v in event.items() if k != "type"}})
                     elif event["type"] == "done":
                         response = event["response"]
-                        if getattr(response, "finish_reason", "") == "error":
+                        if getattr(response, "finish_reason", "") != "error":
+                            content = response.content or ""
+                        elif not self._stopped_since(now):
                             record["outcome"] = "model error"
                             return record
-                        content = response.content or ""
+            halt = self._stopped_since(now)
+            if halt:
+                record["stopped"] = halt.get("reason")
+                if is_silent(agenda.strip_tags(content)):
+                    content = safety.notice(halt)  # she never goes quiet about stopping
             agenda.apply_tags(content)
             me.observe_reply(conv, content)
             if is_silent(agenda.strip_tags(content)):
@@ -333,6 +341,12 @@ class Mind:
             self.log = (self.log + [record])[-30:]
             logger.info("[MIND] %s -> %s", "; ".join(found)[:160], record["outcome"])
 
+    @staticmethod
+    def _stopped_since(started: float) -> Optional[Dict[str, Any]]:
+        """Her tools stopped (repeated failures) during this moment."""
+        halt = safety.tripped()
+        return halt if halt and halt["at"] >= started else None
+
     def _keep_for_later(self, content: str, record: Dict[str, Any], label: str) -> Dict[str, Any]:
         """What she did while Zero was away: remembered, told when they're back."""
         from backend.embodiment import strip_body_tags
@@ -362,6 +376,7 @@ class Mind:
                 "thinking": self.thinking, "recent": self.log[-10:], "agenda": agenda.open_items(),
                 "in_tray": self.in_tray_since is not None, "away_seconds": int(away) if away else None,
                 "own_time_used": self.own_time_used, "away_log": self.away_log[-10:],
+                "stopped": safety.tripped(),
                 "plans": [plans.snapshot(p) for p in plans.open_plans()]}
 
 
